@@ -4,6 +4,71 @@ open Unsigned
 open Signed
 
 open Low
+
+module Types : sig
+
+  type term_t = Low.Types.term_t
+  type type_t = Low.Types.type_t
+  type yval_tag_t
+
+  include module type of Yices_types
+
+  val term_t : term_t Ctypes_static.typ
+  val type_t : type_t Ctypes_static.typ
+  val context_t : context_t Ctypes_static.typ
+  val model_t : model_t Ctypes_static.typ
+  val ctx_config_t : ctx_config_t Ctypes_static.typ
+  val param_t : param_t Ctypes_static.typ
+  val term_vector_s :
+    < ctype : term_vector_t Ctypes_static.typ;
+      members : < capacity : (Unsigned.uint, term_vector_t)
+                             Ctypes_static.field;
+                  data : (term_t Ctypes_static.ptr, term_vector_t)
+                         Ctypes_static.field;
+                  size : (Unsigned.uint, term_vector_t) Ctypes_static.field > >
+  val term_vector_t : term_vector_t Ctypes_static.typ
+  val type_vector_s :
+    < ctype : type_vector_t Ctypes_static.typ;
+      members : < capacity : (Unsigned.uint, type_vector_t)
+                             Ctypes_static.field;
+                  data : (type_t Ctypes_static.ptr, type_vector_t)
+                         Ctypes_static.field;
+                  size : (Unsigned.uint, type_vector_t) Ctypes_static.field > >
+  val type_vector_t : type_vector_t Ctypes_static.typ
+  val yval_tag_t : yval_tag_t Ctypes_static.typ
+  val yval_s :
+    < ctype : yval_t Ctypes_static.typ;
+      members : < node_id : (Signed.sint, yval_t) Ctypes_static.field;
+                  node_tag : (yval_tag_t, yval_t) Ctypes_static.field > >
+  val yval_t : yval_t Ctypes_static.typ
+  val yval_vector_s :
+    < ctype : yval_vector_t Ctypes_static.typ;
+      members : < capacity : (Unsigned.uint, yval_vector_t)
+                             Ctypes_static.field;
+                  data : (yval_t Ctypes_static.ptr, yval_vector_t)
+                         Ctypes_static.field;
+                  size : (Unsigned.uint, yval_vector_t) Ctypes_static.field > >
+  val yval_vector_t : yval_vector_t Ctypes_static.typ
+  val error_report_s :
+    < ctype : error_report_t Ctypes_static.typ;
+      members : < badval : (Signed.long, error_report_t) Ctypes_static.field;
+                  code : (Unsigned.uint, error_report_t) Ctypes_static.field;
+                  column : (Unsigned.uint, error_report_t)
+                           Ctypes_static.field;
+                  line : (Unsigned.uint, error_report_t) Ctypes_static.field;
+                  term1 : (term_t, error_report_t) Ctypes_static.field;
+                  term2 : (term_t, error_report_t) Ctypes_static.field;
+                  type1 : (type_t, error_report_t) Ctypes_static.field;
+                  type2 : (type_t, error_report_t) Ctypes_static.field > >
+  val error_report_t : error_report_t Ctypes_static.typ
+  val null_term : term_t
+  val smt_status : smt_status Ctypes.typ
+  val term_constructor : term_constructor Ctypes.typ
+  val yval_tag : yval_tag Ctypes.typ
+  val yices_gen_mode : yices_gen_mode Ctypes.typ
+  val error_code : error_code Ctypes.typ
+end
+
 open Types
 
 module Global : sig
