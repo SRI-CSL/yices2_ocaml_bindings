@@ -3,123 +3,102 @@ open Ctypes_static
 open Unsigned
 open Signed
 
+(* Abbreviation for composition *)
+val ( <.> ) : ('a -> 'b) -> ('b -> 'c) -> 'a -> 'c
+
 module FILE : sig
   type t
 end
 
 module Types : sig
 
+  (* Opaque C types, only accessible through the API functions *)
   type term_t
   type type_t
+  val term_t : term_t Ctypes_static.typ
+  val type_t : type_t Ctypes_static.typ
+
+  val null_term : term_t
+
+  (* C's enums *)
   type smt_status_t
   type term_constructor_t
   type yval_tag_t
   type yices_gen_mode_t
   type error_code_t
 
+  val smt_status_t : smt_status_t Ctypes.typ
+  val term_constructor_t : term_constructor_t Ctypes.typ
+  val yval_tag_t : yval_tag_t Ctypes.typ
+  val yices_gen_mode_t : yices_gen_mode_t Ctypes.typ
+  val error_code_t : error_code_t Ctypes.typ
+
   include module type of Yices_types
 
-  val term_t : term_t typ
-  val type_t : type_t typ
-  val context_t : context_t typ
-  val model_t : model_t typ
-  val ctx_config_t : ctx_config_t typ
-  val param_t : param_t typ
-  val smt_status :
-    < ctype : smt_status_t typ;
-      of_int : int64 -> smt_status;
-      to_int : smt_status -> int64 >
-  val smt_status_t : smt_status_t typ
-  val term_vector_s :
-    < ctype : term_vector_t typ;
-      members : < capacity : (uint,
-                              term_vector_t)
-                      field;
-                  data : (term_t ptr,
-                          term_vector_t)
-                      field;
-                  size : (uint,
-                          term_vector_t)
-                      field > >
-  val term_vector_t : term_vector_t typ
-  val type_vector_s :
-    < ctype : type_vector_t typ;
-      members : < capacity : (uint,
-                              type_vector_t)
-                      field;
-                  data : (type_t ptr,
-                          type_vector_t)
-                      field;
-                  size : (uint,
-                          type_vector_t)
-                      field > >
-  val type_vector_t : type_vector_t typ
-  val term_constructor :
-    < ctype : term_constructor_t typ;
-      of_int : int64 -> term_constructor;
-      to_int : term_constructor -> int64 >
-  val term_constructor_t : term_constructor_t typ
-  val yval_tag :
-    < ctype : yval_tag_t typ;
-      of_int : int64 -> yval_tag;
-      to_int : yval_tag -> int64 >
-  val yval_tag_t : yval_tag_t typ
-  val yval_s :
-    < ctype : yval_t typ;
-      members : < node_id : (sint, yval_t) field;
-                  node_tag : (yval_tag_t, yval_t) field > >
-  val yval_t : yval_t typ
-  val yval_vector_s :
-    < ctype : yval_vector_t typ;
-      members : < capacity : (uint,
-                              yval_vector_t)
-                      field;
-                  data : (yval_t ptr,
-                          yval_vector_t)
-                      field;
-                  size : (uint,
-                          yval_vector_t)
-                      field > >
-  val yval_vector_t : yval_vector_t typ
-  val yices_gen_mode :
-    < ctype : yices_gen_mode_t typ;
-      of_int : int64 -> yices_gen_mode;
-      to_int : yices_gen_mode -> int64 >
-  val yices_gen_mode_t : yices_gen_mode_t typ
-  val error_code :
-    < ctype : error_code_t typ;
-      of_int : int64 -> error_code;
-      to_int : error_code -> int64 >
-  val error_code_t : error_code_t typ
-  val error_report_s :
-    < ctype : error_report_t typ;
-      members : < badval : (long,
-                            error_report_t)
-                      field;
-                  code : (uint,
-                          error_report_t)
-                      field;
-                  column : (uint,
-                            error_report_t)
-                      field;
-                  line : (uint,
-                          error_report_t)
-                      field;
-                  term1 : (term_t,
-                           error_report_t)
-                      field;
-                  term2 : (term_t,
-                           error_report_t)
-                      field;
-                  type1 : (type_t,
-                           error_report_t)
-                      field;
-                  type2 : (type_t,
-                           error_report_t)
-                      field > >
-  val error_report_t : error_report_t typ
+  (* OCaml's enums, as views of the C's enums;
+     types have been introduced in Yices_types *)
+  val smt_status : smt_status Ctypes.typ
+  val term_constructor : term_constructor Ctypes.typ
+  val yval_tag : yval_tag Ctypes.typ
+  val yices_gen_mode : yices_gen_mode Ctypes.typ
+  val error_code : error_code Ctypes.typ
 
-  val null_term : term_t
+  (* Opaque C structure types with no visible member,
+     only accessible through the API functions;
+     types have been introduced in Yices_types *)
+  val context_t    : context_t Ctypes_static.typ
+  val model_t      : model_t Ctypes_static.typ
+  val ctx_config_t : ctx_config_t Ctypes_static.typ
+  val param_t      : param_t Ctypes_static.typ
+
+  (* C structure types with some visible members;
+     types have been introduced in Yices_types *)
+
+  (* Term vectors and Type vectors *)
+  val term_vector_s :
+    < ctype : term_vector_t Ctypes_static.typ;
+      members : < capacity : (Unsigned.uint, term_vector_t)
+                             Ctypes_static.field;
+                  data : (term_t Ctypes_static.ptr, term_vector_t)
+                         Ctypes_static.field;
+                  size : (Unsigned.uint, term_vector_t) Ctypes_static.field > >
+  val term_vector_t : term_vector_t Ctypes_static.typ
+  val type_vector_s :
+    < ctype : type_vector_t Ctypes_static.typ;
+      members : < capacity : (Unsigned.uint, type_vector_t)
+                             Ctypes_static.field;
+                  data : (type_t Ctypes_static.ptr, type_vector_t)
+                         Ctypes_static.field;
+                  size : (Unsigned.uint, type_vector_t) Ctypes_static.field > >
+  val type_vector_t : type_vector_t Ctypes_static.typ
+
+  val yval_tag_t : yval_tag_t Ctypes_static.typ
+  val yval_s :
+    < ctype : yval_t Ctypes_static.typ;
+      members : < node_id : (Signed.sint, yval_t) Ctypes_static.field;
+                  node_tag : (yval_tag_t, yval_t) Ctypes_static.field > >
+  val yval_t : yval_t Ctypes_static.typ
+  val yval_vector_s :
+    < ctype : yval_vector_t Ctypes_static.typ;
+      members : < capacity : (Unsigned.uint, yval_vector_t)
+                             Ctypes_static.field;
+                  data : (yval_t Ctypes_static.ptr, yval_vector_t)
+                         Ctypes_static.field;
+                  size : (Unsigned.uint, yval_vector_t) Ctypes_static.field > >
+  val yval_vector_t : yval_vector_t Ctypes_static.typ
+  val error_report_s :
+    < ctype : error_report_t Ctypes_static.typ;
+      members : < badval : (Signed.long, error_report_t) Ctypes_static.field;
+                  code : (Unsigned.uint, error_report_t) Ctypes_static.field;
+                  column : (Unsigned.uint, error_report_t)
+                           Ctypes_static.field;
+                  line : (Unsigned.uint, error_report_t) Ctypes_static.field;
+                  term1 : (term_t, error_report_t) Ctypes_static.field;
+                  term2 : (term_t, error_report_t) Ctypes_static.field;
+                  type1 : (type_t, error_report_t) Ctypes_static.field;
+                  type2 : (type_t, error_report_t) Ctypes_static.field > >
+  val error_report_t : error_report_t Ctypes_static.typ
+
 end
 
 

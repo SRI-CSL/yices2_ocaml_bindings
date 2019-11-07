@@ -3,22 +3,6 @@ open Signed
 open Unsigned
 open Low
 
-(* Abbreviation for composition *)
-let (<.>) f g x = g(f x)
-
-module Types = struct
-  include Types
-  let make_view o = view
-      ~read:(coerce o#ctype int64_t <.> o#of_int)
-      ~write:(o#to_int <.> coerce int64_t o#ctype) o#ctype
-  (* Redefining enums type handlers *)
-  let smt_status       = make_view smt_status
-  let term_constructor = make_view term_constructor
-  let yval_tag         = make_view yval_tag
-  let yices_gen_mode   = make_view yices_gen_mode
-  let error_code       = make_view error_code
-end
-
 open Types
 open API
 
@@ -407,17 +391,17 @@ module Term = struct
 
   let term_child t        = SInt.of_int <.> yices_term_child t
   let bvsum_component t i =
-    let coeff_ptr = CArray.make sint 1 in
-    let term_ptr = CArray.make term_t 1 in
-    let _ = (SInt.of_int <.> yices_bvsum_component t) i (coeff_ptr |> CArray.start) (term_ptr |> CArray.start) in
-    let t = CArray.get term_ptr 0 in
+    let coeff_ptr = allocate_n sint 1 in
+    let term_ptr = allocate_n term_t 1 in
+    let _ = (SInt.of_int <.> yices_bvsum_component t) i coeff_ptr term_ptr in
+    let t = !@ term_ptr in
     let t = if t = null_term then None else Some t in
-    CArray.get coeff_ptr 0, t
+    !@ coeff_ptr, t
   let product_component t i =
-    let exp_ptr = CArray.make uint 1 in
-    let term_ptr = CArray.make term_t 1 in
-    let _ = (SInt.of_int <.> yices_product_component t) i (term_ptr |> CArray.start) (exp_ptr |> CArray.start) in
-    CArray.(get term_ptr 0, !<(get exp_ptr 0))
+    let exp_ptr = allocate_n uint 1 in
+    let term_ptr = allocate_n term_t 1 in
+    let _ = (SInt.of_int <.> yices_product_component t) i term_ptr exp_ptr in
+    !@ term_ptr, !< !@ exp_ptr
 
   let term_args f t =
     let rec aux accu i = if i < 0 then accu else aux ((f t i)::accu) (i-1) in
