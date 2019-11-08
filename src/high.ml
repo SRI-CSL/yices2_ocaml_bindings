@@ -93,7 +93,7 @@ module Global = struct
 end
 
 module Error = struct
-  let code = yices_error_code <.> coerce error_code_t error_code
+  let code = yices_error_code <.> error_code.read
   let report = yices_error_report
   let clear = yices_clear_error
   let print = yices_print_error
@@ -363,7 +363,7 @@ module Term = struct
     toList1 term_t (toList2 term_t term_t yices_subst_term_array l)
       
   let type_of_term = yices_type_of_term
-
+  
   let term_is_bool       = toBool1 yices_term_is_bool
   let term_is_int        = toBool1 yices_term_is_int
   let term_is_real       = toBool1 yices_term_is_real
@@ -372,9 +372,9 @@ module Term = struct
   let term_is_tuple      = toBool1 yices_term_is_tuple
   let term_is_function   = toBool1 yices_term_is_function
   let term_is_scalar     = toBool1 yices_term_is_scalar
-
+  
   let term_bitsize t = !<(yices_term_bitsize t)
-
+  
   let term_is_ground     = toBool1 yices_term_is_ground
   let term_is_atomic     = toBool1 yices_term_is_atomic
   let term_is_composite  = toBool1 yices_term_is_composite
@@ -382,13 +382,13 @@ module Term = struct
   let term_is_sum        = toBool1 yices_term_is_sum
   let term_is_bvsum      = toBool1 yices_term_is_bvsum
   let term_is_product    = toBool1 yices_term_is_product
-
+  
   let bool_const_value = yices_bool_const_value
   let bv_const_value = yices_bv_const_value
   let scalar_const_value = yices_scalar_const_value
-
+  
   let term_num_children = yices_term_num_children <.> SInt.to_int
-
+  
   let term_child t        = SInt.of_int <.> yices_term_child t
   let bvsum_component t i =
     let coeff_ptr = allocate_n sint 1 in
@@ -402,7 +402,7 @@ module Term = struct
     let term_ptr = allocate_n term_t 1 in
     let _ = (SInt.of_int <.> yices_product_component t) i term_ptr exp_ptr in
     !@ term_ptr, !< !@ exp_ptr
-
+  
   let term_args f t =
     let rec aux accu i = if i < 0 then accu else aux ((f t i)::accu) (i-1) in
     aux [] (term_num_children t)
@@ -410,12 +410,12 @@ module Term = struct
   let bvsum_components = term_args bvsum_component
   let product_components = term_args product_component
   let sum_components t = assert false (* need GMP *)
-
+  
   let proj_index = yices_proj_index <.> SInt.to_int
   let proj_arg = yices_proj_arg
-
-  let term_constructor = yices_term_constructor <.> coerce term_constructor_t term_constructor
-
+  
+  let term_constructor = yices_term_constructor <.> term_constructor.read
+  
   type a0 = private A0
   type a1 = private A1
   type a2 = private A2
@@ -476,9 +476,9 @@ module Term = struct
     | BV_Sum    : (sint * (term_t option)) list -> bvsum termstruct
     | Sum       : (sint * (term_t option)) list -> sum termstruct
     | Product   : (term_t * int) list -> prod termstruct
-
+  
   type t = Term : _ termstruct -> t [@@unboxed]
-
+  
   let get_last l =
     let rec aux accu = function
       | []   -> assert false
@@ -487,7 +487,7 @@ module Term = struct
     in
     let index, last = aux [] l in
     List.rev index, last
-
+  
   let reveal t = match term_constructor t with
     | `YICES_CONSTRUCTOR_ERROR -> assert false
     | `YICES_BOOL_CONSTANT
@@ -579,7 +579,7 @@ end
 
 let new_context = yices_new_context
 let free_context = yices_free_context
-let context_status = yices_context_status <.> coerce smt_status_t smt_status
+let context_status = yices_context_status <.> smt_status.read
 let reset_context = yices_reset_context
 let push = yices_push
 let pop = yices_pop
@@ -587,8 +587,8 @@ let context_enable_option c ~option = yices_context_enable_option c ?>option
 let context_disable_option c ~option = yices_context_disable_option c ?>option
 let assert_formula = yices_assert_formula
 let assert_formulas = yices_assert_formulas
-let check_context a b = yices_check_context a b |> coerce smt_status_t smt_status
-let check_context_with_assumptions a b c d = yices_check_context_with_assumptions a b c d |> coerce smt_status_t smt_status
+let check_context a b = yices_check_context a b |> smt_status.read
+let check_context_with_assumptions a b c d = yices_check_context_with_assumptions a b c d |> smt_status.read
 let assert_blocking_clause = yices_assert_blocking_clause
 let stop_search = yices_stop_search
 let new_param_record = yices_new_param_record
@@ -644,8 +644,8 @@ module Model = struct
   let term_array_value = yices_term_array_value
   let implicant_for_formula = yices_implicant_for_formula
   let implicant_for_formulas = yices_implicant_for_formulas
-  let generalize_model m t l gen = toList1 term_t (yices_generalize_model m t) l (coerce yices_gen_mode yices_gen_mode_t gen)
-  let generalize_model_array  m l1 l2 gen = toList1 term_t (toList1 term_t (yices_generalize_model_array m) l1) l2 (coerce yices_gen_mode yices_gen_mode_t gen)
+  let generalize_model m t l gen = toList1 term_t (yices_generalize_model m t) l (yices_gen_mode.write gen)
+  let generalize_model_array  m l1 l2 gen = toList1 term_t (toList1 term_t (yices_generalize_model_array m) l1) l2 (yices_gen_mode.write gen)
 
 end
 

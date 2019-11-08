@@ -33,11 +33,12 @@ module Types = struct
     val of_int64 : int64 -> t
   end
 
+  type ('a,'b) converter = { read  : 'a -> 'b;
+                             write : 'b -> 'a }
+      
   let make_view (type a) (module M : Conv64 with type t = a) o =
-    view
-      ~read:(M.to_int64 <.> o#of_int)
-      ~write:(o#to_int <.> M.of_int64)
-      o#ctype
+    { read  = M.to_int64 <.> o#of_int;
+      write = o#to_int <.> M.of_int64 }
 
   (* Redefining enums type handlers *)
   let smt_status       = make_view (module UInt) smt_status

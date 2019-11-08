@@ -35,13 +35,16 @@ module Types : sig
 
   include module type of Yices_types
 
+  type ('a,'b) converter = { read  : 'a -> 'b;
+                             write : 'b -> 'a }
+
   (* OCaml's enums, as views of the C's enums;
      types have been introduced in Yices_types *)
-  val smt_status : smt_status Ctypes.typ
-  val term_constructor : term_constructor Ctypes.typ
-  val yval_tag : yval_tag Ctypes.typ
-  val yices_gen_mode : yices_gen_mode Ctypes.typ
-  val error_code : error_code Ctypes.typ
+  val smt_status       : (smt_status_t, smt_status) converter
+  val term_constructor : (term_constructor_t, term_constructor) converter
+  val yval_tag         : (yval_tag_t, yval_tag) converter
+  val yices_gen_mode   : (yices_gen_mode_t, yices_gen_mode) converter
+  val error_code       : (error_code_t, error_code) converter
 
   (* Opaque C structure types with no visible member,
      only accessible through the API functions;
