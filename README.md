@@ -21,15 +21,19 @@ Make sure of this by setting environment variables, e.g.
 C_INCLUDE_PATH="/usr/lib/llvm-8/lib/clang/8.0.0/include/:$YICES_PATH/yices2/build/x86_64-pc-linux-gnu-release/dist/include/"
 ```
 
-#### Quick Installation
+#### Quick Installation (in findlib)
 
 With opam:
-In the source directory, do something like
+In the top-level directory, do something like
 ```opam pin add yices2_bindings .```
 
 With ocamlbuild directly:
-Follow what's indicated in the opam file, e.g.
+Follow the build and install sections of the opam file.
+
+### Quick Testing (once findlib has the yices2_bindings library)
+
+In the top-level directory, do:
 ```
-ocamlbuild -use-ocamlfind src/yices_runtime.native
+ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
 ```
 
