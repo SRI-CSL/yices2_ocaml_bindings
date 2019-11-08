@@ -1,0 +1,24 @@
+opam-version: "2.0"
+name: "yices2_bindings"
+synopsis: "Ocaml bindings for yices2"
+description: "Ocaml bindings for yices2"
+maintainer: "Stephane Graham-Lengrand <stephane.graham-lengrand@csl.sri.com>"
+authors: "Stephane Graham-Lengrand <stephane.graham-lengrand@csl.sri.com>"
+# license: "none yet"
+# homepage: "none yet"
+# bug-reports: "no way"
+depends: [
+  "ocaml" {>= "4.06" & < "4.09"}
+  "ocamlbuild"
+  "ocamlfind"
+  "ctypes"
+  "ctypes-foreign"
+  "ctypes-of-clang"
+]
+build: [
+  "ocamlbuild" "-use-ocamlfind" "src/yices_runtime.native"
+]
+install: [
+]
+remove: [
+]
