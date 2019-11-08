@@ -18,3 +18,7 @@ true: debug, optimize(3), unbox_closures
 <src/*> : package(ctypes),\
           package(ctypes.foreign),\
           cclib(-lyices)
+
+<src_tests/*> : package(ctypes),\
+                package(ctypes.foreign),\
+                package(yices2_bindings)

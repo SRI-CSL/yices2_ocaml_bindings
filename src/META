@@ -1,0 +1,7 @@
+version = "0.9"
+description = "Yices2 bindings library"
+
+requires        = "ocamlbuild ctypes ctypes.foreign ctypes-of-clang"
+archive(byte)   = "base.cma,low.cma,high.cma"
+archive(native) = "base.cmxa,low.cmxa,high.cmxa"
+exists_if       = "high.cmxa"
