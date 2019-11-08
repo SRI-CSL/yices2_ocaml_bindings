@@ -11,6 +11,8 @@ end
 
 module Types = struct
 
+  open Base.Types
+         
   (* Opaque C types, only accessible through the API functions *)
   type term_t = sint
   type type_t = sint
@@ -25,7 +27,7 @@ module Types = struct
   type error_code_t = uint
 
   include Yices_header
-  include Yices_types
+  include Base.Types
 
   module type Conv64 = sig
     type t
@@ -33,9 +35,6 @@ module Types = struct
     val of_int64 : int64 -> t
   end
 
-  type ('a,'b) converter = { read  : 'a -> 'b;
-                             write : 'b -> 'a }
-      
   let make_view (type a) (module M : Conv64 with type t = a) o =
     { read  = M.to_int64 <.> o#of_int;
       write = o#to_int <.> M.of_int64 }
@@ -49,5 +48,5 @@ module Types = struct
 
 end
 
-module API = Yices_header
+include Yices_header
 

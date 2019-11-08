@@ -3,7 +3,12 @@ open Ctypes_static
 open Unsigned
 open Signed
 
-open Low
+module FILE : sig
+  type t
+end
+
+module Types : Base.Types
+
 open Types
 
 module Global : sig

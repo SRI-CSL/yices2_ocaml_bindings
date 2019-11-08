@@ -1,10 +1,11 @@
 open Ctypes
 open Signed
 open Unsigned
-open Low
+open Low                 
 
+module FILE  = FILE
+module Types = Types
 open Types
-open API
 
 (* Mnemotechnic: ! represents OCaml's int *)
 let (!>)  = UInt.of_int

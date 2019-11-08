@@ -24,6 +24,14 @@ let () =
     | `STATUS_UNSAT -> print_endline "UNSAT"
     | _ -> print_endline "other"
   end;
+  print_endline "Adding assertion \"false\"";
+  let _ = assert_formula context (Term.yices_false()) in
+  begin
+    match check_context context param with
+    | `STATUS_SAT   -> print_endline "SAT"
+    | `STATUS_UNSAT -> print_endline "UNSAT"
+    | _ -> print_endline "other"
+  end;
   free_param_record param;
   free_context context;
   Config.free_config config;
