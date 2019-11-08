@@ -23,12 +23,12 @@ C_INCLUDE_PATH="/usr/lib/llvm-8/lib/clang/8.0.0/include/:$YICES_PATH/yices2/buil
 
 #### Quick Installation (in findlib)
 
-With opam:
+With opam (needs 2.0 or higher):
 In the top-level directory, do something like
 ```opam pin add yices2_bindings .```
 
 With ocamlbuild directly:
-Follow the build and install sections of the opam file.
+Follow the `build` and `install` sections of the opam file, and the `build.sh` script.
 
 ### Quick Testing (once findlib has the yices2_bindings library)
 

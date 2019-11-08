@@ -12,13 +12,13 @@ true: annot, bin_annot
 
 true: debug, optimize(3), unbox_closures
 
-<src/yices_header.{ml,mli}> : package(ctypes-of-clang.ppx)
-<src/yices_limits.{ml,mli}> : package(ctypes-of-clang.ppx)
+# <src/yices_header.{ml,mli}> : package(ctypes-of-clang.ppx)
+# <src/yices_limits.{ml,mli}> : package(ctypes-of-clang.ppx)
                     
 <src/*> : package(ctypes),\
-          package(ctypes.foreign),\
-          cclib(-lyices)
+          package(ctypes.foreign)
 
 <src_tests/*> : package(ctypes),\
                 package(ctypes.foreign),\
-                package(yices2_bindings)
+                package(yices2_bindings),\
+                cclib(-lyices)

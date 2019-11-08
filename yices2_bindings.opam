@@ -13,7 +13,7 @@ depends: [
   "ocamlfind"
   "ctypes"
   "ctypes-foreign"
-  "ctypes-of-clang"
+#  "ctypes-of-clang"
 ]
 build: [
   "ocamlbuild" "-use-ocamlfind"
