@@ -177,9 +177,9 @@ module Type : sig
   (* All constructors return NULL_TYPE (-1) if the type definition is wrong. *)
 
   (* Built-in types bool, int, real. *)
-  val bool_type : type_t
-  val int_type  : type_t
-  val real_type : type_t
+  val bool_type : unit -> type_t
+  val int_type  : unit -> type_t
+  val real_type : unit -> type_t
 
   (* Bitvectors of given size (number of bits)
    * Requires size > 0
@@ -296,8 +296,8 @@ module Term : sig
 
   (* Boolean constants: no error report *)
 
-  val yices_true : term_t
-  val yices_false : term_t
+  val yices_true  : unit -> term_t
+  val yices_false : unit -> term_t
 
   (* Constant of type tau and id = index
    * - tau must be a scalar type or an uninterpreted type
@@ -617,7 +617,7 @@ module Term : sig
      * an error and set the error report. *)
 
     (* Zero: no error *)
-    val zero : term_t
+    val zero : unit -> term_t
 
     (* Integer constants *)
     val int32 : sint -> term_t

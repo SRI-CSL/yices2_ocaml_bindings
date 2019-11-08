@@ -144,9 +144,9 @@ end
 
 module Type = struct
 
-  let bool_type = yices_bool_type()
-  let int_type = yices_int_type()
-  let real_type = yices_real_type()
+  let bool_type = yices_bool_type
+  let int_type = yices_int_type
+  let real_type = yices_real_type
   let bv_type = yices_bv_type
   let new_scalar_type ~card = yices_new_scalar_type card
   let new_uninterpreted_type = yices_new_uninterpreted_type
@@ -209,9 +209,9 @@ module Type = struct
     else assert false
 
   let build = function
-    | Bool -> bool_type
-    | Int -> int_type
-    | Real -> real_type
+    | Bool -> bool_type()
+    | Int  -> int_type()
+    | Real -> real_type()
     | BV n -> bv_type !>n
     | Scalar self -> self
     | Uninterpreted self -> self
@@ -222,8 +222,8 @@ end
 
 module Term = struct
 
-  let yices_true = yices_true()
-  let yices_false = yices_false()
+  let yices_true = yices_true
+  let yices_false = yices_false
   let constant t ~id = yices_constant t id
   let new_uninterpreted_term = yices_new_uninterpreted_term
   let new_variable = yices_new_variable
@@ -248,7 +248,7 @@ module Term = struct
   let lambda = toList1 term_t yices_lambda
 
   module Arith = struct
-    let zero = yices_zero()
+    let zero = yices_zero
     let int32 = yices_int32
     let int64 = yices_int64
     let rational32 = yices_rational32
