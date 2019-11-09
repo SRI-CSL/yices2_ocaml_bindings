@@ -451,18 +451,6 @@ module Term = struct
   
   let term_constructor = yices_term_constructor <.> term_constructor.read
   
-  type a0 = private A0
-  type a1 = private A1
-  type a2 = private A2
-  type a3 = private A3
-  type astar = private Astar
-  type bindings = private Bindings
-  type projection = private Projection
-  type app = private App
-  type update = private Update
-  type sum = private Sum
-  type bvsum = private BVSum
-  type prod = private Prod
   type 'a composite = private Composite
     
   type 'a termstruct =
@@ -472,13 +460,13 @@ module Term = struct
            | `YICES_SCALAR_CONSTANT
            | `YICES_VARIABLE
            | `YICES_UNINTERPRETED_TERM ]
-           * term_t -> a0 termstruct
+           * term_t                        -> [`a0] termstruct
     | A1 : [ `YICES_NOT_TERM
            | `YICES_ABS
            | `YICES_CEIL 
            | `YICES_FLOOR 
            | `YICES_ARITH_ROOT_ATOM 
-           | `YICES_IS_INT_ATOM ] * term_t -> a1 composite termstruct
+           | `YICES_IS_INT_ATOM ] * term_t -> [`a1] composite termstruct
     | A2 : [ `YICES_EQ_TERM 
            | `YICES_BV_ASHR 
            | `YICES_BV_DIV 
@@ -495,22 +483,22 @@ module Term = struct
            | `YICES_IDIV 
            | `YICES_IMOD 
            | `YICES_RDIV ]
-           * term_t * term_t -> a2 composite termstruct
-    | ITE : term_t * term_t * term_t -> a3 composite termstruct
+           * term_t * term_t         -> [`a2] composite termstruct
+    | ITE : term_t * term_t * term_t -> [`a3] composite termstruct
     | Astar : [ `YICES_TUPLE_TERM
               | `YICES_DISTINCT_TERM 
               | `YICES_OR_TERM 
               | `YICES_XOR_TERM
-              | `YICES_BV_ARRAY ] * term_t list -> astar composite termstruct
+              | `YICES_BV_ARRAY ] * term_t list -> [`astar] composite termstruct
     | Bindings : { c    : [ `YICES_FORALL_TERM | `YICES_LAMBDA_TERM ];
                    vars : term_t list;
-                   body : term_t } -> bindings composite termstruct
-    | App    : term_t * term_t list -> app termstruct
-    | Update : { array : term_t; index : term_t list; value : term_t} -> update composite termstruct
-    | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> projection termstruct
-    | BV_Sum    : (sint * (term_t option)) list -> bvsum termstruct
-    | Sum       : (sint * (term_t option)) list -> sum termstruct
-    | Product   : (term_t * int) list -> prod termstruct
+                   body : term_t }              -> [`bindings] composite termstruct
+    | App    : term_t * term_t list             -> [`app]      composite termstruct
+    | Update : { array : term_t; index : term_t list; value : term_t}      -> [`update] composite termstruct
+    | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
+    | BV_Sum    : (sint * (term_t option)) list -> [`bvsum] termstruct
+    | Sum       : (sint * (term_t option)) list -> [`sum]   termstruct
+    | Product   : (term_t * int) list           -> [`prod]  termstruct
   
   type t = Term : _ termstruct -> t [@@unboxed]
   
