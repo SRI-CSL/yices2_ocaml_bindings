@@ -333,10 +333,6 @@ module TMP =
       Foreign.foreign "tmpnam"
         (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
            (Ctypes.returning (Ctypes.ptr Ctypes.char)))
-    let tmpnam_r =
-      Foreign.foreign "tmpnam_r"
-        (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
-           (Ctypes.returning (Ctypes.ptr Ctypes.char)))
     let tempnam =
       Foreign.foreign "tempnam"
         (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
