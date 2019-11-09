@@ -7,8 +7,80 @@ module FILE : sig
   type t
 end
 
-module Types : Base.Types
+module type Names = sig
 
+  (************
+   *  NAMES   *
+   ***********)
+
+  (* It's possible to assign names to terms and types, and later
+   * retrieve the term or type from these names.
+   *
+   * For each term and type, Yices stores a base name that's
+   * used for pretty printing. By default, the base name is NULL.
+   * The base name is set on the first call to yices_set_term_name or
+   * yices_set_type_name.
+   *
+   * In addition, Yices stores two symbol tables that maps names to
+   * terms and types, respectively. The name spaces for types and terms
+   * are disjoint. The term or type that a name refers to can be changed,
+   * and Yices provides a scoping mechanism:
+   * - when function  yices_set_term_name(t, name) is called,
+   *   then the previous mapping for 'name' (if any) is hidden and now
+   *   'name' refers to term 't'.
+   * - if function yices_remove_term_name(name) is called, then the current
+   *   mapping for 'name' is removed and the previous mapping (if any)
+   *   is restored. *)
+
+  type t
+
+  (* The following functions attach a name to a type or a term
+   * - name  must be a '\0'-terminated string
+   * - if tau or t does not have a base name yet, then name is stored
+   *   as base name for tau or t.
+   * - if name referred to another term or another type, then this
+   *   previous mapping is hidden
+   *
+   * The functions return -1 and set the error report if the term or
+   * type is invalid. Otherwise they return 0.
+   *
+   * A copy of string name is made internally. *)
+  val set : t -> string -> sint
+
+  (* Remove the current mapping of name
+   * - no effect if name is not assigned to a term or type
+   * - if name is assigned to some term t or type tau, then this current
+   *   mapping is removed. If name was previously mapped to another term
+   *   or type, then the previous mapping is restored. *)
+  val remove : string -> unit
+
+  (* Get type or term of the given name
+   * - return NULL_TYPE or NULL_TERM if there's no type or term with that name *)
+  val of_name : string -> t
+
+  (* Remove the base name of a type tau or of a term t.
+   *
+   * The functions return -1 and set the error report if the
+   * type or term is invalid. Otherwise, they return 0.
+   *
+   * If tau or t doesn't have a base name, the functions do
+   * nothing and return 0.
+   *
+   * Otherwise, the mapping from the base_name to tau or t is removed
+   * from the symbol table for terms or types, and the base_name of
+   * tau or t is set to NULL (i.e., tau or t don't have a base name anymore). *)
+  val clear : t -> sint
+
+  (* Get the base name of a term or type
+   *
+   * The functions return NULL if the  term or type has no name,
+   * or if the term or type is not valid. The error report is set
+   * to INVALID_TERM or INVALID_TYPE in such cases. *)
+  val to_name : t -> string option
+
+end
+
+module Types : Base.Types
 open Types
 
 module Global : sig
@@ -156,22 +228,18 @@ end
  * yices_init_term_vector or yices_init_type_vector. To prevent
  * memory leaks, it must be deleted when no longer needed. *)
 
-
-module TypeVector : sig
-  val make : unit -> type_vector_t
-  val delete : type_vector_t -> unit
-  val reset : type_vector_t -> unit
-  val to_array : type_vector_t -> type_t CArray.t
-  val to_list : type_vector_t -> type_t list
+module type Vector = sig
+  type t
+  type e
+  val malloc   : unit -> t
+  val free     : t -> unit
+  val reset    : t -> unit
+  val to_array : t -> e CArray.t
+  val to_list  : (t ptr -> 'a) -> e list
 end
 
-module TermVector : sig
-  val make : unit -> term_vector_t
-  val delete : term_vector_t -> unit
-  val reset : term_vector_t -> unit
-  val to_array : term_vector_t -> term_t CArray.t
-  val to_list : term_vector_t -> term_t list
-end
+module TypeVector : Vector with type t := type_vector_t and type e := type_t
+module TermVector : Vector with type t := term_vector_t and type e := term_t
 
 module Type : sig
 
@@ -278,6 +346,18 @@ module Type : sig
    *   type1 = tau or sigma *)
   val compatible_types : type_t -> type_t -> bool
 
+  (* Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
+   * - convert an input string s to a type or term.
+   * - s must be terminated by '\0'
+   *
+   * The parsing function return NULL_TYPE or NULL_TERM if there's an
+   * error and set the error report. The line and column fields of the
+   * error report give information about the error location. *)
+
+  module Names : Names with type t = type_t
+
+  val parse : string -> type_t
+
 end
 
 
@@ -301,8 +381,8 @@ module Term : sig
 
   (* Boolean constants: no error report *)
 
-  val yices_true  : unit -> term_t
-  val yices_false : unit -> term_t
+  val ytrue  : unit -> term_t
+  val yfalse : unit -> term_t
 
   (* Constant of type tau and id = index
    * - tau must be a scalar type or an uninterpreted type
@@ -1402,7 +1482,7 @@ module Term : sig
     val bvsle_atom : term_t -> term_t -> term_t
     val bvslt_atom : term_t -> term_t -> term_t
   end
-  
+
   (*******************
    *  SUBSTITUTIONS  *
    ******************)
@@ -1830,99 +1910,19 @@ module Term : sig
    *    code = INVALID_TERM_OP *)
   val product_component : term_t -> int -> term_t * int
 
-end
+  module Names : Names with type t = term_t
 
-
-module Name : sig
-
-  (************
-   *  NAMES   *
-   ***********)
-
-  (* It's possible to assign names to terms and types, and later
-   * retrieve the term or type from these names.
+  (* Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
+   * - convert an input string s to a type or term.
+   * - s must be terminated by '\0'
    *
-   * For each term and type, Yices stores a base name that's
-   * used for pretty printing. By default, the base name is NULL.
-   * The base name is set on the first call to yices_set_term_name or
-   * yices_set_type_name.
-   *
-   * In addition, Yices stores two symbol tables that maps names to
-   * terms and types, respectively. The name spaces for types and terms
-   * are disjoint. The term or type that a name refers to can be changed,
-   * and Yices provides a scoping mechanism:
-   * - when function  yices_set_term_name(t, name) is called,
-   *   then the previous mapping for 'name' (if any) is hidden and now
-   *   'name' refers to term 't'.
-   * - if function yices_remove_term_name(name) is called, then the current
-   *   mapping for 'name' is removed and the previous mapping (if any)
-   *   is restored. *)
+   * The parsing function return NULL_TYPE or NULL_TERM if there's an
+   * error and set the error report. The line and column fields of the
+   * error report give information about the error location. *)
 
-  (* The following functions attach a name to a type or a term
-   * - name  must be a '\0'-terminated string
-   * - if tau or t does not have a base name yet, then name is stored
-   *   as base name for tau or t.
-   * - if name referred to another term or another type, then this
-   *   previous mapping is hidden
-   *
-   * The functions return -1 and set the error report if the term or
-   * type is invalid. Otherwise they return 0.
-   *
-   * A copy of string name is made internally. *)
-  val set_type_name : type_t -> string -> sint
-  val set_term_name : term_t -> string -> sint
-
-  (* Remove the current mapping of name
-   * - no effect if name is not assigned to a term or type
-   * - if name is assigned to some term t or type tau, then this current
-   *   mapping is removed. If name was previously mapped to another term
-   *   or type, then the previous mapping is restored. *)
-  val remove_type_name : string -> unit
-  val remove_term_name : string -> unit
-
-  (* Get type or term of the given name
-   * - return NULL_TYPE or NULL_TERM if there's no type or term with that name *)
-  val get_type_by_name : string -> type_t
-  val get_term_by_name : string -> term_t
-
-  (* Remove the base name of a type tau or of a term t.
-   *
-   * The functions return -1 and set the error report if the
-   * type or term is invalid. Otherwise, they return 0.
-   *
-   * If tau or t doesn't have a base name, the functions do
-   * nothing and return 0.
-   *
-   * Otherwise, the mapping from the base_name to tau or t is removed
-   * from the symbol table for terms or types, and the base_name of
-   * tau or t is set to NULL (i.e., tau or t don't have a base name anymore). *)
-  val clear_type_name : type_t -> sint
-  val clear_term_name : term_t -> sint
-
-  (* Get the base name of a term or type
-   *
-   * The functions return NULL if the  term or type has no name,
-   * or if the term or type is not valid. The error report is set
-   * to INVALID_TERM or INVALID_TYPE in such cases. *)
-  val get_type_name : type_t -> string option
-  val get_term_name : term_t -> string option
+  val parse : string -> term_t
 
 end
-
-(**************
- *  PARSING   *
- *************)
-
-(* Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
- * - convert an input string s to a type or term.
- * - s must be terminated by '\0'
- *
- * The parsing function return NULL_TYPE or NULL_TERM if there's an
- * error and set the error report. The line and column fields of the
- * error report give information about the error location. *)
-
-val parse_type : string -> type_t
-val parse_term : string -> term_t
 
 
 module GC : sig
@@ -2117,10 +2117,10 @@ module Config : sig
 
   (* Allocate a configuration descriptor:
    * - the descriptor is set to the default configuration *)
-  val new_config  : unit -> ctx_config_t ptr
+  val malloc : unit -> ctx_config_t ptr
 
   (* Deletion *)
-  val free_config : ctx_config_t ptr -> unit
+  val free   : ctx_config_t ptr -> unit
 
   (* Set a configuration parameter:
    * - name = the parameter name
@@ -2182,7 +2182,7 @@ module Config : sig
    * Error codes:
    *  CTX_UNKNOWN_PARAMETER if name is not a known parameter name
    *  CTX_INVALID_PARAMETER_VALUE if name is known but value does not match the parameter type *)
-  val set_config : ctx_config_t ptr -> name:string -> value:string -> sint
+  val set : ctx_config_t ptr -> name:string -> value:string -> sint
 
   (* Set config to a default solver type or solver combination for the given logic
    * - return -1 if there's an error
@@ -2259,340 +2259,8 @@ module Config : sig
    *
    *  CTX_UNKNOWN_LOGIC if logic is not a valid name
    *  CTX_LOGIC_NOT_SUPPORTED if logic is known but not supported *)
-  val default_config_for_logic : ctx_config_t ptr -> logic:string -> sint
+  val default : ctx_config_t ptr -> logic:string -> sint
 end
-
-(***************
- *  CONTEXTS   *
- **************)
-
-(* A context is a stack of assertions.
- *
- * The intended use is:
- * 1) create a context (empty)
- * 2) assert one or more formulas in the context.
- *    (it's allowed to call assert several times before check).
- * 3) check satisfiability
- * 4) if the context is satisfiable, optionally build a model
- * 5) reset the context or call push or pop, then go back to 2
- * 6) delete the context
- *
- *
- * A context can be in one of the following states:
- * 1) STATUS_IDLE: this is the initial state.
- *    In this state, it's possible to assert formulas.
- *    After assertions, the status may change to STATUS_UNSAT (if
- *    the assertions are trivially unsatisfiable). Otherwise
- *    the state remains STATUS_IDLE.
- *
- * 2) STATUS_SEARCHING: this is the context status during search.
- *    The context moves into that state after a call to 'check'
- *    and remains in that state until the solver completes
- *    or the search is interrupted.
- *
- * 3) STATUS_SAT/STATUS_UNSAT/STATUS_UNKNOWN: status returned after a search
- *    - STATUS_UNSAT means the assertions are not satisfiable.
- *    - STATUS_SAT means they are satisfiable.
- *    - STATUS_UNKNOWN means that the solver could not determine whether
- *      the assertions are satisfiable or not. This may happen if
- *      Yices is not complete for the specific logic used (e.g.,
- *      if the formula includes quantifiers).
- *
- * 4) STATUS_INTERRUPTED: if the context is in the STATUS_SEARCHING state,
- *    then it can be interrupted via a call to stop_search.
- *    The status STATUS_INTERRUPTED indicates that.
- *
- * For fine tuning: there are options that determine which internal
- * simplifications are applied when formulas are asserted, and
- * other options to control heuristics used by the solver. *)
-
-(* Create a new context:
- * - config is an optional argument that defines the context configuration
- * - the configuration specifies which components the context should
- *   include (e.g., egraph, bv_solver, simplex_solver, etc),
- *   and which features should be supported (e.g., whether push/pop are
- *   needed).
- *
- * If config is NULL, the default configuration is used:
- *   push/pop are enabled
- *   the solvers are: egraph + array solver + bv solver + simplex
- *   mixed real/integer linear arithmetic is supported
- *
- * Otherwise the context is configured as specified by config, provided
- * that configuration is valid.
- *
- * If there's an error (i.e., the configuration is not supported), the
- * function returns NULL and set an error code: CTX_INVALID_CONFIG. *)
-val new_context    : ctx_config_t ptr -> context_t ptr
-
-(* Deletion *)
-val free_context   : context_t ptr -> unit
-
-(* Get status: return the context's status flag
- * - return one of the codes defined in yices_types.h,
- *   namely one of the constants
- *
- *    STATUS_IDLE
- *    STATUS_SEARCHING
- *    STATUS_UNKNOWN
- *    STATUS_SAT
- *    STATUS_UNSAT
- *    STATUS_INTERRUPTED
- * *)
-val context_status : context_t ptr -> smt_status
-
-(* Reset: remove all assertions and restore ctx's
- * status to STATUS_IDLE. *)
-val reset_context  : context_t ptr -> unit
-
-(* Push: mark a backtrack point
- * - return 0 if this operation is supported by the context
- *         -1 otherwise
- *
- * Error report:
- * - if the context is not configured to support push/pop
- *   code = CTX_OPERATION_NOT_SUPPORTED
- * - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
- *   code = CTX_INVALID_OPERATION *)
-val push           : context_t ptr -> sint
-
-(* Pop: backtrack to the previous backtrack point (i.e., the matching
- * call to yices_push).
- * - return 0 if the operation succeeds, -1 otherwise.
- *
- * Error report:
- * - if the context is not configured to support push/pop
- *   code = CTX_OPERATION_NOT_SUPPORTED
- * - if there's no matching push (i.e., the context stack is empty)
- *   or if the context's status is STATUS_SEARCHING
- *   code = CTX_INVALID_OPERATION *)
-val pop            : context_t ptr -> sint
-
-(* Several options determine how much simplification is performed
- * when formulas are asserted. It's best to leave them untouched
- * unless you really know what you're doing.
- *
- * The following functions selectively enable/disable a preprocessing
- * option. The current options include:
- *
- *   var-elim: whether to eliminate variables by substitution
- *
- *   arith-elim: more variable elimination for arithmetic (Gaussian elimination)
- *
- *   bvarith-elim: more variable elimination for bitvector arithmetic
- *
- *   eager-arith-lemmas: if enabled and the simplex solver is used, the simplex
- *   solver will eagerly generate lemmas such as (x >= 1) => (x >= 0) (i.e.,
- *   the lemmas that involve two inequalities on the same variable x).
- *
- *   flatten: whether to flatten nested (or ...)
- *   if this is enabled the term (or (or a b) (or c d) ) is
- *   flattened to (or a b c d)
- *
- *   learn-eq: enable/disable heuristics to learn implied equalities
- *
- *   keep-ite: whether to eliminate term if-then-else or keep them as terms
- *   - this requires the context to include the egraph
- *
- *   break-symmetries: attempt to detect symmetries and add constraints
- *   to remove them (this can be used only if the context is created for QF_UF)
- *
- *   assert-ite-bounds: try to determine upper and lower bound on if-then-else
- *   terms and assert these bounds. For example, if term t is defined as
- *   (ite c 10 (ite d 3 20)), then the context with include the assertion
- *   3 <= t <= 20.
- *
- * The parameter must be given as a string. For example, to disable var-elim,
- * call  yices_context_disable_option(ctx, "var-elim")
- *
- * The two functions return -1 if there's an error, 0 otherwise.
- *
- * Error codes:
- *  CTX_UNKNOWN_PARAMETER if the option name is not one of the above. *)
-val context_enable_option : context_t ptr -> option:string -> sint
-val context_disable_option : context_t ptr -> option:string -> sint
-
-(* Assert formula t in ctx
- * - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
- * - t must be a boolean term
- *
- * If ctx's status is STATUS_UNSAT, nothing is done.
- *
- * If ctx's status is STATUS_IDLE, STATUS_SAT, or STATUS_UNKNOWN, then
- * the formula is simplified and  asserted in the context. The context
- * status is changed  to STATUS_UNSAT if the formula  is simplified to
- * 'false' or to STATUS_IDLE otherwise.
- *
- * This returns 0 if there's no error or -1 if there's an error.
- *
- * Error report:
- * if t is invalid
- *   code = INVALID_TERM
- *   term1 = t
- * if t is not boolean
- *   code = TYPE_MISMATCH
- *   term1 = t
- *   type1 = bool (expected type)
- * if ctx's status is not STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
- *   code = CTX_INVALID_OPERATION
- * if ctx's status is neither STATUS_IDLE nor STATUS_UNSAT, and the context is
- * not configured for multiple checks
- *   code = CTX_OPERATION_NOT_SUPPORTED
- *
- * Other error codes are defined in yices_types.h to report that t is
- * outside the logic supported by ctx. *)
-val assert_formula : context_t ptr -> term_t -> sint
-
-(* Assert an array of n formulas t[0 ... n-1]
- * - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
- * - all t[i]'s must be valid boolean terms.
- *
- * The function returns -1 on error, 0 otherwise.
- *
- * The error report is set as in the previous function. *)
-val assert_formulas : context_t ptr -> uint -> term_t ptr -> sint
-
-(* Check satisfiability: check whether the assertions stored in ctx
- * are satisfiable.
- * - params is an optional structure that stores heuristic parameters.
- * - if params is NULL, default parameter settings are used.
- *
- * It's better to keep params=NULL unless you encounter performance
- * problems.  Then you may want to play with the heuristics to see if
- * performance improves.
- *
- * The behavior and returned value depend on ctx's current status.
- *
- * 1) If ctx's status is STATUS_SAT, STATUS_UNSAT, or STATUS_UNKNOWN, the function
- *    does nothing and just returns the status.
- *
- * 2) If ctx's status is STATUS_IDLE, then the solver searches for a
- *    satisfying assignment. If param != NULL, the search parameters
- *    defined by params are used.
- *
- *    The function returns one of the following codes:
- *    - STATUS_SAT: the context is satisfiable
- *    - STATUS_UNSAT: the context is not satisfiable
- *    - STATUS_UNKNOWN: satisfiability can't be proved or disproved
- *    - STATUS_INTERRUPTED: the search was interrupted
- *
- *    The returned status is also stored as the new ctx's status flag,
- *    with the following exception. If the context was built with
- *    mode = INTERACTIVE and the search was interrupted, then the
- *    function returns STATUS_INTERRUPTED but the ctx's state is restored to
- *    what it was before the call to 'yices_check_context' and the
- *    status flag is reset to STATUS_IDLE.
- *
- * 3) Otherwise, the function does nothing and returns 'STATUS_ERROR',
- *    it also sets the yices error report (code = CTX_INVALID_OPERATION). *)
-val check_context : context_t ptr -> param_t ptr -> smt_status
-
-(* Check satisfiability under assumptions: check whether the
- * assertions stored in ctx conjoined with n assumptions is
- * satisfiable.
- * - params is an optional structure to store heuristic parameters
- * - if params is NULL, default parameter settings are used.
- * - n = number of assumptions
- * - t = array of n assumptions
- * - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
- *
- * It behaves the same as the previous function.
- *
- * If this function returns STATUS_UNSAT, then one can construct an unsat core by
- * calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
- * that's inconsistent with ctx. *)
-val check_context_with_assumptions : context_t ptr -> param_t ptr -> uint -> term_t ptr -> smt_status
-
-(* Add a blocking clause: this is intended to help enumerate different models
- * for a set of assertions.
- * - if ctx's status is STATUS_SAT or STATUS_UNKNOWN, then a new clause is added to ctx
- *   to remove the current truth assignment from the search space. After this
- *   clause is added, the next call to yices_check_context will either produce
- *   a different truth assignment (hence a different model) or return STATUS_UNSAT.
- *
- * - ctx's status flag is updated to STATUS_IDLE (if the new clause is not empty) or
- *   to STATUS_UNSAT (if the new clause is the empty clause).
- *
- * Return code: 0 if there's no error, -1 if there's an error.
- *
- * Error report:
- * if ctx's status is different from STATUS_SAT or STATUS_UNKNOWN
- *    code = CTX_INVALID_OPERATION
- * if ctx is not configured to support multiple checks
- *    code = CTX_OPERATION_NOT_SUPPORTED *)
-val assert_blocking_clause : context_t ptr -> sint
-
-(* Interrupt the search:
- * - this can be called from a signal handler to stop the search,
- *   after a call to yices_check_context to interrupt the solver.
- *
- * If ctx's status is STATUS_SEARCHING, then the current search is
- * interrupted. Otherwise, the function does nothing. *)
-val stop_search : context_t ptr -> unit
-
-(* SEARCH PARAMETERS *)
-
-(* A parameter record is an opaque object that stores various
- * search parameters and options that control the heuristics used by
- * the solver.
- *
- * A parameter structure is created by calling
- * - yices_new_param_record(void)
- * This returns a parameter structure initialized with default
- * settings.
- *
- * Then individual parameters can be set using function
- * - yices_set_param(s, name, value) where both name and value are
- *   character strings.
- * - an unknown/unsupported parameter name is ignored
- *
- * Then the param object can be passed on as argument to yices_check_context.
- *
- * When it's no longer needed, the object must be deleted by
- * calling yices_free_param_structure(param). *)
-
-(* Return a parameter record initialized with default settings. *)
-val new_param_record : unit -> param_t ptr
-
-(* Set default search parameters for ctx. *)
-val default_params_for_context : context_t ptr -> param_t ptr -> unit
-
-(* Set a parameter in record p
- * - pname = parameter name
- * - value = setting
- *
- * The parameters are explained in doc/YICES-LANGUAGE
- * (and at http://yices.csl.sri.com/doc/parameters.html)
- *
- * Return -1 if there's an error, 0 otherwise.
- *
- * Error codes:
- * - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
- * - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter *)
-val set_param : param_t ptr -> name:string -> value:string -> sint
-
-(* Delete the record param *)
-val free_param_record : param_t ptr -> unit
-
-(****************
- *  UNSAT CORE  *
- ***************)
-
-(* Construct an unsat core and store the result in vector *v.
- * - v must be an initialized term_vector
- *
- * If ctx status is unsat, this function stores an unsat core in v,
- * and returns 0. Otherwise, it sets an error core an returns -1.
- *
- * This is intended to be used after a call to
- * yices_check_context_with_assumptions that returned STATUS_UNSAT. In
- * this case, the function builds an unsat core, which is a subset of
- * the assumptions. If there were no assumptions or if the context is UNSAT
- * for another reason, an empty core is returned (i.e., v->size is set to 0).
- *
- * Error code:
- * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT. *)
-val get_unsat_core : context_t ptr -> term_vector_t ptr -> sint
 
 module Model : sig
 
@@ -2631,10 +2299,9 @@ module Model : sig
    * are some of the large SMT_LIB benchmarks where millions of variables
    * are eliminated.  In such cases, it saves memory to set 'keep_subst'
    * false, and model construction is faster too. *)
-  val get_model : context_t ptr -> sint -> model_t ptr
 
   (* Delete model mdl *)
-  val free_model : model_t ptr -> unit
+  val free : model_t ptr -> unit
 
   (* Build a model from a term-to-term mapping:
    * - the mapping is defined by two arrays var[] and map[]
@@ -2655,7 +2322,7 @@ module Model : sig
    * - code = MDL_DUPLICATE_VAR if var contains duplicate elements
    * - code = MDL_FTYPE_NOT_ALLOWED if one of var[i] has a function type
    * - code = MDL_CONSTRUCTION_FAILED: something else went wrong *)
-  val model_from_map : uint -> term_t ptr -> term_t ptr -> model_t ptr
+  val from_map : (term_t * term_t) list -> model_t ptr
 
   (* Collect all the uninterpreted terms that have a value in model mdl.
    * - these terms are returned in vector v
@@ -2676,7 +2343,7 @@ module Model : sig
    *
    * then variable 'x' does not occur in the simplified assertions and will
    * not be included in vector 'v'. *)
-  val model_collect_defined_terms : model_t ptr -> term_vector_t ptr -> unit
+  val collect_defined_terms : model_t ptr -> term_t list
 
 
   (***********************
@@ -3176,10 +2843,352 @@ module Model : sig
    * Returned code:
    *   0 means success
    *  -1 means that the generalization failed. *)
-  val generalize_model : model_t ptr -> term_t -> term_t list -> yices_gen_mode -> term_vector_t ptr -> sint
+  val generalize_model : model_t ptr -> term_t -> term_t list -> yices_gen_mode -> term_t list
 
   (* Compute a generalization of mdl for the conjunct (a[0] /\ ... /\ a[n-1]) *)
-  val generalize_model_array : model_t ptr -> term_t list -> term_t list -> yices_gen_mode -> term_vector_t ptr -> sint
+  val generalize_model_array : model_t ptr -> term_t list -> term_t list -> yices_gen_mode -> term_t list
+
+end
+
+module Context : sig
+
+  (***************
+   *  CONTEXTS   *
+   **************)
+
+  (* A context is a stack of assertions.
+   *
+   * The intended use is:
+   * 1) create a context (empty)
+   * 2) assert one or more formulas in the context.
+   *    (it's allowed to call assert several times before check).
+   * 3) check satisfiability
+   * 4) if the context is satisfiable, optionally build a model
+   * 5) reset the context or call push or pop, then go back to 2
+   * 6) delete the context
+   *
+   *
+   * A context can be in one of the following states:
+   * 1) STATUS_IDLE: this is the initial state.
+   *    In this state, it's possible to assert formulas.
+   *    After assertions, the status may change to STATUS_UNSAT (if
+   *    the assertions are trivially unsatisfiable). Otherwise
+   *    the state remains STATUS_IDLE.
+   *
+   * 2) STATUS_SEARCHING: this is the context status during search.
+   *    The context moves into that state after a call to 'check'
+   *    and remains in that state until the solver completes
+   *    or the search is interrupted.
+   *
+   * 3) STATUS_SAT/STATUS_UNSAT/STATUS_UNKNOWN: status returned after a search
+   *    - STATUS_UNSAT means the assertions are not satisfiable.
+   *    - STATUS_SAT means they are satisfiable.
+   *    - STATUS_UNKNOWN means that the solver could not determine whether
+   *      the assertions are satisfiable or not. This may happen if
+   *      Yices is not complete for the specific logic used (e.g.,
+   *      if the formula includes quantifiers).
+   *
+   * 4) STATUS_INTERRUPTED: if the context is in the STATUS_SEARCHING state,
+   *    then it can be interrupted via a call to stop_search.
+   *    The status STATUS_INTERRUPTED indicates that.
+   *
+   * For fine tuning: there are options that determine which internal
+   * simplifications are applied when formulas are asserted, and
+   * other options to control heuristics used by the solver. *)
+
+  (* Create a new context:
+   * - config is an optional argument that defines the context configuration
+   * - the configuration specifies which components the context should
+   *   include (e.g., egraph, bv_solver, simplex_solver, etc),
+   *   and which features should be supported (e.g., whether push/pop are
+   *   needed).
+   *
+   * If config is NULL, the default configuration is used:
+   *   push/pop are enabled
+   *   the solvers are: egraph + array solver + bv solver + simplex
+   *   mixed real/integer linear arithmetic is supported
+   *
+   * Otherwise the context is configured as specified by config, provided
+   * that configuration is valid.
+   *
+   * If there's an error (i.e., the configuration is not supported), the
+   * function returns NULL and set an error code: CTX_INVALID_CONFIG. *)
+  val malloc : ctx_config_t ptr -> context_t ptr
+
+  (* Deletion *)
+  val free : context_t ptr -> unit
+
+  (* Get status: return the context's status flag
+   * - return one of the codes defined in yices_types.h,
+   *   namely one of the constants
+   *
+   *    STATUS_IDLE
+   *    STATUS_SEARCHING
+   *    STATUS_UNKNOWN
+   *    STATUS_SAT
+   *    STATUS_UNSAT
+   *    STATUS_INTERRUPTED
+   * *)
+  val status : context_t ptr -> smt_status
+
+  (* Reset: remove all assertions and restore ctx's
+   * status to STATUS_IDLE. *)
+  val reset : context_t ptr -> unit
+
+  (* Push: mark a backtrack point
+   * - return 0 if this operation is supported by the context
+   *         -1 otherwise
+   *
+   * Error report:
+   * - if the context is not configured to support push/pop
+   *   code = CTX_OPERATION_NOT_SUPPORTED
+   * - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
+   *   code = CTX_INVALID_OPERATION *)
+  val push           : context_t ptr -> sint
+
+  (* Pop: backtrack to the previous backtrack point (i.e., the matching
+   * call to yices_push).
+   * - return 0 if the operation succeeds, -1 otherwise.
+   *
+   * Error report:
+   * - if the context is not configured to support push/pop
+   *   code = CTX_OPERATION_NOT_SUPPORTED
+   * - if there's no matching push (i.e., the context stack is empty)
+   *   or if the context's status is STATUS_SEARCHING
+   *   code = CTX_INVALID_OPERATION *)
+  val pop            : context_t ptr -> sint
+
+  (* Several options determine how much simplification is performed
+   * when formulas are asserted. It's best to leave them untouched
+   * unless you really know what you're doing.
+   *
+   * The following functions selectively enable/disable a preprocessing
+   * option. The current options include:
+   *
+   *   var-elim: whether to eliminate variables by substitution
+   *
+   *   arith-elim: more variable elimination for arithmetic (Gaussian elimination)
+   *
+   *   bvarith-elim: more variable elimination for bitvector arithmetic
+   *
+   *   eager-arith-lemmas: if enabled and the simplex solver is used, the simplex
+   *   solver will eagerly generate lemmas such as (x >= 1) => (x >= 0) (i.e.,
+   *   the lemmas that involve two inequalities on the same variable x).
+   *
+   *   flatten: whether to flatten nested (or ...)
+   *   if this is enabled the term (or (or a b) (or c d) ) is
+   *   flattened to (or a b c d)
+   *
+   *   learn-eq: enable/disable heuristics to learn implied equalities
+   *
+   *   keep-ite: whether to eliminate term if-then-else or keep them as terms
+   *   - this requires the context to include the egraph
+   *
+   *   break-symmetries: attempt to detect symmetries and add constraints
+   *   to remove them (this can be used only if the context is created for QF_UF)
+   *
+   *   assert-ite-bounds: try to determine upper and lower bound on if-then-else
+   *   terms and assert these bounds. For example, if term t is defined as
+   *   (ite c 10 (ite d 3 20)), then the context with include the assertion
+   *   3 <= t <= 20.
+   *
+   * The parameter must be given as a string. For example, to disable var-elim,
+   * call  yices_context_disable_option(ctx, "var-elim")
+   *
+   * The two functions return -1 if there's an error, 0 otherwise.
+   *
+   * Error codes:
+   *  CTX_UNKNOWN_PARAMETER if the option name is not one of the above. *)
+  val enable_option  : context_t ptr -> option:string -> sint
+  val disable_option : context_t ptr -> option:string -> sint
+
+  (* Assert formula t in ctx
+   * - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+   * - t must be a boolean term
+   *
+   * If ctx's status is STATUS_UNSAT, nothing is done.
+   *
+   * If ctx's status is STATUS_IDLE, STATUS_SAT, or STATUS_UNKNOWN, then
+   * the formula is simplified and  asserted in the context. The context
+   * status is changed  to STATUS_UNSAT if the formula  is simplified to
+   * 'false' or to STATUS_IDLE otherwise.
+   *
+   * This returns 0 if there's no error or -1 if there's an error.
+   *
+   * Error report:
+   * if t is invalid
+   *   code = INVALID_TERM
+   *   term1 = t
+   * if t is not boolean
+   *   code = TYPE_MISMATCH
+   *   term1 = t
+   *   type1 = bool (expected type)
+   * if ctx's status is not STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+   *   code = CTX_INVALID_OPERATION
+   * if ctx's status is neither STATUS_IDLE nor STATUS_UNSAT, and the context is
+   * not configured for multiple checks
+   *   code = CTX_OPERATION_NOT_SUPPORTED
+   *
+   * Other error codes are defined in yices_types.h to report that t is
+   * outside the logic supported by ctx. *)
+  val assert_formula : context_t ptr -> term_t -> sint
+
+  (* Assert an array of n formulas t[0 ... n-1]
+   * - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+   * - all t[i]'s must be valid boolean terms.
+   *
+   * The function returns -1 on error, 0 otherwise.
+   *
+   * The error report is set as in the previous function. *)
+  val assert_formulas : context_t ptr -> uint -> term_t ptr -> sint
+
+  (* Add a blocking clause: this is intended to help enumerate different models
+   * for a set of assertions.
+   * - if ctx's status is STATUS_SAT or STATUS_UNKNOWN, then a new clause is added to ctx
+   *   to remove the current truth assignment from the search space. After this
+   *   clause is added, the next call to yices_check_context will either produce
+   *   a different truth assignment (hence a different model) or return STATUS_UNSAT.
+   *
+   * - ctx's status flag is updated to STATUS_IDLE (if the new clause is not empty) or
+   *   to STATUS_UNSAT (if the new clause is the empty clause).
+   *
+   * Return code: 0 if there's no error, -1 if there's an error.
+   *
+   * Error report:
+   * if ctx's status is different from STATUS_SAT or STATUS_UNKNOWN
+   *    code = CTX_INVALID_OPERATION
+   * if ctx is not configured to support multiple checks
+   *    code = CTX_OPERATION_NOT_SUPPORTED *)
+  val assert_blocking_clause : context_t ptr -> sint
+
+  (* Check satisfiability: check whether the assertions stored in ctx
+   * are satisfiable.
+   * - params is an optional structure that stores heuristic parameters.
+   * - if params is NULL, default parameter settings are used.
+   *
+   * It's better to keep params=NULL unless you encounter performance
+   * problems.  Then you may want to play with the heuristics to see if
+   * performance improves.
+   *
+   * The behavior and returned value depend on ctx's current status.
+   *
+   * 1) If ctx's status is STATUS_SAT, STATUS_UNSAT, or STATUS_UNKNOWN, the function
+   *    does nothing and just returns the status.
+   *
+   * 2) If ctx's status is STATUS_IDLE, then the solver searches for a
+   *    satisfying assignment. If param != NULL, the search parameters
+   *    defined by params are used.
+   *
+   *    The function returns one of the following codes:
+   *    - STATUS_SAT: the context is satisfiable
+   *    - STATUS_UNSAT: the context is not satisfiable
+   *    - STATUS_UNKNOWN: satisfiability can't be proved or disproved
+   *    - STATUS_INTERRUPTED: the search was interrupted
+   *
+   *    The returned status is also stored as the new ctx's status flag,
+   *    with the following exception. If the context was built with
+   *    mode = INTERACTIVE and the search was interrupted, then the
+   *    function returns STATUS_INTERRUPTED but the ctx's state is restored to
+   *    what it was before the call to 'yices_check_context' and the
+   *    status flag is reset to STATUS_IDLE.
+   *
+   * 3) Otherwise, the function does nothing and returns 'STATUS_ERROR',
+   *    it also sets the yices error report (code = CTX_INVALID_OPERATION). *)
+  val check : context_t ptr -> param_t ptr -> smt_status
+
+  (* Check satisfiability under assumptions: check whether the
+   * assertions stored in ctx conjoined with n assumptions is
+   * satisfiable.
+   * - params is an optional structure to store heuristic parameters
+   * - if params is NULL, default parameter settings are used.
+   * - n = number of assumptions
+   * - t = array of n assumptions
+   * - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
+   *
+   * It behaves the same as the previous function.
+   *
+   * If this function returns STATUS_UNSAT, then one can construct an unsat core by
+   * calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
+   * that's inconsistent with ctx. *)
+  val check_with_assumptions : context_t ptr -> param_t ptr -> uint -> term_t ptr -> smt_status
+
+  (* Interrupt the search:
+   * - this can be called from a signal handler to stop the search,
+   *   after a call to yices_check_context to interrupt the solver.
+   *
+   * If ctx's status is STATUS_SEARCHING, then the current search is
+   * interrupted. Otherwise, the function does nothing. *)
+  val stop : context_t ptr -> unit
+
+  val get_model : context_t ptr -> sint -> model_t ptr
+
+  (****************
+   *  UNSAT CORE  *
+   ***************)
+
+  (* Construct an unsat core and store the result in vector *v.
+   * - v must be an initialized term_vector
+   *
+   * If ctx status is unsat, this function stores an unsat core in v,
+   * and returns 0. Otherwise, it sets an error core an returns -1.
+   *
+   * This is intended to be used after a call to
+   * yices_check_context_with_assumptions that returned STATUS_UNSAT. In
+   * this case, the function builds an unsat core, which is a subset of
+   * the assumptions. If there were no assumptions or if the context is UNSAT
+   * for another reason, an empty core is returned (i.e., v->size is set to 0).
+   *
+   * Error code:
+   * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT. *)
+  val get_unsat_core : context_t ptr -> term_t list
+
+end
+
+module Param : sig
+
+  (* SEARCH PARAMETERS *)
+
+  (* A parameter record is an opaque object that stores various
+   * search parameters and options that control the heuristics used by
+   * the solver.
+   *
+   * A parameter structure is created by calling
+   * - yices_new_param_record(void)
+   * This returns a parameter structure initialized with default
+   * settings.
+   *
+   * Then individual parameters can be set using function
+   * - yices_set_param(s, name, value) where both name and value are
+   *   character strings.
+   * - an unknown/unsupported parameter name is ignored
+   *
+   * Then the param object can be passed on as argument to yices_check_context.
+   *
+   * When it's no longer needed, the object must be deleted by
+   * calling yices_free_param_structure(param). *)
+
+  (* Return a parameter record initialized with default settings. *)
+  val malloc : unit -> param_t ptr
+
+  (* Delete the record param *)
+  val free : param_t ptr -> unit
+
+  (* Set default search parameters for ctx. *)
+  val default : context_t ptr -> param_t ptr -> unit
+
+  (* Set a parameter in record p
+   * - pname = parameter name
+   * - value = setting
+   *
+   * The parameters are explained in doc/YICES-LANGUAGE
+   * (and at http://yices.csl.sri.com/doc/parameters.html)
+   *
+   * Return -1 if there's an error, 0 otherwise.
+   *
+   * Error codes:
+   * - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
+   * - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter *)
+  val set : param_t ptr -> name:string -> value:string -> sint
 
 end
 
@@ -3221,8 +3230,8 @@ module PP : sig
    * - other errors (for both)
    *    code = OUTPUT_ERROR if writing to file f failed.
    *    in this case, errno, perror, etc. can be used for diagnostic. *)
-  val pp_type : FILE.t ptr -> type_t -> width:int -> height:int -> offset:int -> sint
-  val pp_term : FILE.t ptr -> term_t -> width:int -> height:int -> offset:int -> sint
+  val type_file : FILE.t ptr -> type_t -> width:int -> height:int -> offset:int -> sint
+  val term_file : FILE.t ptr -> term_t -> width:int -> height:int -> offset:int -> sint
 
   (* Pretty print an array of terms:
    * - f = output file to use
@@ -3254,7 +3263,8 @@ module PP : sig
    * set the error report to:
    *    code = OUTPUT_ERROR
    * *)
-  val pp_term_array : FILE.t ptr -> term_t list -> width:int -> height:int -> offset:int -> sint -> sint
+  val term_array_file :
+    FILE.t ptr -> term_t list -> width:int -> height:int -> offset:int -> sint -> sint
 
   (* Print model mdl on FILE f
    * - f must be open/writable
@@ -3270,7 +3280,6 @@ module PP : sig
    *   x = yices_new_uninterpreted_term(<some type>)
    *   yices_set_term_name(x, "x")
    * *)
-  val print_model : FILE.t ptr -> model_t ptr -> unit
 
   (* Pretty printing:
    * - f = output file to use
@@ -3284,17 +3293,17 @@ module PP : sig
    * On error:
    *   code = OUTPUT_ERROR (means that writing to f failed)
    *   in this case, errno, perror, etc. can be used for diagnostic. *)
-  val pp_model : FILE.t ptr -> model_t ptr -> width:int -> height:int -> offset:int -> sint
+  val model_file :
+    FILE.t ptr -> ?width:int -> ?height:int -> ?offset:int -> model_t ptr -> unit
 
   (* Analogous variants of the above that use file descriptors rather than file pointers.
    *
    * In the case of yices_print_model_fd we return 0 if successful, -1 if there is a problem converting
    * the file descriptor into a FILE* object. *)
-  val pp_type_fd : sint -> type_t -> width:int -> height:int -> offset:int -> sint
-  val pp_term_fd : sint -> term_t -> width:int -> height:int -> offset:int -> sint
-  val pp_term_array_fd : sint -> term_t list -> width:int -> height:int -> offset:int -> sint -> sint
-  val print_model_fd : sint -> model_t ptr -> sint
-  val pp_model_fd : sint -> model_t ptr -> width:int -> height:int -> offset:int -> sint
+  val type_fd : sint -> type_t -> width:int -> height:int -> offset:int -> sint
+  val term_fd : sint -> term_t -> width:int -> height:int -> offset:int -> sint
+  val term_array_fd : sint -> term_t list -> width:int -> height:int -> offset:int -> sint -> sint
+  val model_fd : sint -> ?width:int -> ?height:int -> ?offset:int -> model_t ptr -> sint
 
   (* Convert type tau or term t to a string using the pretty printer.
    * - width, height, offset define the print area as above.
@@ -3311,13 +3320,13 @@ module PP : sig
    *    code = INVALID_TERM
    *    term1 = t
    * *)
-  val type_to_string : type_t -> width:int -> height:int -> offset:int -> string
-  val term_to_string : term_t -> width:int -> height:int -> offset:int -> string
+  val type_string : type_t -> width:int -> height:int -> offset:int -> string
+  val term_string : term_t -> width:int -> height:int -> offset:int -> string
 
   (* Convert model to a string using the pretty printer.
    * - width, height, offset define the print area
    *
    * Returns a '\0'-terminated string otherwise. This string must be deleted
    * when no longer needed by calling yices_free_string. *)
-  val model_to_string : model_t ptr -> width:int -> height:int -> offset:int -> string
+  val model_string : model_t ptr -> width:int -> height:int -> offset:int -> string
 end

@@ -4,6 +4,16 @@ open Unsigned
 open Low                 
 
 module FILE  = FILE
+
+module type Names = sig
+  type t
+  val set     : t -> string -> sint
+  val remove  : string -> unit
+  val of_name : string -> t
+  val clear   : t -> sint
+  val to_name : t -> string option
+end
+
 module Types = Types
 open Types
 
@@ -102,46 +112,68 @@ module Error = struct
   let string() = ?</(yices_error_string())
 end
 
-module TypeVector = struct
-
-  let make () =
-    let result = make type_vector_t in
-    yices_init_type_vector (addr result);
-    result
-
-  let delete tv = yices_delete_type_vector (addr tv)
-  let reset tv = yices_reset_type_vector (addr tv)
-      
-  let size (tv : type_vector_t) = getf tv (type_vector_s#members#size)
-  let data (tv : type_vector_t) = getf tv (type_vector_s#members#data)
-  let to_array (tv : type_vector_t) = CArray.from_ptr (data tv) (UInt.to_int (size tv))
-  let to_list tv = tv |> to_array |> CArray.to_list
-
-  (* let init_type_vector = yices_init_type_vector *)
-  (* let delete_type_vector = yices_delete_type_vector *)
-  (* let reset_type_vector = yices_reset_type_vector *)
+module type Vector = sig
+  type t
+  type e
+  val malloc   : unit -> t
+  val free     : t -> unit
+  val reset    : t -> unit
+  val to_array : t -> e CArray.t
+  val to_list  : (t ptr -> 'a) -> e list
 end
 
-module TermVector = struct
-
-  let make () =
-    let result = make term_vector_t in
-    yices_init_term_vector (addr result);
+module type VectorArg = sig
+  type a
+  type t := (a, [`Struct]) structured
+  type e
+  val o: < ctype   : t typ;
+           members : < capacity : (uint, t) field;
+                       data : (e ptr, t) field;
+                       size : (uint, t) field > >
+  val init   : t ptr -> unit
+  val delete : t ptr -> unit
+  val reset  : t ptr -> unit
+end
+  
+module Vector_Make(M : VectorArg) : Vector with type t := (M.a, [`Struct]) structured
+                                            and type e := M.e
+= struct
+  let malloc () =
+    let result = make M.o#ctype in
+    M.init (addr result);
     result
-
-  let delete tv = yices_delete_term_vector (addr tv)
-  let reset tv = yices_reset_term_vector (addr tv)
-      
-  let size (tv : term_vector_t) = getf tv (term_vector_s#members#size)
-  let data (tv : term_vector_t) = getf tv (term_vector_s#members#data)
-  let to_array (tv : term_vector_t) = CArray.from_ptr (data tv) (UInt.to_int (size tv))
-  let to_list tv = tv |> to_array |> CArray.to_list
-
-  (* let init_term_vector = yices_init_term_vector *)
-  (* let delete_term_vector = yices_delete_term_vector *)
-  (* let reset_term_vector = yices_reset_term_vector *)
+  let free tv = M.delete (addr tv)
+  let reset tv  = M.reset (addr tv)
+  let size tv = getf tv (M.o#members#size)
+  let data tv = getf tv (M.o#members#data)
+  let to_array tv = CArray.from_ptr (data tv) (UInt.to_int (size tv))
+  let to_list f =
+    let arg = malloc() in
+    let _ = f (addr arg) in
+    let a = arg |> to_array |> CArray.to_list in
+    free arg;
+    a
 end
 
+module TypeVector : Vector with type t := type_vector_t and type e := type_t
+  = Vector_Make(struct
+    type a = [`type_vector_s]
+    type e = type_t
+    let init   = yices_init_type_vector
+    let delete = yices_delete_type_vector
+    let reset  = yices_reset_type_vector
+    let o      = type_vector_s
+  end)
+
+module TermVector : Vector with type t := term_vector_t and type e := term_t
+  = Vector_Make(struct
+    type a = [`term_vector_s]
+    type e = term_t
+    let init   = yices_init_term_vector
+    let delete = yices_delete_term_vector
+    let reset  = yices_reset_term_vector
+    let o      = term_vector_s
+  end)
 
 module Type = struct
 
@@ -193,18 +225,9 @@ module Type = struct
     else if type_is_bitvector t then BV !<(bvtype_size t)
     else if type_is_scalar t then Scalar t
     else if type_is_uninterpreted t then Uninterpreted t
-    else if type_is_tuple t then
-      let arg = TypeVector.make() in
-      let _ = type_children t (addr arg) in
-      let a = TypeVector.to_list arg in
-      TypeVector.delete arg;
-      Tuple(a)
-    else if type_is_function t then
-      let arg = TypeVector.make() in
-      let _ = type_children t (addr arg) in
-      let a = TypeVector.to_list arg in
-      TypeVector.delete arg;
-      match List.rev a with
+    else if type_is_tuple t then Tuple(type_children t |> TypeVector.to_list)
+    else if type_is_function t then 
+      match type_children t |> TypeVector.to_list |> List.rev with
       | [] -> assert false
       | codom::dom -> let dom = List.rev dom in Fun{dom; codom}
     else assert false
@@ -218,13 +241,24 @@ module Type = struct
     | Uninterpreted self -> self
     | Tuple l -> tuple_type l
     | Fun{dom; codom} -> function_type dom codom
-      
+
+  module Names = struct
+    type t = type_t
+    let set x     = ofString(yices_set_type_name x)
+    let remove    = ofString yices_remove_type_name
+    let clear     = yices_clear_type_name
+    let of_name   = ofString yices_get_type_by_name
+    let to_name x = ??</(yices_get_type_name x)
+  end
+
+  let parse = ofString yices_parse_type
+
 end
 
 module Term = struct
 
-  let yices_true = yices_true
-  let yices_false = yices_false
+  let ytrue  = yices_true
+  let yfalse = yices_false
   let constant t ~id = yices_constant t id
   let new_uninterpreted_term = yices_new_uninterpreted_term
   let new_variable = yices_new_variable
@@ -536,29 +570,20 @@ module Term = struct
     | `YICES_UPDATE_TERM ->
       (match term_children t with array::l -> let index, value = get_last l in Term(Update{array; index; value}) | _ -> assert false)
 
+  module Names = struct
+    type t = term_t
+    let set x     = ofString(yices_set_term_name x)
+    let remove    = ofString yices_remove_term_name
+    let clear     = yices_clear_term_name
+    let of_name   = ofString yices_get_term_by_name
+    let to_name x = ??</(yices_get_term_name x)
+  end
+
+  let parse = ofString yices_parse_term
 
 end
-
-module Name = struct
-
-  let set_type_name x = ofString(yices_set_type_name x)
-  let set_term_name x = ofString(yices_set_term_name x)
-  let remove_type_name = ofString yices_remove_type_name
-  let remove_term_name = ofString yices_remove_term_name
-  let get_type_by_name = ofString yices_get_type_by_name
-  let get_term_by_name = ofString yices_get_term_by_name
-  let clear_type_name = yices_clear_type_name
-  let clear_term_name = yices_clear_term_name
-  let get_type_name x = ??</(yices_get_type_name x)
-  let get_term_name x = ??</(yices_get_term_name x)
-
-end
-
-let parse_type = ofString yices_parse_type
-let parse_term = ofString yices_parse_term
 
 module GC = struct
-
   let num_terms = yices_num_terms
   let num_types = yices_num_types
   let incref_term = yices_incref_term
@@ -568,42 +593,20 @@ module GC = struct
   let num_posref_terms = yices_num_posref_terms
   let num_posref_types = yices_num_posref_types
   let garbage_collect = yices_garbage_collect
-
 end
 
 module Config = struct
-  let new_config = yices_new_config
-  let free_config = yices_free_config
-  let set_config c ~name ~value = yices_set_config c ?>name ?>value
-  let default_config_for_logic c ~logic = yices_default_config_for_logic c ?>logic
+  let malloc = yices_new_config
+  let free   = yices_free_config
+  let set     c ~name ~value = yices_set_config c ?>name ?>value
+  let default c ~logic = yices_default_config_for_logic c ?>logic
 end
-
-let new_context = yices_new_context
-let free_context = yices_free_context
-let context_status = yices_context_status <.> smt_status.read
-let reset_context = yices_reset_context
-let push = yices_push
-let pop = yices_pop
-let context_enable_option c ~option = yices_context_enable_option c ?>option
-let context_disable_option c ~option = yices_context_disable_option c ?>option
-let assert_formula = yices_assert_formula
-let assert_formulas = yices_assert_formulas
-let check_context a b = yices_check_context a b |> smt_status.read
-let check_context_with_assumptions a b c d = yices_check_context_with_assumptions a b c d |> smt_status.read
-let assert_blocking_clause = yices_assert_blocking_clause
-let stop_search = yices_stop_search
-let new_param_record = yices_new_param_record
-let default_params_for_context = yices_default_params_for_context
-let set_param p ~name ~value = yices_set_param p ?>name ?>value
-let free_param_record = yices_free_param_record
-let get_unsat_core = yices_get_unsat_core
 
 module Model = struct
 
-  let get_model = yices_get_model
-  let free_model = yices_free_model
-  let model_from_map = yices_model_from_map
-  let model_collect_defined_terms = yices_model_collect_defined_terms
+  let free = yices_free_model
+  let from_map = yices_model_from_map |> toList2 term_t term_t
+  let collect_defined_terms m = yices_model_collect_defined_terms m |> TermVector.to_list
   let get_bool_value = toBool3 yices_get_bool_value
   let get_int32_value = yices_get_int32_value
   let get_int64_value = yices_get_int64_value
@@ -617,53 +620,102 @@ module Model = struct
   let reset_yval_vector = yices_reset_yval_vector
   let get_value = yices_get_value
 
-  let val_is_int32 = toBool2 yices_val_is_int32
-  let val_is_int64 = toBool2 yices_val_is_int64
-  let val_is_rational32 = toBool2 yices_val_is_rational32
-  let val_is_rational64 = toBool2 yices_val_is_rational64
-  let val_is_integer = toBool2 yices_val_is_integer
+  let val_is_int32           = toBool2 yices_val_is_int32
+  let val_is_int64           = toBool2 yices_val_is_int64
+  let val_is_rational32      = toBool2 yices_val_is_rational32
+  let val_is_rational64      = toBool2 yices_val_is_rational64
+  let val_is_integer         = toBool2 yices_val_is_integer
 
-  let val_bitsize = yices_val_bitsize
-  let val_tuple_arity = yices_val_tuple_arity
-  let val_mapping_arity = yices_val_mapping_arity
-  let val_function_arity = yices_val_function_arity
-  let val_function_type = yices_val_function_type
-  let val_get_bool = yices_val_get_bool
-  let val_get_int32 = yices_val_get_int32
-  let val_get_int64 = yices_val_get_int64
-  let val_get_rational32 = yices_val_get_rational32
-  let val_get_rational64 = yices_val_get_rational64
-  let val_get_double = yices_val_get_double
-  let val_get_bv = yices_val_get_bv
-  let val_get_scalar = yices_val_get_scalar
-  let val_expand_tuple = yices_val_expand_tuple
-  let val_expand_function = yices_val_expand_function
-  let val_expand_mapping = yices_val_expand_mapping
-  let formula_true_in_model = yices_formula_true_in_model
+  let val_bitsize            = yices_val_bitsize
+  let val_tuple_arity        = yices_val_tuple_arity
+  let val_mapping_arity      = yices_val_mapping_arity
+  let val_function_arity     = yices_val_function_arity
+  let val_function_type      = yices_val_function_type
+  let val_get_bool           = yices_val_get_bool
+  let val_get_int32          = yices_val_get_int32
+  let val_get_int64          = yices_val_get_int64
+  let val_get_rational32     = yices_val_get_rational32
+  let val_get_rational64     = yices_val_get_rational64
+  let val_get_double         = yices_val_get_double
+  let val_get_bv             = yices_val_get_bv
+  let val_get_scalar         = yices_val_get_scalar
+  let val_expand_tuple       = yices_val_expand_tuple
+  let val_expand_function    = yices_val_expand_function
+  let val_expand_mapping     = yices_val_expand_mapping
+  let formula_true_in_model  = yices_formula_true_in_model
   let formulas_true_in_model = yices_formulas_true_in_model
-  let get_value_as_term = yices_get_value_as_term
-  let term_array_value = yices_term_array_value
-  let implicant_for_formula = yices_implicant_for_formula
+  let get_value_as_term      = yices_get_value_as_term
+  let term_array_value       = yices_term_array_value
+  let implicant_for_formula  = yices_implicant_for_formula
   let implicant_for_formulas = yices_implicant_for_formulas
-  let generalize_model m t l gen = toList1 term_t (yices_generalize_model m t) l (yices_gen_mode.write gen)
-  let generalize_model_array  m l1 l2 gen = toList1 term_t (toList1 term_t (yices_generalize_model_array m) l1) l2 (yices_gen_mode.write gen)
+  let generalize_model m t l gen =
+    (yices_generalize_model m t |> toList1 term_t) l (yices_gen_mode.write gen)
+    |> TermVector.to_list
+  let generalize_model_array  m l1 l2 gen =
+    ((yices_generalize_model_array m |> toList1 term_t) l1
+     |> toList1 term_t) l2 (yices_gen_mode.write gen)
+    |> TermVector.to_list
+         
+end
 
+module Context = struct
+  let malloc = yices_new_context
+  let free   = yices_free_context
+  let status = yices_context_status <.> smt_status.read
+  let reset  = yices_reset_context
+  let push   = yices_push
+  let pop    = yices_pop
+  let enable_option c ~option  = yices_context_enable_option c ?>option
+  let disable_option c ~option = yices_context_disable_option c ?>option
+  let assert_formula           = yices_assert_formula
+  let assert_formulas          = yices_assert_formulas
+  let assert_blocking_clause   = yices_assert_blocking_clause
+  let check a b = yices_check_context a b |> smt_status.read
+  let check_with_assumptions a b c d =
+    yices_check_context_with_assumptions a b c d |> smt_status.read
+  let stop                     = yices_stop_search
+  let get_model                = yices_get_model
+  let get_unsat_core context   = yices_get_unsat_core context |> TermVector.to_list
+end
+
+module Param = struct
+  let malloc  = yices_new_param_record
+  let free    = yices_free_param_record
+  let default = yices_default_params_for_context
+  let set p ~name ~value = yices_set_param p ?>name ?>value
 end
 
 module PP = struct
 
-  let pp_type file t ~width ~height ~offset = yices_pp_type file t !>width !>height !>offset
-  let pp_term file t ~width ~height ~offset = yices_pp_term file t !>width !>height !>offset
-  let pp_term_array file l ~width ~height ~offset = toList1 term_t (yices_pp_term_array file) l !>width !>height !>offset
-  let print_model = yices_print_model
-  let pp_model file t ~width ~height ~offset = yices_pp_model file t !>width !>height !>offset
-  let pp_type_fd file t ~width ~height ~offset = yices_pp_type_fd file t !>width !>height !>offset
-  let pp_term_fd file t ~width ~height ~offset = yices_pp_term_fd file t !>width !>height !>offset
-  let pp_term_array_fd file t ~width ~height ~offset = toList1 term_t (yices_pp_term_array_fd file) t !>width !>height !>offset
-  let print_model_fd = yices_print_model_fd
-  let pp_model_fd file t ~width ~height ~offset = yices_pp_model_fd file t !>width !>height !>offset
-  let type_to_string t ~width ~height ~offset = ?<(yices_type_to_string t !>width !>height !>offset)
-  let term_to_string t ~width ~height ~offset = ?<(yices_term_to_string t !>width !>height !>offset)
-  let model_to_string t ~width ~height ~offset = ?<(yices_model_to_string t !>width !>height !>offset)
+  let type_file file t ~width ~height ~offset
+    = yices_pp_type file t !>width !>height !>offset
+  let term_file file t ~width ~height ~offset
+    = yices_pp_term file t !>width !>height !>offset
+  let term_array_file file l ~width ~height ~offset
+    = (yices_pp_term_array file |> toList1 term_t) l !>width !>height !>offset
+  let model_file file ?width ?height ?offset t
+    = match width, height, offset with
+    | Some width, Some height, Some offset ->
+      let _ = yices_pp_model file t !>width !>height !>offset in ()
+    | _ ->  yices_print_model file t
+
+  let type_fd fd t ~width ~height ~offset
+    = yices_pp_type_fd fd t !>width !>height !>offset
+  let term_fd fd t ~width ~height ~offset
+    = yices_pp_term_fd fd t !>width !>height !>offset
+  let term_array_fd fd t ~width ~height ~offset
+    = (yices_pp_term_array_fd fd |> toList1 term_t) t !>width !>height !>offset
+  let model_fd fd ?width ?height ?offset t
+    = match width, height, offset with
+    | Some width, Some height, Some offset ->
+      yices_pp_model_fd fd t !>width !>height !>offset
+    | _ ->  yices_print_model_fd fd t
+
+  let type_string t ~width ~height ~offset
+    = ?<(yices_type_to_string t !>width !>height !>offset)
+  let term_string t ~width ~height ~offset
+    = ?<(yices_term_to_string t !>width !>height !>offset)
+  let model_string t ~width ~height ~offset
+    = ?<(yices_model_to_string t !>width !>height !>offset)
 
 end
