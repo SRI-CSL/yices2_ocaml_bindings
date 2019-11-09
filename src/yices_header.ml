@@ -311,9 +311,6 @@ module TMP =
     let off_t = Ctypes.typedef __off_t "off_t"
     let ssize_t = Ctypes.typedef __ssize_t "ssize_t"
     let fpos_t = Ctypes.typedef __fpos_t "fpos_t"
-    let stdin = Foreign.foreign_value "stdin" (Ctypes.ptr _FILE)
-    let stdout = Foreign.foreign_value "stdout" (Ctypes.ptr _FILE)
-    let stderr = Foreign.foreign_value "stderr" (Ctypes.ptr _FILE)
     let remove =
       Foreign.foreign "remove"
         (Ctypes.(@->) (Ctypes.ptr Ctypes.char) (Ctypes.returning Ctypes.sint))
