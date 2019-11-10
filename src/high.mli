@@ -227,36 +227,6 @@ module Make(EH: ErrorHandling) : sig
 
   end
 
-  (********************************
-   *  VECTORS OF TERMS AND TYPES  *
-   *******************************)
-
-  (* Some functions in the API return arrays of terms or types
-   * in a vector object (i.e., a resizable array). The vector
-   * structures are defined in yices_types.h:
-   * - v.size = number of elements in the array
-   * - v.data = the array proper: the elements are stored in
-   *            v.data[0] .... v.data[n-1] where n = v.size.
-   *
-   * Before calling any function that fills in a term_vector or
-   * type_vector, the vector object must be initialized via
-   * yices_init_term_vector or yices_init_type_vector. To prevent
-   * memory leaks, it must be deleted when no longer needed. *)
-
-  module type Vector = sig
-    type t
-    type e
-    val malloc   : unit -> t
-    val free     : t -> unit
-    val reset    : t -> unit
-    val to_array : t -> e CArray.t
-    (* malloc, call function, convert to list, then free *)
-    val to_list  : (t ptr -> [`unit_t] checkable) -> e list EH.t
-  end
-
-  module TypeVector : Vector with type t := type_vector_t and type e := type_t
-  module TermVector : Vector with type t := term_vector_t and type e := term_t
-
   module Type : sig
 
     (***********************
