@@ -198,50 +198,59 @@ module Types = struct
     | `YVAL_OVERFLOW ]
 
   type ('a,'b) converter = { read  : 'a -> 'b;
-                           write : 'b -> 'a }
+                             write : 'b -> 'a }
 
 end
 
 module type Types = sig
 
+  (* Type of things that can be checked for error *)
+  type _ checkable
+  val check : _ checkable -> bool (* The said checking operation *)
+  
   (* Opaque C types, only accessible through the API functions *)
-  type term_t
-  type type_t
+  type unit_t = [`unit_t] checkable
+  type bool_t = [`bool_t] checkable
+  type term_t = [`term_t] checkable
+  type type_t = [`type_t] checkable
   val term_t : term_t typ
   val type_t : type_t typ
 
   val null_term : term_t
+  val null_type : type_t
 
   (* C's enums *)
   type smt_status_t
-  type term_constructor_t
+  type term_constructor_t = [`term_constructor_t] checkable
   type yval_tag_t
   type yices_gen_mode_t
   type error_code_t
 
-  val smt_status_t       : smt_status_t typ
+  val smt_status_t       : smt_status_t       typ
   val term_constructor_t : term_constructor_t typ
-  val yval_tag_t         : yval_tag_t typ
-  val yices_gen_mode_t   : yices_gen_mode_t typ
-  val error_code_t       : error_code_t typ
+  val yval_tag_t         : yval_tag_t         typ
+  val yices_gen_mode_t   : yices_gen_mode_t   typ
+  val error_code_t       : error_code_t       typ
 
   include module type of Types
 
   (* OCaml's enums, as views of the C's enums;
-     types have been introduced in Yices_types *)
-  val smt_status       : (smt_status_t, smt_status) converter
+     ocaml types have been introduced in Yices_types *)
+  val unit             : (unit_t            , unit)             converter
+  val bool             : (bool_t            , bool)             converter
+  val smt_status       : (smt_status_t      , smt_status)       converter
   val term_constructor : (term_constructor_t, term_constructor) converter
-  val yval_tag         : (yval_tag_t, yval_tag) converter
-  val yices_gen_mode   : (yices_gen_mode_t, yices_gen_mode) converter
-  val error_code       : (error_code_t, error_code) converter
+  val yval_tag         : (yval_tag_t        , yval_tag)         converter
+  val yices_gen_mode   : (yices_gen_mode_t  , yices_gen_mode)   converter
+  val error_code       : (error_code_t      , error_code)       converter
 
   (* Opaque C structure types with no visible member,
      only accessible through the API functions;
      types have been introduced in Yices_types *)
-  val context_t    : context_t typ
-  val model_t      : model_t typ
+  val context_t    : context_t    typ
+  val model_t      : model_t      typ
   val ctx_config_t : ctx_config_t typ
-  val param_t      : param_t typ
+  val param_t      : param_t      typ
 
   (* C structure types with some visible members;
      types have been introduced in Yices_types *)

@@ -28,11 +28,11 @@ val yices_build_date : char ptr ptr
 (* Check whether the library was compiled with MCSAT support (i.e.,
  * it can deal with nonlinear arithmetic).
  * - return 1 if yes, 0 if no *)
-val yices_has_mcsat : unit -> sint
+val yices_has_mcsat : unit -> bool_t
 
 (* Check whether the library was compiled in THREAD_SAFE mode.
  * - return 1 if yes, 0 if no *)
-val yices_is_thread_safe : unit -> sint
+val yices_is_thread_safe : unit -> bool_t
 
 (***************************************
  *  GLOBAL INITIALIZATION AND CLEANUP  *
@@ -135,7 +135,7 @@ val yices_clear_error : unit -> unit
  * Return 0 otherwise.
  *
  * If there's an error, errno, perror, and friends can be used for diagnostic. *)
-val yices_print_error : FILE.t ptr -> sint
+val yices_print_error : FILE.t ptr -> unit_t
 
 (* Print an error message on file descriptor fd.  This converts the current error
  * code + error report structure into an error message.
@@ -145,7 +145,7 @@ val yices_print_error : FILE.t ptr -> sint
  * Return 0 otherwise.
  *
  * If there's an error, errno, perror, and friends can be used for diagnostic. *)
-val yices_print_error_fd : sint -> sint
+val yices_print_error_fd : sint -> unit_t
 
 (* Build a string from the current error code + error report structure.
  *
@@ -281,15 +281,15 @@ val yices_function_type3 : type_t -> type_t -> type_t -> type_t -> type_t
  * and set the error report:
  *   code = INVALID_TYPE
  *   type1 = tau *)
-val yices_type_is_bool       : type_t -> sint
-val yices_type_is_int        : type_t -> sint
-val yices_type_is_real       : type_t -> sint
-val yices_type_is_arithmetic : type_t -> sint
-val yices_type_is_bitvector  : type_t -> sint
-val yices_type_is_tuple      : type_t -> sint
-val yices_type_is_function   : type_t -> sint
-val yices_type_is_scalar     : type_t -> sint
-val yices_type_is_uninterpreted : type_t -> sint
+val yices_type_is_bool       : type_t -> bool_t
+val yices_type_is_int        : type_t -> bool_t
+val yices_type_is_real       : type_t -> bool_t
+val yices_type_is_arithmetic : type_t -> bool_t
+val yices_type_is_bitvector  : type_t -> bool_t
+val yices_type_is_tuple      : type_t -> bool_t
+val yices_type_is_function   : type_t -> bool_t
+val yices_type_is_scalar     : type_t -> bool_t
+val yices_type_is_uninterpreted : type_t -> bool_t
 
 (* Check whether tau is a subtype of sigma
  *
@@ -297,7 +297,7 @@ val yices_type_is_uninterpreted : type_t -> sint
  * and sets the error report:
  *   code = INVALID_TYPE
  *   type1 = tau or sigma *)
-val yices_test_subtype : type_t -> type_t -> sint
+val yices_test_subtype : type_t -> type_t -> bool_t
 
 (* Check whether tau and sigma are compatible
  *
@@ -305,7 +305,7 @@ val yices_test_subtype : type_t -> type_t -> sint
  * sets the error report:
  *   code = INVALID_TYPE
  *   type1 = tau or sigma *)
-val yices_compatible_types : type_t -> type_t -> sint
+val yices_compatible_types : type_t -> type_t -> bool_t
 
 (* Number of bits for type tau
  * - returns 0 if there's an error
@@ -373,7 +373,7 @@ val yices_type_child : type_t -> sint -> type_t
  * if tau is not a valid type
  *   code = INVALID_TYPE
  *   type1 = tau *)
-val yices_type_children : type_t -> type_vector_t ptr -> sint
+val yices_type_children : type_t -> type_vector_t ptr -> unit_t
 
 (***********************
  *  TERM CONSTRUCTORS  *
@@ -1620,8 +1620,8 @@ val yices_subst_term_array :
  * type is invalid. Otherwise they return 0.
  *
  * A copy of string name is made internally. *)
-val yices_set_type_name : type_t -> char ptr -> sint
-val yices_set_term_name : term_t -> char ptr -> sint
+val yices_set_type_name : type_t -> char ptr -> unit_t
+val yices_set_term_name : term_t -> char ptr -> unit_t
 
 (* Remove the current mapping of name
  * - no effect if name is not assigned to a term or type
@@ -1647,8 +1647,8 @@ val yices_get_term_by_name : char ptr -> term_t
  * Otherwise, the mapping from the base_name to tau or t is removed
  * from the symbol table for terms or types, and the base_name of
  * tau or t is set to NULL (i.e., tau or t don't have a base name anymore). *)
-val yices_clear_type_name : type_t -> sint
-val yices_clear_term_name : term_t -> sint
+val yices_clear_type_name : type_t -> unit_t
+val yices_clear_term_name : term_t -> unit_t
 
 (* Get the base name of a term or type
  *
@@ -1679,14 +1679,14 @@ val yices_type_of_term : term_t -> type_t
  *
  * If t is not a valid term, the check functions return false
  * and set the error report as above. *)
-val yices_term_is_bool : term_t -> sint
-val yices_term_is_int : term_t -> sint
-val yices_term_is_real : term_t -> sint
-val yices_term_is_arithmetic : term_t -> sint
-val yices_term_is_bitvector : term_t -> sint
-val yices_term_is_tuple : term_t -> sint
-val yices_term_is_function : term_t -> sint
-val yices_term_is_scalar : term_t -> sint
+val yices_term_is_bool : term_t -> bool_t
+val yices_term_is_int : term_t -> bool_t
+val yices_term_is_real : term_t -> bool_t
+val yices_term_is_arithmetic : term_t -> bool_t
+val yices_term_is_bitvector : term_t -> bool_t
+val yices_term_is_tuple : term_t -> bool_t
+val yices_term_is_function : term_t -> bool_t
+val yices_term_is_scalar : term_t -> bool_t
 
 (* Size of a bitvector term (i.e., number of bits)
  * - returns 0 if there's an error
@@ -1703,7 +1703,7 @@ val yices_term_bitsize : term_t -> uint
 (* Check whether t is a ground term (i.e., does not have free variables)
  *
  * Also return false and set the error report if t is not valid *)
-val yices_term_is_ground : term_t -> sint
+val yices_term_is_ground : term_t -> bool_t
 
 (* Internal term structure:
  *
@@ -1815,12 +1815,12 @@ val yices_term_is_ground : term_t -> sint
  * and set the error report:
  *    code = INVALID_TERM
  *    term1 = t *)
-val yices_term_is_atomic : term_t -> sint
-val yices_term_is_composite : term_t -> sint
-val yices_term_is_projection : term_t -> sint
-val yices_term_is_sum : term_t -> sint
-val yices_term_is_bvsum : term_t -> sint
-val yices_term_is_product : term_t -> sint
+val yices_term_is_atomic : term_t -> bool_t
+val yices_term_is_composite : term_t -> bool_t
+val yices_term_is_projection : term_t -> bool_t
+val yices_term_is_sum : term_t -> bool_t
+val yices_term_is_bvsum : term_t -> bool_t
+val yices_term_is_product : term_t -> bool_t
 
 (* Constructor of term t:
  * - if t is a valid term, the function returns one of the following codes
@@ -1936,9 +1936,9 @@ val yices_proj_arg : term_t -> term_t
  *    term1 = t
  * if t is not of the right kind
  *    code = INVALID_TERM_OP *)
-val yices_bool_const_value : term_t -> sint ptr -> sint
-val yices_bv_const_value : term_t -> sint ptr -> sint
-val yices_scalar_const_value : term_t -> sint ptr -> sint
+val yices_bool_const_value : term_t -> sint ptr -> unit_t
+val yices_bv_const_value : term_t -> sint ptr -> unit_t
+val yices_scalar_const_value : term_t -> sint ptr -> unit_t
 
 (* Components of a sum t
  * - i = index (must be between 0 and t's number of children - 1)
@@ -1956,7 +1956,7 @@ val yices_scalar_const_value : term_t -> sint ptr -> sint
  *    term1 = t
  * if t is not of the right kind of the index is invalid
  *    code = INVALID_TERM_OP *)
-val yices_bvsum_component : term_t -> sint -> sint ptr -> term_t ptr -> sint
+val yices_bvsum_component : term_t -> sint -> sint ptr -> term_t ptr -> unit_t
 
 (* Component of power product t
  * - i = index (must be between 0 and t's arity - 1)
@@ -1971,7 +1971,7 @@ val yices_bvsum_component : term_t -> sint -> sint ptr -> term_t ptr -> sint
  *    term1 = t
  * if t is not of the right kind or i is invalid
  *    code = INVALID_TERM_OP *)
-val yices_product_component : term_t -> sint -> term_t ptr -> uint ptr -> sint
+val yices_product_component : term_t -> sint -> term_t ptr -> uint ptr -> unit_t
 
 (*************************
  *  GARBAGE COLLECTION   *
@@ -2039,10 +2039,10 @@ val yices_num_types : unit -> uint
  * The decref functions also report an error if the argument has a
  * current reference count of zero. The error report's code is set to
  * BAD_TERM_DECREF or BAD_TYPE_DECREF in such a case. *)
-val yices_incref_term : term_t -> sint
-val yices_decref_term : term_t -> sint
-val yices_incref_type : type_t -> sint
-val yices_decref_type : type_t -> sint
+val yices_incref_term : term_t -> unit_t
+val yices_decref_term : term_t -> unit_t
+val yices_incref_type : type_t -> unit_t
+val yices_decref_type : type_t -> unit_t
 
 (* The following functions give the number of terms and types
  * that have a positive reference count. They return 0 if
@@ -2225,7 +2225,7 @@ val yices_free_config : ctx_config_t ptr -> unit
  * Error codes:
  *  CTX_UNKNOWN_PARAMETER if name is not a known parameter name
  *  CTX_INVALID_PARAMETER_VALUE if name is known but value does not match the parameter type *)
-val yices_set_config : ctx_config_t ptr -> char ptr -> char ptr -> sint
+val yices_set_config : ctx_config_t ptr -> char ptr -> char ptr -> unit_t
 
 (* Set config to a default solver type or solver combination for the given logic
  * - return -1 if there's an error
@@ -2302,7 +2302,7 @@ val yices_set_config : ctx_config_t ptr -> char ptr -> char ptr -> sint
  *
  *  CTX_UNKNOWN_LOGIC if logic is not a valid name
  *  CTX_LOGIC_NOT_SUPPORTED if logic is known but not supported *)
-val yices_default_config_for_logic : ctx_config_t ptr -> char ptr -> sint
+val yices_default_config_for_logic : ctx_config_t ptr -> char ptr -> unit_t
 
 (***************
  *  CONTEXTS   *
@@ -2396,7 +2396,7 @@ val yices_reset_context  : context_t ptr -> unit
  *   code = CTX_OPERATION_NOT_SUPPORTED
  * - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
  *   code = CTX_INVALID_OPERATION *)
-val yices_push           : context_t ptr -> sint
+val yices_push           : context_t ptr -> unit_t
 
 (* Pop: backtrack to the previous backtrack point (i.e., the matching
  * call to yices_push).
@@ -2408,7 +2408,7 @@ val yices_push           : context_t ptr -> sint
  * - if there's no matching push (i.e., the context stack is empty)
  *   or if the context's status is STATUS_SEARCHING
  *   code = CTX_INVALID_OPERATION *)
-val yices_pop            : context_t ptr -> sint
+val yices_pop            : context_t ptr -> unit_t
 
 (* Several options determine how much simplification is performed
  * when formulas are asserted. It's best to leave them untouched
@@ -2451,8 +2451,8 @@ val yices_pop            : context_t ptr -> sint
  *
  * Error codes:
  *  CTX_UNKNOWN_PARAMETER if the option name is not one of the above. *)
-val yices_context_enable_option : context_t ptr -> char ptr -> sint
-val yices_context_disable_option : context_t ptr -> char ptr -> sint
+val yices_context_enable_option : context_t ptr -> char ptr -> unit_t
+val yices_context_disable_option : context_t ptr -> char ptr -> unit_t
 
 (* Assert formula t in ctx
  * - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
@@ -2483,7 +2483,7 @@ val yices_context_disable_option : context_t ptr -> char ptr -> sint
  *
  * Other error codes are defined in yices_types.h to report that t is
  * outside the logic supported by ctx. *)
-val yices_assert_formula : context_t ptr -> term_t -> sint
+val yices_assert_formula : context_t ptr -> term_t -> unit_t
 
 (* Assert an array of n formulas t[0 ... n-1]
  * - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
@@ -2492,7 +2492,7 @@ val yices_assert_formula : context_t ptr -> term_t -> sint
  * The function returns -1 on error, 0 otherwise.
  *
  * The error report is set as in the previous function. *)
-val yices_assert_formulas : context_t ptr -> uint -> term_t ptr -> sint
+val yices_assert_formulas : context_t ptr -> uint -> term_t ptr -> unit_t
 
 (* Check satisfiability: check whether the assertions stored in ctx
  * are satisfiable.
@@ -2562,7 +2562,7 @@ val yices_check_context_with_assumptions : context_t ptr -> param_t ptr -> uint 
  *    code = CTX_INVALID_OPERATION
  * if ctx is not configured to support multiple checks
  *    code = CTX_OPERATION_NOT_SUPPORTED *)
-val yices_assert_blocking_clause : context_t ptr -> sint
+val yices_assert_blocking_clause : context_t ptr -> unit_t
 
 (* Interrupt the search:
  * - this can be called from a signal handler to stop the search,
@@ -2611,7 +2611,7 @@ val yices_default_params_for_context : context_t ptr -> param_t ptr -> unit
  * Error codes:
  * - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
  * - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter *)
-val yices_set_param : param_t ptr -> char ptr -> char ptr -> sint
+val yices_set_param : param_t ptr -> char ptr -> char ptr -> unit_t
 
 (* Delete the record param *)
 val yices_free_param_record : param_t ptr -> unit
@@ -2635,7 +2635,7 @@ val yices_free_param_record : param_t ptr -> unit
  *
  * Error code:
  * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT. *)
-val yices_get_unsat_core : context_t ptr -> term_vector_t ptr -> sint
+val yices_get_unsat_core : context_t ptr -> term_vector_t ptr -> unit_t
 
 (**************
  *   MODELS   *
@@ -2924,7 +2924,7 @@ val yices_reset_yval_vector : yval_vector_t ptr -> unit
  *   code = EVAL_LAMBDA
  * If the evaluation fails for other reasons:
  *   code = EVAL_FAILED *)
-val yices_get_value : model_t ptr -> term_t -> yval_t ptr -> sint
+val yices_get_value : model_t ptr -> term_t -> yval_t ptr -> unit_t
 
 (* Queries on the value of a rational node:
  * - if v->node_tag is YVAL_RATIONAL, the functions below check whether v's value
@@ -2942,11 +2942,11 @@ val yices_get_value : model_t ptr -> term_t -> yval_t ptr -> sint
  *    is a signed 64bit integer and den is an unsigned 64bit integer
  *
  * yices_val_is_integer: check whether v's value is an integer *)
-val yices_val_is_int32 : model_t ptr -> yval_t ptr -> sint
-val yices_val_is_int64 : model_t ptr -> yval_t ptr -> sint
-val yices_val_is_rational32 : model_t ptr -> yval_t ptr -> sint
-val yices_val_is_rational64 : model_t ptr -> yval_t ptr -> sint
-val yices_val_is_integer : model_t ptr -> yval_t ptr -> sint
+val yices_val_is_int32 : model_t ptr -> yval_t ptr -> bool_t
+val yices_val_is_int64 : model_t ptr -> yval_t ptr -> bool_t
+val yices_val_is_rational32 : model_t ptr -> yval_t ptr -> bool_t
+val yices_val_is_rational64 : model_t ptr -> yval_t ptr -> bool_t
+val yices_val_is_integer : model_t ptr -> yval_t ptr -> bool_t
 
 
 (* Get the number of bits in a bv constant, the number of components in a tuple,
@@ -2964,14 +2964,14 @@ val yices_val_function_arity : model_t ptr -> yval_t ptr -> uint
 (* Type of a function node. This function returns -1 if v has tag
  * other than YVAL_FUNCTION. Otherwise, it returns the type of the
  * object v. *)
-val yices_val_function_type : model_t ptr -> yval_t ptr -> sint
+val yices_val_function_type : model_t ptr -> yval_t ptr -> type_t
 
 (* Get the value of a Boolean node v.
  * - returns 0 if there's no error and store v's value in *val:
  *   *val is either 0 (for false) or 1 (for true).
  * - returns -1 if v does not have tag YVAL_BOOL and sets the error code
  *   to YVAL_INVALID_OP. *)
-val yices_val_get_bool : model_t ptr -> yval_t ptr -> sint ptr -> sint
+val yices_val_get_bool : model_t ptr -> yval_t ptr -> sint ptr -> unit_t
 
 (* Get the value of a rational node v
  * - the functions return 0 if there's no error and store v's value in *val
@@ -2981,13 +2981,13 @@ val yices_val_get_bool : model_t ptr -> yval_t ptr -> sint ptr -> sint
  * The error code is set to YVAL_INVALID_OP if v's tag is not YVAL_RATIONAL.
  * The error code is set to YVAL_OVERFLOW if v's value does not fit in
  * ( *val ) or in ( *num )/( *den ). *)
-val yices_val_get_int32 : model_t ptr -> yval_t ptr -> sint ptr -> sint
-val yices_val_get_int64 : model_t ptr -> yval_t ptr -> long ptr -> sint
-val yices_val_get_rational32 : model_t ptr -> yval_t ptr -> sint ptr -> uint ptr -> sint
-val yices_val_get_rational64 : model_t ptr -> yval_t ptr -> long ptr -> ulong ptr -> sint
+val yices_val_get_int32 : model_t ptr -> yval_t ptr -> sint ptr -> unit_t
+val yices_val_get_int64 : model_t ptr -> yval_t ptr -> long ptr -> unit_t
+val yices_val_get_rational32 : model_t ptr -> yval_t ptr -> sint ptr -> uint ptr -> unit_t
+val yices_val_get_rational64 : model_t ptr -> yval_t ptr -> long ptr -> ulong ptr -> unit_t
 
 (* Value converted to a floating point number *)
-val yices_val_get_double : model_t ptr -> yval_t ptr -> float ptr -> sint
+val yices_val_get_double : model_t ptr -> yval_t ptr -> float ptr -> unit_t
 
 (* (*  * Export an algebraic number
  *  * - v->tag must be YVAL_ALGEBRAIC
@@ -3009,13 +3009,13 @@ val yices_val_get_double : model_t ptr -> yval_t ptr -> float ptr -> sint
  *   every val[i] is either 0 or 1.
  * - the function returns 0 if v has tag YVAL_BV
  * - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP. *)
-val yices_val_get_bv : model_t ptr -> yval_t ptr -> sint ptr -> sint
+val yices_val_get_bv : model_t ptr -> yval_t ptr -> sint ptr -> unit_t
 
 (* Get the value of a scalar node:
  * - the function returns 0 if v's tag is YVAL_SCALAR
  *   the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
  * - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP. *)
-val yices_val_get_scalar : model_t ptr -> yval_t ptr -> sint ptr -> sint ptr -> sint
+val yices_val_get_scalar : model_t ptr -> yval_t ptr -> sint ptr -> sint ptr -> unit_t
 
 (* Expand a tuple node:
  * - child must be an array large enough to store all children of v (i.e.,
@@ -3024,7 +3024,7 @@ val yices_val_get_scalar : model_t ptr -> yval_t ptr -> sint ptr -> sint ptr -> 
  *
  * Return code = 0 if v's tag is YVAL_TUPLE.
  * Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP. *)
-val yices_val_expand_tuple : model_t ptr -> yval_t ptr -> yval_t ptr -> sint
+val yices_val_expand_tuple : model_t ptr -> yval_t ptr -> yval_t ptr -> unit_t
 
 (* Expand a function node f
  * - the default value for f is stored in *def
@@ -3035,7 +3035,7 @@ val yices_val_expand_tuple : model_t ptr -> yval_t ptr -> yval_t ptr -> sint
  *
  * Return code = 0 if v's tag is YVAL_FUNCTION.
  * Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP. *)
-val yices_val_expand_function : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_vector_t ptr -> sint
+val yices_val_expand_function : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_vector_t ptr -> unit_t
 
 (* Expand a mapping node m
  * - the mapping is of the form [x_1 ... x_k -> v] where k = yices_val_mapping_arity(mdl, m)
@@ -3045,7 +3045,7 @@ val yices_val_expand_function : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_
  *
  * Return code = 0 if v's tag is YVAL_MAPPING.
  * Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP. *)
-val yices_val_expand_mapping : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_t ptr -> sint
+val yices_val_expand_mapping : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_t ptr -> unit_t
 
 (* CHECK THE VALUE OF BOOLEAN FORMULAS *)
 
@@ -3057,7 +3057,7 @@ val yices_val_expand_mapping : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_t
  *
  * Error codes:
  * - same as yices_get_bool_value *)
-val yices_formula_true_in_model : model_t ptr -> term_t -> sint
+val yices_formula_true_in_model : model_t ptr -> term_t -> bool_t
 
 (* Check whether f[0 ... n-1] are all true in mdl
  * - the returned value is as in the previous function:
@@ -3070,7 +3070,7 @@ val yices_formula_true_in_model : model_t ptr -> term_t -> sint
  *
  * NOTE: if n>1, it's more efficient to call this function once than to
  * call the previous function n times. *)
-val yices_formulas_true_in_model : model_t ptr -> uint -> term_t ptr -> sint
+val yices_formulas_true_in_model : model_t ptr -> uint -> term_t ptr -> bool_t
 
 (* CONVERSION OF VALUES TO CONSTANT TERMS *)
 
@@ -3112,7 +3112,7 @@ val yices_get_value_as_term : model_t ptr -> term_t -> term_t
  *
  * Otherwise, the function returns -1 and sets the error report.
  * The error codes are the same as for yices_get_value_as_term. *)
-val yices_term_array_value : model_t ptr -> uint -> term_t ptr -> term_t ptr -> sint
+val yices_term_array_value : model_t ptr -> uint -> term_t ptr -> term_t ptr -> unit_t
 
 (* IMPLICANTS *)
 
@@ -3149,7 +3149,7 @@ val yices_term_array_value : model_t ptr -> uint -> term_t ptr -> term_t ptr -> 
  *   EVAL_QUANTIFIER
  *   EVAL_LAMBDA
  *   EVAL_FAILED *)
-val yices_implicant_for_formula : model_t ptr -> term_t -> term_vector_t ptr -> sint
+val yices_implicant_for_formula : model_t ptr -> term_t -> term_vector_t ptr -> unit_t
 
 (* Variant: compute an implicant for an array of formulas in mdl.
  * - n = size of the array
@@ -3165,7 +3165,7 @@ val yices_implicant_for_formula : model_t ptr -> term_t -> term_vector_t ptr -> 
  *    v->size = number of literals
  *    v->data contains the array of literals.
  * Otherwise, v->size is set to 0. *)
-val yices_implicant_for_formulas : model_t ptr -> uint -> term_t ptr -> term_vector_t ptr -> sint
+val yices_implicant_for_formulas : model_t ptr -> uint -> term_t ptr -> term_vector_t ptr -> unit_t
 
 (* MODEL GENERALIZATION *)
 
@@ -3219,10 +3219,10 @@ val yices_implicant_for_formulas : model_t ptr -> uint -> term_t ptr -> term_vec
  * Returned code:
  *   0 means success
  *  -1 means that the generalization failed. *)
-val yices_generalize_model : model_t ptr -> term_t -> uint -> term_t ptr -> yices_gen_mode_t -> term_vector_t ptr -> sint
+val yices_generalize_model : model_t ptr -> term_t -> uint -> term_t ptr -> yices_gen_mode_t -> term_vector_t ptr -> unit_t
 
 (* Compute a generalization of mdl for the conjunct (a[0] /\ ... /\ a[n-1]) *)
-val yices_generalize_model_array : model_t ptr -> uint -> term_t ptr -> uint -> term_t ptr -> yices_gen_mode_t -> term_vector_t ptr -> sint
+val yices_generalize_model_array : model_t ptr -> uint -> term_t ptr -> uint -> term_t ptr -> yices_gen_mode_t -> term_vector_t ptr -> unit_t
 
 
 (**********************
@@ -3261,8 +3261,8 @@ val yices_generalize_model_array : model_t ptr -> uint -> term_t ptr -> uint -> 
  * - other errors (for both)
  *    code = OUTPUT_ERROR if writing to file f failed.
  *    in this case, errno, perror, etc. can be used for diagnostic. *)
-val yices_pp_type : FILE.t ptr -> type_t -> uint -> uint -> uint -> sint
-val yices_pp_term : FILE.t ptr -> term_t -> uint -> uint -> uint -> sint
+val yices_pp_type : FILE.t ptr -> type_t -> uint -> uint -> uint -> unit_t
+val yices_pp_term : FILE.t ptr -> term_t -> uint -> uint -> uint -> unit_t
 
 (* Pretty print an array of terms:
  * - f = output file to use
@@ -3294,7 +3294,7 @@ val yices_pp_term : FILE.t ptr -> term_t -> uint -> uint -> uint -> sint
  * set the error report to:
  *    code = OUTPUT_ERROR
  * *)
-val yices_pp_term_array : FILE.t ptr -> uint -> term_t ptr -> uint -> uint -> uint -> sint -> sint
+val yices_pp_term_array : FILE.t ptr -> uint -> term_t ptr -> uint -> uint -> uint -> bool_t -> unit_t
 
 (* Print model mdl on FILE f
  * - f must be open/writable
@@ -3324,17 +3324,17 @@ val yices_print_model : FILE.t ptr -> model_t ptr -> unit
  * On error:
  *   code = OUTPUT_ERROR (means that writing to f failed)
  *   in this case, errno, perror, etc. can be used for diagnostic. *)
-val yices_pp_model : FILE.t ptr -> model_t ptr -> uint -> uint -> uint -> sint
+val yices_pp_model : FILE.t ptr -> model_t ptr -> uint -> uint -> uint -> unit_t
 
 (* Analogous variants of the above that use file descriptors rather than file pointers.
  *
  * In the case of yices_print_model_fd we return 0 if successful, -1 if there is a problem converting
  * the file descriptor into a FILE* object. *)
-val yices_pp_type_fd : sint -> type_t -> uint -> uint -> uint -> sint
-val yices_pp_term_fd : sint -> term_t -> uint -> uint -> uint -> sint
-val yices_pp_term_array_fd : sint -> uint -> term_t ptr -> uint -> uint -> uint -> sint -> sint
-val yices_print_model_fd : sint -> model_t ptr -> sint
-val yices_pp_model_fd : sint -> model_t ptr -> uint -> uint -> uint -> sint
+val yices_pp_type_fd : sint -> type_t -> uint -> uint -> uint -> unit_t
+val yices_pp_term_fd : sint -> term_t -> uint -> uint -> uint -> unit_t
+val yices_pp_term_array_fd : sint -> uint -> term_t ptr -> uint -> uint -> uint -> bool_t -> unit_t
+val yices_print_model_fd : sint -> model_t ptr -> unit_t
+val yices_pp_model_fd : sint -> model_t ptr -> uint -> uint -> uint -> unit_t
 
 (* Convert type tau or term t to a string using the pretty printer.
  * - width, height, offset define the print area as above.
