@@ -17,18 +17,18 @@ depends: [
 ]
 build: [
   "ocamlbuild" "-use-ocamlfind"
-  "src/yices_header.cma" "src/base.cma" "src/low.cma" "src/high.cma"
-  "src/yices_header.cmxa" "src/base.cmxa" "src/low.cmxa" "src/high.cmxa"
-  "src/yices_header.cmi" "src/base.cmi" "src/low.cmi" "src/high.cmi"
+  "src/yices_header.cma" "src/bindings_types.cma" "src/low.cma" "src/high.cma"
+  "src/yices_header.cmxa" "src/bindings_types.cmxa" "src/low.cmxa" "src/high.cmxa"
+  "src/yices_header.cmi" "src/bindings_types.cmi" "src/low.cmi" "src/high.cmi"
 ]
 install: [
   "ocamlfind" "install" "yices2_bindings" "src/META"
-  "_build/src/yices_header.a" "_build/src/base.a" "_build/src/low.a" "_build/src/high.a"
-  "_build/src/yices_header.cmx" "_build/src/base.cmx" "_build/src/low.cmx" "_build/src/high.cmx"
-  "_build/src/yices_header.cmo" "_build/src/base.cmo" "_build/src/low.cmo" "_build/src/high.cmo"
-  "_build/src/yices_header.cma" "_build/src/base.cma" "_build/src/low.cma" "_build/src/high.cma"
-  "_build/src/yices_header.cmxa" "_build/src/base.cmxa" "_build/src/low.cmxa" "_build/src/high.cmxa"
-  "_build/src/yices_header.cmi" "_build/src/base.cmi" "_build/src/low.cmi" "_build/src/high.cmi"
+  "_build/src/yices_header.a" "_build/src/bindings_types.a" "_build/src/low.a" "_build/src/high.a"
+  "_build/src/yices_header.cmx" "_build/src/bindings_types.cmx" "_build/src/low.cmx" "_build/src/high.cmx"
+  "_build/src/yices_header.cmo" "_build/src/bindings_types.cmo" "_build/src/low.cmo" "_build/src/high.cmo"
+  "_build/src/yices_header.cma" "_build/src/bindings_types.cma" "_build/src/low.cma" "_build/src/high.cma"
+  "_build/src/yices_header.cmxa" "_build/src/bindings_types.cmxa" "_build/src/low.cmxa" "_build/src/high.cmxa"
+  "_build/src/yices_header.cmi" "_build/src/bindings_types.cmi" "_build/src/low.cmi" "_build/src/high.cmi"
 ]
 remove: [
   "ocamlfind" "remove" "yices2_bindings"

@@ -3,26 +3,62 @@ open Ctypes_static
 open Unsigned
 open Signed
 
-module FILE : sig
-  type t
-end
+open Bindings_types.Common
+open Low
+    
+(*********************
+ *  ERROR REPORTING  *
+ ********************)
 
-module Types : Base.Types
-open Types
+(* Error codes and the error_report data structure are defined in
+ * yices_types.h. When an API function is called with invalid
+ * arguments or when some error occurs for whatever reason, then the
+ * function returns a specific value (typically a negative value) and
+ * stores information about the error in a global error_report
+ * structure.  This structure can be examined by calling
+ * yices_error_report().  The most important component of the
+ * error_report is an error code that is returned by a call to
+ * yices_error_code(). *)
+
+module Error : sig
+  (* Get the last error code *)
+  val code   : unit -> error_code
+  (* Get the last error report *)
+  val report : unit -> error_report_t ptr
+  (* Clear the error report *)
+  val clear  : unit -> unit
+end
 
 module type ErrorHandling = sig
+  type 'a checkable
   type 'a t
-  (* What to do when getting back a value of a checkable type *)
-  val return_checkable : 'a checkable -> 'a checkable t
+  (* How to raise an error manually *)
+  val raise_error : string -> _ t
+  (* What to do when getting back a value implemented as a signed int *)
+  val return_sint : 'a sintbase checkable -> 'a sintbase t
+  (* What to do when getting back a value implemented as an unsigned int *)
+  val return_uint : 'a uintbase checkable -> 'a uintbase t
   (* What to do when getting back a pointer *)
-  val return_ptr       : 'a ptr -> 'a ptr t
+  val return_ptr  : 'a ptr checkable -> 'a ptr t
   (* What to do when getting back anything else *)
-  val return           : 'a -> 'a t
+  val return      : 'a -> 'a t
   (* Error monad's bind combinator *)
-  val ( let+ ) : 'a t -> ('a -> 'b t) -> 'b t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
 end
 
-module Make(EH: ErrorHandling) : sig
+module ExceptionsErrorHandling : sig
+  exception YicesException of error_code*(error_report_t ptr)
+  exception YicesBindingsException of string
+  include ErrorHandling with type 'a t = 'a and type 'a checkable := 'a
+end
+
+module SumErrorHandling : sig
+  type error = Yices of error_code*(error_report_t ptr) | Bindings of string
+  include ErrorHandling with type 'a t = ('a, error) Result.t
+                         and type 'a checkable := 'a
+end
+
+module Make(EH: ErrorHandling with type 'a checkable := 'a) : sig
 
   module type Names = sig
 
@@ -49,7 +85,7 @@ module Make(EH: ErrorHandling) : sig
      *   mapping for 'name' is removed and the previous mapping (if any)
      *   is restored. *)
 
-    type a
+    type t
 
     (* The following functions attach a name to a type or a term
      * - name  must be a '\0'-terminated string
@@ -62,7 +98,7 @@ module Make(EH: ErrorHandling) : sig
      * type is invalid. Otherwise they return 0.
      *
      * A copy of string name is made internally. *)
-    val set : a checkable -> string -> unit_t
+    val set : t -> string -> unit EH.t
 
     (* Remove the current mapping of name
      * - no effect if name is not assigned to a term or type
@@ -73,7 +109,7 @@ module Make(EH: ErrorHandling) : sig
 
     (* Get type or term of the given name
      * - return NULL_TYPE or NULL_TERM if there's no type or term with that name *)
-    val of_name : string -> a checkable
+    val of_name : string -> t EH.t
 
     (* Remove the base name of a type tau or of a term t.
      *
@@ -86,36 +122,36 @@ module Make(EH: ErrorHandling) : sig
      * Otherwise, the mapping from the base_name to tau or t is removed
      * from the symbol table for terms or types, and the base_name of
      * tau or t is set to NULL (i.e., tau or t don't have a base name anymore). *)
-    val clear : a checkable -> unit_t
+    val clear : t -> unit EH.t
 
     (* Get the base name of a term or type
      *
      * The functions return NULL if the  term or type has no name,
      * or if the term or type is not valid. The error report is set
      * to INVALID_TERM or INVALID_TYPE in such cases. *)
-    val to_name : a checkable -> string option
+    val to_name : t -> string EH.t
 
   end
 
 
   module Global : sig
     (* The version as a string "x.y.z" *)
-    val version : string
+    val version : string EH.t
 
     (* More details about the release:
      * - build_arch is a string like "x86_64-unknown-linux-gnu"
      * - build_mode is "release" or "debug"
      * - build_date is the compilation date as in "2014-01-27" *)
-    val build_arch : string
-    val build_mode : string
-    val build_date : string
+    val build_arch : string EH.t
+    val build_mode : string EH.t
+    val build_date : string EH.t
 
     (* Check whether the library was compiled with MCSAT support (i.e.,
      * it can deal with nonlinear arithmetic). *)
-    val has_mcsat : unit -> bool
+    val has_mcsat : unit -> bool EH.t
 
     (* Check whether the library was compiled in THREAD_SAFE mode. *)
-    val is_thread_safe : unit -> bool
+    val is_thread_safe : unit -> bool EH.t
 
     (***************************************
      *  GLOBAL INITIALIZATION AND CLEANUP  *
@@ -177,31 +213,12 @@ module Make(EH: ErrorHandling) : sig
 
   end
 
-  (*********************
-   *  ERROR REPORTING  *
-   ********************)
+  (***************************
+   *  ERROR REPORTING PRINTS *
+   **************************)
 
-  (* Error codes and the error_report data structure are defined in
-   * yices_types.h. When an API function is called with invalid
-   * arguments or when some error occurs for whatever reason, then the
-   * function returns a specific value (typically a negative value) and
-   * stores information about the error in a global error_report
-   * structure.  This structure can be examined by calling
-   * yices_error_report().  The most important component of the
-   * error_report is an error code that is returned by a call to
-   * yices_error_code(). *)
-
-  module Error : sig
-
-    (* Get the last error code *)
-    val code : unit -> error_code
-
-    (* Get the last error report *)
-    val report : unit -> error_report_t ptr
-
-    (* Clear the error report *)
-    val clear : unit -> unit
-
+  module ErrorPrint : sig
+    
     (* Print an error message on stream f.  This converts the current error
      * code + error report structure into an error message.
      * - f must be a non-NULL open stream (writable)
@@ -210,7 +227,7 @@ module Make(EH: ErrorHandling) : sig
      * Return 0 otherwise.
      *
      * If there's an error, errno, perror, and friends can be used for diagnostic. *)
-    val print : FILE.t ptr -> unit_t
+    val print : FILE.t ptr -> unit_t EH.t
 
     (* Print an error message on file descriptor fd.  This converts the current error
      * code + error report structure into an error message.
@@ -220,10 +237,10 @@ module Make(EH: ErrorHandling) : sig
      * Return 0 otherwise.
      *
      * If there's an error, errno, perror, and friends can be used for diagnostic. *)
-    val print_fd : sint -> unit_t
+    val print_fd : sint -> unit_t EH.t
 
     (* Build a string from the current error code + error report structure. *)
-    val string : unit -> string
+    val string : unit -> string EH.t
 
   end
 
@@ -236,9 +253,9 @@ module Make(EH: ErrorHandling) : sig
     (* All constructors return NULL_TYPE (-1) if the type definition is wrong. *)
 
     (* Built-in types bool, int, real. *)
-    val bool_type : unit -> type_t
-    val int_type  : unit -> type_t
-    val real_type : unit -> type_t
+    val bool_type : unit -> type_t EH.t
+    val int_type  : unit -> type_t EH.t
+    val real_type : unit -> type_t EH.t
 
     (* Bitvectors of given size (number of bits)
      * Requires size > 0
@@ -249,7 +266,7 @@ module Make(EH: ErrorHandling) : sig
      * If size > YICES_MAX_BVSIZE
      *   code = MAX_BVSIZE_EXCEEDED
      *   badval = size *)
-    val bv_type : uint -> type_t
+    val bv_type : int -> type_t EH.t
 
     (* New scalar type of given cardinality.
      * Requires card > 0
@@ -257,10 +274,10 @@ module Make(EH: ErrorHandling) : sig
      * If card = 0, set error report to
      *   code = POS_INT_REQUIRED
      *   badval = size *)
-    val new_scalar_type : card:uint -> type_t
+    val new_scalar_type : card:int -> type_t EH.t
 
     (* New uninterpreted type. No error report. *)
-    val new_uninterpreted_type : unit -> type_t
+    val new_uninterpreted_type : unit -> type_t EH.t
 
     (* Tuple type tau[0] x ... x tau[n-1].
      * Requires n>0 and tau[0] ... tau[n-1] to be well defined types.
@@ -275,7 +292,7 @@ module Make(EH: ErrorHandling) : sig
      * if tau[i] is not well defined (and tau[0] .. tau[i-1] are)
      *   code = INVALID_TYPE
      *   type1 = tau[i] *)
-    val tuple_type : type_t list -> type_t
+    val tuple_type : type_t list -> type_t EH.t
 
 
     (* Function type: dom[0] ... dom[n-1] -> range
@@ -294,7 +311,7 @@ module Make(EH: ErrorHandling) : sig
      * if dom[i] is undefined (and dom[0] ... dom[i-1] are)
      *   code = INVALID_TYPE
      *   type1 = dom[i] *)
-    val function_type : type_t list -> type_t -> type_t
+    val function_type : type_t list -> type_t -> type_t EH.t
 
     (*************************
      *   TYPE EXPLORATION    *
@@ -314,7 +331,7 @@ module Make(EH: ErrorHandling) : sig
       | Fun of { dom : type_t list; codom : type_t }
 
     val reveal : type_t -> t EH.t
-    val build  : t -> type_t
+    val build  : t -> type_t EH.t
 
     (* Check whether tau is a subtype of sigma
      *
@@ -322,7 +339,7 @@ module Make(EH: ErrorHandling) : sig
      * and sets the error report:
      *   code = INVALID_TYPE
      *   type1 = tau or sigma *)
-    val test_subtype : type_t -> type_t -> bool
+    val test_subtype : type_t -> type_t -> bool EH.t
 
     (* Check whether tau and sigma are compatible
      *
@@ -330,7 +347,7 @@ module Make(EH: ErrorHandling) : sig
      * sets the error report:
      *   code = INVALID_TYPE
      *   type1 = tau or sigma *)
-    val compatible_types : type_t -> type_t -> bool
+    val compatible_types : type_t -> type_t -> bool EH.t
 
     (* Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
      * - convert an input string s to a type or term.
@@ -340,9 +357,9 @@ module Make(EH: ErrorHandling) : sig
      * error and set the error report. The line and column fields of the
      * error report give information about the error location. *)
 
-    module Names : Names with type a := [`type_t]
+    module Names : Names with type t := type_t
 
-    val parse : string -> type_t
+    val parse : string -> type_t EH.t
 
   end
 
@@ -367,8 +384,8 @@ module Make(EH: ErrorHandling) : sig
 
     (* Boolean constants: no error report *)
 
-    val ytrue  : unit -> term_t
-    val yfalse : unit -> term_t
+    val ytrue  : unit -> term_t EH.t
+    val yfalse : unit -> term_t EH.t
 
     (* Constant of type tau and id = index
      * - tau must be a scalar type or an uninterpreted type
@@ -389,7 +406,7 @@ module Make(EH: ErrorHandling) : sig
      *   code = INVALID_CONSTANT_INDEX
      *   type1 = tau
      *   badval = index *)
-    val constant : type_t -> id:sint -> term_t
+    val constant : type_t -> id:sint -> term_t EH.t
 
     (* Uninterpreted term of type tau
      *
@@ -404,7 +421,7 @@ module Make(EH: ErrorHandling) : sig
      * if tau is undefined
      *   code = INVALID_TYPE
      *   type1 = tau *)
-    val new_uninterpreted_term : type_t -> term_t
+    val new_uninterpreted_term : type_t -> term_t EH.t
 
     (* Variable of type tau. This creates a new variable.
      *
@@ -415,7 +432,7 @@ module Make(EH: ErrorHandling) : sig
      * if tau is undefined
      *   code = INVALID_TYPE
      *   type1 = tau *)
-    val new_variable : type_t -> term_t
+    val new_variable : type_t -> term_t EH.t
 
     (* Application of an uninterpreted function to n arguments.
      *
@@ -437,7 +454,7 @@ module Make(EH: ErrorHandling) : sig
      *   code = TYPE_MISMATCH
      *   term1 = arg[i]
      *   type1 = expected type *)
-    val application : term_t -> term_t list -> term_t
+    val application : term_t -> term_t list -> term_t EH.t
 
     (* if-then-else
      *
@@ -455,7 +472,7 @@ module Make(EH: ErrorHandling) : sig
      *   type1 = term1's type
      *   term2 = else_term
      *   type2 = term2's type *)
-    val ite : term_t -> term_t -> term_t -> term_t
+    val ite : term_t -> term_t -> term_t -> term_t EH.t
 
     (* Equality (= left right)
      * Disequality (/= left right)
@@ -470,8 +487,8 @@ module Make(EH: ErrorHandling) : sig
      *   type1 = term1's type
      *   term2 = right
      *   type2 = term2's type *)
-    val (===) : term_t -> term_t -> term_t
-    val (=/=) : term_t -> term_t -> term_t
+    val (===) : term_t -> term_t -> term_t EH.t
+    val (=/=) : term_t -> term_t -> term_t EH.t
 
     (* (not arg)
      *
@@ -483,7 +500,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = TYPE_MISMATCH
      *    term1 = arg
      *    type1 = bool (expected type) *)
-    val (!!) : term_t -> term_t
+    val (!!) : term_t -> term_t EH.t
 
     (* (or  arg[0] ... arg[n-1])
      * (and arg[0] ... arg[n-1])
@@ -502,9 +519,9 @@ module Make(EH: ErrorHandling) : sig
      *   code = TYPE_MISMATCH
      *   term1 = arg[i]
      *   type1 = bool (expected type) *)
-    val (!|) : term_t list -> term_t
-    val (!&) : term_t list -> term_t
-    val (!*) : term_t list -> term_t
+    val (!|) : term_t list -> term_t EH.t
+    val (!&) : term_t list -> term_t EH.t
+    val (!*) : term_t list -> term_t EH.t
 
 
     (* (iff left right)
@@ -518,8 +535,8 @@ module Make(EH: ErrorHandling) : sig
      *    code = TYPE_MISMATCH
      *    term1 = left/right
      *    type1 = bool (expected type) *)
-    val (<=>) : term_t -> term_t -> term_t
-    val (=>)  : term_t -> term_t -> term_t
+    val (<=>) : term_t -> term_t -> term_t EH.t
+    val (=>)  : term_t -> term_t -> term_t EH.t
 
     (* Tuple constructor
      *
@@ -533,7 +550,7 @@ module Make(EH: ErrorHandling) : sig
      * if one arg[i] is invalid
      *   code = INVALID_TERM
      *   term1 = arg[i] *)
-    val tuple : term_t list -> term_t
+    val tuple : term_t list -> term_t EH.t
 
     (* Tuple projection
      *
@@ -550,7 +567,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = INVALID_TUPLE_INDEX
      *    type1 = type of tuple
      *    badval = index *)
-    val select : int -> term_t -> term_t
+    val select : int -> term_t -> term_t EH.t
 
     (* Tuple update: replace component i of tuple by new_v
      *
@@ -571,7 +588,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = TYPE_MISMATCH
      *    term1 = new_v
      *    type1 = expected type (i-th component type in tuple) *)
-    val tuple_update : term_t -> int -> term_t -> term_t
+    val tuple_update : term_t -> int -> term_t -> term_t EH.t
 
     (* Function update
      *
@@ -597,7 +614,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = TYPE_MISMATCH
      *    term1 = arg[i]
      *    type1 = expected type *)
-    val update : term_t -> term_t list -> term_t -> term_t
+    val update : term_t -> term_t list -> term_t -> term_t EH.t
 
 
     (* Distinct
@@ -620,7 +637,7 @@ module Make(EH: ErrorHandling) : sig
      *    type1 = term1's type
      *    term2 = arg[j]
      *    type2 = term2's type *)
-    val distinct : term_t list -> term_t
+    val distinct : term_t list -> term_t EH.t
 
     (* Quantified terms
      *  (forall (var[0] ... var[n-1]) body)
@@ -648,8 +665,8 @@ module Make(EH: ErrorHandling) : sig
      * if one variable occurs twice in var
      *    code = DUPLICATE_VARIABLE
      *    term1 = var[i] *)
-    val forall : term_t list -> term_t -> term_t
-    val exists : term_t list -> term_t -> term_t
+    val forall : term_t list -> term_t -> term_t EH.t
+    val exists : term_t list -> term_t -> term_t EH.t
 
     (* Lambda terms
      *
@@ -670,7 +687,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = DUPLICATE_VARIABLE
      *    term1 = var[i]
      * *)
-    val lambda : term_t list -> term_t -> term_t
+    val lambda : term_t list -> term_t -> term_t EH.t
 
 
     module Arith : sig
@@ -688,11 +705,11 @@ module Make(EH: ErrorHandling) : sig
        * an error and set the error report. *)
 
       (* Zero: no error *)
-      val zero : unit -> term_t
+      val zero : unit -> term_t EH.t
 
       (* Integer constants *)
-      val int32 : sint -> term_t
-      val int64 : long -> term_t
+      val int32 : sint -> term_t EH.t
+      val int64 : long -> term_t EH.t
 
       (* Rational constants
        * - den must be non-zero
@@ -701,8 +718,8 @@ module Make(EH: ErrorHandling) : sig
        * Error report:
        * if den is zero
        *   code = DIVISION_BY_ZERO *)
-      val rational32 : sint -> uint -> term_t
-      val rational64 : long -> ulong -> term_t
+      val rational32 : sint -> uint -> term_t EH.t
+      val rational64 : long -> ulong -> term_t EH.t
 
       (* Convert a string to a rational or integer term.
        * The string format is
@@ -716,7 +733,7 @@ module Make(EH: ErrorHandling) : sig
        * Error report:
        *   code = INVALID_RATIONAL_FORMAT if s is not in this format
        *   code = DIVISION_BY_ZERO if the denominator is zero *)
-      val parse_rational : string -> term_t
+      val parse_rational : string -> term_t EH.t
 
       (* Convert a string in floating point format to a rational
        * The string must be in one of the following formats:
@@ -729,7 +746,7 @@ module Make(EH: ErrorHandling) : sig
        *
        * Error report:
        * code = INVALID_FLOAT_FORMAT *)
-      val parse_float : string -> term_t
+      val parse_float : string -> term_t EH.t
 
       (* ARITHMETIC OPERATIONS *)
 
@@ -748,12 +765,12 @@ module Make(EH: ErrorHandling) : sig
        * then the error report is
        *   code = DEGREE_OVERFLOW
        *   badval = product degree *)
-      val (+) : term_t -> term_t -> term_t
-      val (-) : term_t -> term_t -> term_t
-      val (!-) : term_t -> term_t
-      val ( * ) : term_t -> term_t -> term_t
-      val square : term_t -> term_t
-      val (^) : term_t -> uint -> term_t
+      val (+) : term_t -> term_t -> term_t EH.t
+      val (-) : term_t -> term_t -> term_t EH.t
+      val (!-) : term_t -> term_t EH.t
+      val ( * ) : term_t -> term_t -> term_t EH.t
+      val square : term_t -> term_t EH.t
+      val (^) : term_t -> uint -> term_t EH.t
 
       (* Sum of n arithmetic terms t[0] ... t[n-1]
        *
@@ -766,7 +783,7 @@ module Make(EH: ErrorHandling) : sig
        * if t[i] is not an arithmetic term
        *   code = ARITHTERM_REQUIRED
        *   term1 = t[i] *)
-      val (!+) : term_t list -> term_t
+      val (!+) : term_t list -> term_t EH.t
 
       (* Product of n arithmetic terms t[0] ... t[n-1]
        *
@@ -782,7 +799,7 @@ module Make(EH: ErrorHandling) : sig
        * if the result has degree > YICES_MAX_DEGREE
        *   code = DEGREE OVERFLOW
        *   badval = degree *)
-      val (!* ) : term_t list -> term_t
+      val (!* ) : term_t list -> term_t EH.t
 
       (* Division:  t1/t2
        *
@@ -800,7 +817,7 @@ module Make(EH: ErrorHandling) : sig
        * if t1 or t2 is not an arithmetic term
        *    code = ARITHTERM_REQUIRED
        *    term1 = t1 or t2 *)
-      val (/) : term_t -> term_t -> term_t
+      val (/) : term_t -> term_t -> term_t EH.t
 
       (* Integer division and modulo
        *
@@ -827,8 +844,8 @@ module Make(EH: ErrorHandling) : sig
        * if t1 or t2 is not an arithmetic term
        *    code = ARITHTERM_REQUIRED
        *    term1 = t1 or t2 *)
-      val ( /. ) : term_t -> term_t -> term_t
-      val ( %. ) : term_t -> term_t -> term_t
+      val ( /. ) : term_t -> term_t -> term_t EH.t
+      val ( %. ) : term_t -> term_t -> term_t EH.t
 
       (* Divisibility test:
        *
@@ -851,7 +868,7 @@ module Make(EH: ErrorHandling) : sig
        * if t2 is not an arithmetic constant
        *    code = ARITHCONSTANT_REQUIRED
        *    term1 = t2 *)
-      val divides_atom : term_t -> term_t -> term_t
+      val divides_atom : term_t -> term_t -> term_t EH.t
 
       (* Integrality test:
        *
@@ -871,7 +888,7 @@ module Make(EH: ErrorHandling) : sig
        *    code = ARITHTERM_REQUIRED
        *    term1 = t
        * *)
-      val is_int_atom : term_t -> term_t
+      val is_int_atom : term_t -> term_t EH.t
 
       (* Absolute value, floor, ceiling
        *
@@ -888,9 +905,9 @@ module Make(EH: ErrorHandling) : sig
        * if t is not an arithmetic term
        *    code = ARITHTERM_REQUIRED
        *    term1 = t *)
-      val abs : term_t -> term_t
-      val floor : term_t -> term_t
-      val ceil : term_t -> term_t
+      val abs   : term_t -> term_t EH.t
+      val floor : term_t -> term_t EH.t
+      val ceil  : term_t -> term_t EH.t
 
       (* POLYNOMIALS *)
 
@@ -910,8 +927,8 @@ module Make(EH: ErrorHandling) : sig
 
       (* Polynomial with integer coefficients
        * - a and t must both be arrays of size n *)
-      val poly_int32 : (sint*term_t) list -> term_t
-      val poly_int64 : (long*term_t) list -> term_t
+      val poly_int32 : (sint*term_t) list -> term_t EH.t
+      val poly_int64 : (long*term_t) list -> term_t EH.t
 
       (* Polynomial with rational coefficients
        * - den, num, and t must be arrays of size n
@@ -920,8 +937,8 @@ module Make(EH: ErrorHandling) : sig
        * Error report:
        * if den[i] is 0
        *   code = DIVISION_BY_ZERO *)
-      val poly_rational32 : (sint*uint*term_t) list -> term_t
-      val poly_rational64 : (long*ulong*term_t) list -> term_t
+      val poly_rational32 : (sint*uint*term_t) list -> term_t EH.t
+      val poly_rational64 : (long*ulong*term_t) list -> term_t EH.t
 
       (* ARITHMETIC ATOMS *)
 
@@ -934,12 +951,12 @@ module Make(EH: ErrorHandling) : sig
        * if t1 or t2 is not an arithmetic term
        *   code = ARITHTERM_REQUIRED
        *   term1 = t1 or t2 *)
-      val eq : term_t -> term_t -> term_t
-      val neq : term_t -> term_t -> term_t
-      val geq : term_t -> term_t -> term_t
-      val leq : term_t -> term_t -> term_t
-      val gt : term_t -> term_t -> term_t
-      val lt : term_t -> term_t -> term_t
+      val eq  : term_t -> term_t -> term_t EH.t
+      val neq : term_t -> term_t -> term_t EH.t
+      val geq : term_t -> term_t -> term_t EH.t
+      val leq : term_t -> term_t -> term_t EH.t
+      val gt  : term_t -> term_t -> term_t EH.t
+      val lt  : term_t -> term_t -> term_t EH.t
 
       (* Comparison with 0:
        *
@@ -952,12 +969,12 @@ module Make(EH: ErrorHandling) : sig
        * if t is not an arithmetic term
        *   code = ARITH_TERM_REQUIRED
        *   term1 = t *)
-      val eq0 : term_t -> term_t
-      val neq0 : term_t -> term_t
-      val geq0 : term_t -> term_t
-      val leq0 : term_t -> term_t
-      val gt0 : term_t -> term_t
-      val lt0 : term_t -> term_t
+      val eq0  : term_t -> term_t EH.t
+      val neq0 : term_t -> term_t EH.t
+      val geq0 : term_t -> term_t EH.t
+      val leq0 : term_t -> term_t EH.t
+      val gt0  : term_t -> term_t EH.t
+      val lt0  : term_t -> term_t EH.t
     end
 
     module BV : sig
@@ -1015,10 +1032,10 @@ module Make(EH: ErrorHandling) : sig
        * if n > YICES_MAX_BVSIZE
        *    code = MAX_BVSIZE_EXCEEDED
        *    badval = n *)
-      val bvconst_uint32 : width:int -> uint -> term_t
-      val bvconst_uint64 : width:int -> ulong -> term_t
-      val bvconst_int32 : width:int -> sint -> term_t
-      val bvconst_int64 : width:int -> long -> term_t
+      val bvconst_uint32 : width:int -> uint -> term_t EH.t
+      val bvconst_uint64 : width:int -> ulong -> term_t EH.t
+      val bvconst_int32  : width:int -> sint -> term_t EH.t
+      val bvconst_int64  : width:int -> long -> term_t EH.t
 
       (* bvconst_zero: set all bits to 0
        * bvconst_one: set low-order bit to 1, all the other bits to 0
@@ -1031,9 +1048,9 @@ module Make(EH: ErrorHandling) : sig
        * if n > YICES_MAX_BVSIZE
        *    code = MAX_BVSIZE_EXCEEDED
        *    badval = n *)
-      val bvconst_zero : width:int -> term_t
-      val bvconst_one : width:int -> term_t
-      val bvconst_minus_one : width:int -> term_t
+      val bvconst_zero      : width:int -> term_t EH.t
+      val bvconst_one       : width:int -> term_t EH.t
+      val bvconst_minus_one : width:int -> term_t EH.t
 
       (* Construction from an integer array
        * bit i of the constant is 0 if a[i] == 0
@@ -1046,7 +1063,7 @@ module Make(EH: ErrorHandling) : sig
        * if n > YICES_MAX_BVSIZE
        *    code = MAX_BVSIZE_EXCEEDED
        *    badval = n *)
-      val bvconst_from_array : bool list -> term_t
+      val bvconst_from_array : bool list -> term_t EH.t
 
       (* Parsing from a string of characters '0' and '1'
        * First character = high-order bit
@@ -1059,7 +1076,7 @@ module Make(EH: ErrorHandling) : sig
        * if the string has more than YICES_MAX_BVSIZE digits
        *   code = MAX_BVSIZE_EXCEEDED
        *   badval = n *)
-      val parse_bvbin : string -> term_t
+      val parse_bvbin : string -> term_t EH.t
 
       (* Parsing from a hexadecimal string
        * All characters must be '0' to '9' or 'a' to 'f' or 'A' to 'F'
@@ -1073,7 +1090,7 @@ module Make(EH: ErrorHandling) : sig
        * if the result would have more than YICES_MAX_BVSIZE digits
        *   code = MAX_BVSIZE_EXCEEDED
        *   badval = 4n *)
-      val parse_bvhex : string -> term_t
+      val parse_bvhex : string -> term_t EH.t
 
       (* BIT-VECTOR ARITHMETIC *)
 
@@ -1112,24 +1129,24 @@ module Make(EH: ErrorHandling) : sig
        *
        *   (bvsmod x 0b00...0) is x
        * *)
-      val bvadd : term_t -> term_t -> term_t
-      val bvsub : term_t -> term_t -> term_t
-      val bvneg : term_t -> term_t
-      val bvmul : term_t -> term_t -> term_t
-      val bvsquare : term_t -> term_t
-      val bvpower : term_t -> int -> term_t
-      val bvdiv  : term_t -> term_t -> term_t
-      val bvrem  : term_t -> term_t -> term_t
-      val bvsdiv : term_t -> term_t -> term_t
-      val bvsrem : term_t -> term_t -> term_t
-      val bvsmod : term_t -> term_t -> term_t
-      val bvnot  : term_t -> term_t
-      val bvnand : term_t -> term_t -> term_t
-      val bvnor  : term_t -> term_t -> term_t
-      val bvxnor : term_t -> term_t -> term_t
-      val bvshl  : term_t -> term_t -> term_t
-      val bvlshr : term_t -> term_t -> term_t
-      val bvashr : term_t -> term_t -> term_t
+      val bvadd : term_t -> term_t -> term_t EH.t
+      val bvsub : term_t -> term_t -> term_t EH.t
+      val bvneg : term_t -> term_t EH.t
+      val bvmul : term_t -> term_t -> term_t EH.t
+      val bvsquare : term_t -> term_t EH.t
+      val bvpower : term_t -> int -> term_t EH.t
+      val bvdiv  : term_t -> term_t -> term_t EH.t
+      val bvrem  : term_t -> term_t -> term_t EH.t
+      val bvsdiv : term_t -> term_t -> term_t EH.t
+      val bvsrem : term_t -> term_t -> term_t EH.t
+      val bvsmod : term_t -> term_t -> term_t EH.t
+      val bvnot  : term_t -> term_t EH.t
+      val bvnand : term_t -> term_t -> term_t EH.t
+      val bvnor  : term_t -> term_t -> term_t EH.t
+      val bvxnor : term_t -> term_t -> term_t EH.t
+      val bvshl  : term_t -> term_t -> term_t EH.t
+      val bvlshr : term_t -> term_t -> term_t EH.t
+      val bvashr : term_t -> term_t -> term_t EH.t
 
       (* Bitvector and/or/xor
        *
@@ -1156,9 +1173,9 @@ module Make(EH: ErrorHandling) : sig
        *    term2 = t[i]
        *    type2 = type of t[i]
        * *)
-      val bvand  : term_t list -> term_t
-      val bvor   : term_t list -> term_t
-      val bvxor  : term_t list -> term_t
+      val bvand  : term_t list -> term_t EH.t
+      val bvor   : term_t list -> term_t EH.t
+      val bvxor  : term_t list -> term_t EH.t
 
       (* Sum of n bitvector terms t[0] ... t[n-1]
        * - n must be positive
@@ -1182,7 +1199,7 @@ module Make(EH: ErrorHandling) : sig
        *    type1 = type of t[0]
        *    term2 = t[i]
        *    type2 = type of t[i] *)
-      val bvsum  : term_t list -> term_t
+      val bvsum  : term_t list -> term_t EH.t
 
       (* Product of n bitvector terms t[0] ... t[n-1]
        *
@@ -1210,7 +1227,7 @@ module Make(EH: ErrorHandling) : sig
        * if the result has degree > YICES_MAX_DEGREE
        *    code = DEGREE_OVERFLOW
        *    badval = degree *)
-      val bvproduct : term_t list -> term_t
+      val bvproduct : term_t list -> term_t EH.t
 
       (* Shift or rotation by an integer constant n
        * - shift_left0 sets the low-order bits to zero
@@ -1235,13 +1252,13 @@ module Make(EH: ErrorHandling) : sig
        * if n > size of t
        *   code = INVALID_BITSHIFT
        *   badval = n *)
-      val shift_left0  : term_t -> int -> term_t
-      val shift_left1  : term_t -> int -> term_t
-      val shift_right0 : term_t -> int -> term_t
-      val shift_right1 : term_t -> int -> term_t
-      val ashift_right : term_t -> int -> term_t
-      val rotate_left  : term_t -> int -> term_t
-      val rotate_right : term_t -> int -> term_t
+      val shift_left0  : term_t -> int -> term_t EH.t
+      val shift_left1  : term_t -> int -> term_t EH.t
+      val shift_right0 : term_t -> int -> term_t EH.t
+      val shift_right1 : term_t -> int -> term_t EH.t
+      val ashift_right : term_t -> int -> term_t EH.t
+      val rotate_left  : term_t -> int -> term_t EH.t
+      val rotate_right : term_t -> int -> term_t EH.t
 
       (* Extract a subvector of t
        * - t must be a bitvector term of size m
@@ -1259,7 +1276,7 @@ module Make(EH: ErrorHandling) : sig
        *   term1 = t
        * if i <= j <= m-1 does not hold
        *   code = INVALID_BVEXTRACT *)
-      val bvextract : term_t -> int -> int -> term_t
+      val bvextract : term_t -> int -> int -> term_t EH.t
 
       (* Concatenation
        * - t1 and t2 must be bitvector terms
@@ -1280,7 +1297,7 @@ module Make(EH: ErrorHandling) : sig
        * if the size of the result would be larger than MAX_BVSIZE
        *   code = MAX_BVSIZE_EXCEEDED
        *   badval = n1 + n2 (n1 = size of t1, n2 = size of t2) *)
-      val bvconcat2 : term_t -> term_t -> term_t
+      val bvconcat2 : term_t -> term_t -> term_t EH.t
 
       (* General form of concatenation: the input is an array of n bitvector terms
        * - n must be positive.
@@ -1302,7 +1319,7 @@ module Make(EH: ErrorHandling) : sig
        * if the size of the result would be more than YICES_MAX_BVSIZE
        *    code = MAX_BVSIZE_EXCEEDED
        *    badval = sum of the size of t[i]s *)
-      val bvconcat : term_t list -> term_t
+      val bvconcat : term_t list -> term_t EH.t
 
       (* Repeated concatenation:
        * - make n copies of t and concatenate them
@@ -1323,7 +1340,7 @@ module Make(EH: ErrorHandling) : sig
        * if n * size of t > MAX_BVSIZE
        *   code = MAX_BVSIZE_EXCEEDED
        *   badval = n * size of t *)
-      val bvrepeat : term_t -> int -> term_t
+      val bvrepeat : term_t -> int -> term_t EH.t
 
       (* Sign extension
        * - add n copies of t's sign bit
@@ -1340,7 +1357,7 @@ module Make(EH: ErrorHandling) : sig
        * if n + size of t > MAX_BVSIZE
        *   code = MAX_BVSIZE_EXCEEDED
        *   badval = n * size of t *)
-      val sign_extend : term_t -> int -> term_t
+      val sign_extend : term_t -> int -> term_t EH.t
 
       (* Zero extension
        * - add n zeros to t
@@ -1357,7 +1374,7 @@ module Make(EH: ErrorHandling) : sig
        * if n + size of t > MAX_BVSIZE
        *   code = MAX_BVSIZE_EXCEEDED
        *   badval = n * size of t *)
-      val zero_extend : term_t -> int -> term_t
+      val zero_extend : term_t -> int -> term_t EH.t
 
       (* AND-reduction:
        * if t is b[m-1] ... b[0], then the result is a bit-vector of 1 bit
@@ -1374,8 +1391,8 @@ module Make(EH: ErrorHandling) : sig
        * if t is not a bitvector
        *   code = BITVECTOR_REQUIRED
        *   term1 = t *)
-      val redand : term_t -> term_t
-      val redor : term_t -> term_t
+      val redand : term_t -> term_t EH.t
+      val redor : term_t -> term_t EH.t
 
       (* Bitwise equality comparison: if t1 and t2 are bitvectors of size n,
        * construct (bvredand (bvxnor t1 t2))
@@ -1395,7 +1412,7 @@ module Make(EH: ErrorHandling) : sig
        *   type1 = type of t1
        *   term2 = t2
        *   type2 = type of t2 *)
-      val redcomp : term_t -> term_t -> term_t
+      val redcomp : term_t -> term_t -> term_t EH.t
 
       (* Convert an array of boolean terms arg[0 ... n-1] into
        * a bitvector term of n bits
@@ -1416,7 +1433,7 @@ module Make(EH: ErrorHandling) : sig
        *    code = TYPE_MISMATCH
        *    term1 = arg[i]
        *    type1 = bool *)
-      val bvarray : term_t list -> term_t
+      val bvarray : term_t list -> term_t EH.t
 
       (* Extract bit i of vector t (as a boolean)
        * - if t is a bitvector of n bits, then i must be between 0 and n-1
@@ -1432,7 +1449,7 @@ module Make(EH: ErrorHandling) : sig
        *    term1 = t
        * if i >= t's bitsize
        *    code = INVALID_BITEXTRACT *)
-      val bitextract : term_t -> int -> term_t
+      val bitextract : term_t -> int -> term_t EH.t
 
       (* BITVECTOR ATOMS *)
 
@@ -1453,20 +1470,20 @@ module Make(EH: ErrorHandling) : sig
        *   type2 = type of t2 *)
 
       (* Equality and disequality *)
-      val bveq_atom : term_t -> term_t -> term_t
-      val bvneq_atom : term_t -> term_t -> term_t
+      val bveq_atom : term_t -> term_t -> term_t EH.t
+      val bvneq_atom : term_t -> term_t -> term_t EH.t
 
       (* Unsigned inequalities *)
-      val bvge_atom : term_t -> term_t -> term_t
-      val bvgt_atom : term_t -> term_t -> term_t
-      val bvle_atom : term_t -> term_t -> term_t
-      val bvlt_atom : term_t -> term_t -> term_t
+      val bvge_atom : term_t -> term_t -> term_t EH.t
+      val bvgt_atom : term_t -> term_t -> term_t EH.t
+      val bvle_atom : term_t -> term_t -> term_t EH.t
+      val bvlt_atom : term_t -> term_t -> term_t EH.t
 
       (* Signed inequalities *)
-      val bvsge_atom : term_t -> term_t -> term_t
-      val bvsgt_atom : term_t -> term_t -> term_t
-      val bvsle_atom : term_t -> term_t -> term_t
-      val bvslt_atom : term_t -> term_t -> term_t
+      val bvsge_atom : term_t -> term_t -> term_t EH.t
+      val bvsgt_atom : term_t -> term_t -> term_t EH.t
+      val bvsle_atom : term_t -> term_t -> term_t EH.t
+      val bvslt_atom : term_t -> term_t -> term_t EH.t
     end
 
     (*******************
@@ -1492,7 +1509,7 @@ module Make(EH: ErrorHandling) : sig
      * - VARIABLE_REQUIRED if var[i] is not a variable or an uninterpreted term
      * - TYPE_MISMATCH if map[i]'s type is not a subtype of var[i]'s type
      * - DEGREE_OVERFLOW if the substitution causes an overflow *)
-    val subst_term : (term_t*term_t) list -> term_t -> term_t
+    val subst_term : (term_t*term_t) list -> term_t -> term_t EH.t
 
     (* Apply a substitution to m terms in parallel
      * - the substitution is defined by arrays var and map:
@@ -1512,7 +1529,7 @@ module Make(EH: ErrorHandling) : sig
      * -1 if there's an error
      *
      * Error codes: as above *)
-    val subst_term_array : (term_t*term_t) list -> term_t list -> term_t
+    val subst_term_array : (term_t*term_t) list -> term_t list -> term_t EH.t
 
 
     (***********************
@@ -1524,7 +1541,7 @@ module Make(EH: ErrorHandling) : sig
      * and sets the error report:
      *   code = INVALID_TERM
      *   term1 = t *)
-    val type_of_term : term_t -> type_t
+    val type_of_term : term_t -> type_t EH.t
 
     (* Check the type of a term t:
      * - returns 0 for false, 1 for true
@@ -1536,14 +1553,14 @@ module Make(EH: ErrorHandling) : sig
      *
      * If t is not a valid term, the check functions return false
      * and set the error report as above. *)
-    val term_is_bool : term_t -> bool
-    val term_is_int : term_t -> bool
-    val term_is_real : term_t -> bool
-    val term_is_arithmetic : term_t -> bool
-    val term_is_bitvector : term_t -> bool
-    val term_is_tuple : term_t -> bool
-    val term_is_function : term_t -> bool
-    val term_is_scalar : term_t -> bool
+    val term_is_bool       : term_t -> bool EH.t
+    val term_is_int        : term_t -> bool EH.t
+    val term_is_real       : term_t -> bool EH.t
+    val term_is_arithmetic : term_t -> bool EH.t
+    val term_is_bitvector  : term_t -> bool EH.t
+    val term_is_tuple      : term_t -> bool EH.t
+    val term_is_function   : term_t -> bool EH.t
+    val term_is_scalar     : term_t -> bool EH.t
 
     (* Size of a bitvector term (i.e., number of bits)
      * - returns 0 if there's an error
@@ -1555,12 +1572,12 @@ module Make(EH: ErrorHandling) : sig
      * if t is not a bitvector term
      *    code = BITVECTOR_REQUIRED
      *    term1 = t *)
-    val term_bitsize : term_t -> int
+    val term_bitsize : term_t -> int EH.t
 
     (* Check whether t is a ground term (i.e., does not have free variables)
      *
      * Also return false and set the error report if t is not valid *)
-    val term_is_ground : term_t -> bool
+    val term_is_ground : term_t -> bool EH.t
 
     (* Internal term structure:
      *
@@ -1672,12 +1689,12 @@ module Make(EH: ErrorHandling) : sig
      * and set the error report:
      *    code = INVALID_TERM
      *    term1 = t *)
-    val term_is_atomic : term_t -> bool
-    val term_is_composite : term_t -> bool
-    val term_is_projection : term_t -> bool
-    val term_is_sum : term_t -> bool
-    val term_is_bvsum : term_t -> bool
-    val term_is_product : term_t -> bool
+    val term_is_atomic     : term_t -> bool EH.t
+    val term_is_composite  : term_t -> bool EH.t
+    val term_is_projection : term_t -> bool EH.t
+    val term_is_sum        : term_t -> bool EH.t
+    val term_is_bvsum      : term_t -> bool EH.t
+    val term_is_product    : term_t -> bool EH.t
 
     type 'a composite = private Composite
 
@@ -1730,7 +1747,7 @@ module Make(EH: ErrorHandling) : sig
 
     type t = Term : _ termstruct -> t [@@unboxed]
 
-    val reveal : term_t -> t
+    val reveal : term_t -> t EH.t
 
 
     (* Constructor of term t:
@@ -1793,7 +1810,7 @@ module Make(EH: ErrorHandling) : sig
      * (i.e., YICES_CONSTRUCTOR_ERROR) and sets the error report.
      *    code = INVALID_TERM
      *    term1 = t *)
-    val term_constructor : term_t -> term_constructor
+    val term_constructor : term_t -> term_constructor EH.t
 
     (* Number of children of term t
      * - for atomic terms, returns 0
@@ -1803,7 +1820,7 @@ module Make(EH: ErrorHandling) : sig
      * - for products, returns the number of factors
      *
      * - returns -1 if t is not a valid term and sets the error report *)
-    val term_num_children : term_t -> int
+    val term_num_children : term_t -> int EH.t
 
     (* Get i-th child of a composite term
      * - if t has n children (as returned by yices_term_num_children)
@@ -1817,7 +1834,7 @@ module Make(EH: ErrorHandling) : sig
      *    term1 = t
      * if t is not a composite, or i is not in the range [0 .. n-1]
      *    code = INVALID_TERM_OP *)
-    val term_child : term_t -> int -> term_t
+    val term_child : term_t -> int -> term_t EH.t
 
     (* Get the argument and index of a projection
      * - if t is invalid or not a projection term then
@@ -1830,8 +1847,8 @@ module Make(EH: ErrorHandling) : sig
      *    term1 = t
      * if t is not a projection
      *    code = INVALID_TERM_OP *)
-    val proj_index : term_t -> int
-    val proj_arg : term_t -> term_t
+    val proj_index : term_t -> int EH.t
+    val proj_arg   : term_t -> term_t EH.t
 
     (* Value of a constant term:
      * - these functions return 0 if t is a valid term and store t's value
@@ -1847,9 +1864,9 @@ module Make(EH: ErrorHandling) : sig
      *    term1 = t
      * if t is not of the right kind
      *    code = INVALID_TERM_OP *)
-    val bool_const_value   : term_t -> sint ptr -> unit_t
-    val bv_const_value     : term_t -> sint ptr -> unit_t
-    val scalar_const_value : term_t -> sint ptr -> unit_t
+    val bool_const_value   : term_t -> sint ptr -> unit_t EH.t
+    val bv_const_value     : term_t -> sint ptr -> unit_t EH.t
+    val scalar_const_value : term_t -> sint ptr -> unit_t EH.t
 
     (* Components of a sum t
      * - i = index (must be between 0 and t's number of children - 1)
@@ -1867,7 +1884,7 @@ module Make(EH: ErrorHandling) : sig
      *    term1 = t
      * if t is not of the right kind of the index is invalid
      *    code = INVALID_TERM_OP *)
-    val bvsum_component : term_t -> int -> sint * (term_t option)
+    val bvsum_component : term_t -> int -> (sint * (term_t option)) EH.t
 
     (* Component of power product t
      * - i = index (must be between 0 and t's arity - 1)
@@ -1882,9 +1899,9 @@ module Make(EH: ErrorHandling) : sig
      *    term1 = t
      * if t is not of the right kind or i is invalid
      *    code = INVALID_TERM_OP *)
-    val product_component : term_t -> int -> term_t * int
+    val product_component : term_t -> int -> (term_t * int) EH.t
 
-    module Names : Names with type a := [`term_t]
+    module Names : Names with type t := term_t
 
     (* Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
      * - convert an input string s to a type or term.
@@ -1894,7 +1911,7 @@ module Make(EH: ErrorHandling) : sig
      * error and set the error report. The line and column fields of the
      * error report give information about the error location. *)
 
-    val parse : string -> term_t
+    val parse : string -> term_t EH.t
 
   end
 
@@ -1955,8 +1972,8 @@ module Make(EH: ErrorHandling) : sig
 
     (* The following functions can be used to get the number of terms
      * and types currently stored in the internal data structures. *)
-    val num_terms : unit -> uint
-    val num_types : unit -> uint
+    val num_terms : unit -> int
+    val num_types : unit -> int
 
     (* Reference counting support:
      * - the functions return -1 if there's an error, 0 otherwise
@@ -1967,17 +1984,17 @@ module Make(EH: ErrorHandling) : sig
      * The decref functions also report an error if the argument has a
      * current reference count of zero. The error report's code is set to
      * BAD_TERM_DECREF or BAD_TYPE_DECREF in such a case. *)
-    val incref_term : term_t -> unit_t
-    val decref_term : term_t -> unit_t
-    val incref_type : type_t -> unit_t
-    val decref_type : type_t -> unit_t
+    val incref_term : term_t -> unit EH.t
+    val decref_term : term_t -> unit EH.t
+    val incref_type : type_t -> unit EH.t
+    val decref_type : type_t -> unit EH.t
 
     (* The following functions give the number of terms and types
      * that have a positive reference count. They return 0 if
      * no call to yices_incref_term or yices_incref_type has been
      * made. *)
-    val num_posref_terms : unit -> uint
-    val num_posref_types : unit -> uint
+    val num_posref_terms : unit -> int
+    val num_posref_types : unit -> int
 
     (* Call the garbage collector.
      * - t = optional array of terms
@@ -2091,7 +2108,7 @@ module Make(EH: ErrorHandling) : sig
 
     (* Allocate a configuration descriptor:
      * - the descriptor is set to the default configuration *)
-    val malloc : unit -> ctx_config_t ptr
+    val malloc : unit -> ctx_config_t ptr EH.t
 
     (* Deletion *)
     val free   : ctx_config_t ptr -> unit
@@ -2156,7 +2173,7 @@ module Make(EH: ErrorHandling) : sig
      * Error codes:
      *  CTX_UNKNOWN_PARAMETER if name is not a known parameter name
      *  CTX_INVALID_PARAMETER_VALUE if name is known but value does not match the parameter type *)
-    val set : ctx_config_t ptr -> name:string -> value:string -> unit_t
+    val set : ctx_config_t ptr -> name:string -> value:string -> unit EH.t
 
     (* Set config to a default solver type or solver combination for the given logic
      * - return -1 if there's an error
@@ -2233,7 +2250,7 @@ module Make(EH: ErrorHandling) : sig
      *
      *  CTX_UNKNOWN_LOGIC if logic is not a valid name
      *  CTX_LOGIC_NOT_SUPPORTED if logic is known but not supported *)
-    val default : ctx_config_t ptr -> logic:string -> unit_t
+    val default : ctx_config_t ptr -> logic:string -> unit EH.t
   end
 
   module Model : sig
@@ -2241,38 +2258,6 @@ module Make(EH: ErrorHandling) : sig
     (**************
      *   MODELS   *
      *************)
-
-    (* Build a model from ctx
-     * - keep_subst indicates whether the model should include
-     *   the eliminated variables:
-     *   keep_subst = 0 means don't keep substitutions,
-     *   keep_subst != 0 means keep them
-     * - ctx status must be STATUS_SAT or STATUS_UNKNOWN
-     *
-     * The function returns NULL if the status isn't SAT or STATUS_UNKNOWN
-     * and sets an error report (code = CTX_INVALID_OPERATION).
-     *
-     * When assertions are added to the context, the simplifications may
-     * eliminate variables (cf. simplification options above).  The flag
-     * 'keep_subst' indicates whether the model should keep track of these
-     * eliminated variables and include their value.
-     *
-     * Example: after the following assertions
-     *
-     *    (= x (bv-add y z))
-     *    (bv-gt y 0b000)
-     *    (bg-gt z 0b000)
-     *
-     * variable 'x' gets eliminated. Then a call to 'check_context' will
-     * return STATUS_SAT and we can ask for a model 'M'
-     * - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
-     * - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
-     *   based on the value of 'y' and 'z' in 'M'.
-     *
-     * It's always better to set 'keep_subst' true. The only exceptions
-     * are some of the large SMT_LIB benchmarks where millions of variables
-     * are eliminated.  In such cases, it saves memory to set 'keep_subst'
-     * false, and model construction is faster too. *)
 
     (* Delete model mdl *)
     val free : model_t ptr -> unit
@@ -2296,7 +2281,7 @@ module Make(EH: ErrorHandling) : sig
      * - code = MDL_DUPLICATE_VAR if var contains duplicate elements
      * - code = MDL_FTYPE_NOT_ALLOWED if one of var[i] has a function type
      * - code = MDL_CONSTRUCTION_FAILED: something else went wrong *)
-    val from_map : (term_t * term_t) list -> model_t ptr
+    val from_map : (term_t * term_t) list -> model_t ptr EH.t
 
     (* Collect all the uninterpreted terms that have a value in model mdl.
      * - these terms are returned in vector v
@@ -2360,7 +2345,7 @@ module Make(EH: ErrorHandling) : sig
      *   term1 = t
      *   type1 = bool (expected type)
      * + the other evaluation error codes above. *)
-    val get_bool_value : model_t ptr -> term_t -> sint ptr -> sint
+    val get_bool_value : model_t ptr -> term_t -> bool EH.t
 
     (* Value of arithmetic term t. The value can be returned as an integer, a
      * rational (pair num/den), converted to a double, or using the GMP
@@ -2372,11 +2357,11 @@ module Make(EH: ErrorHandling) : sig
      *   term1 = t
      * If t's value does not fit in the *val object
      *   code = EVAL_OVERFLOW *)
-    val get_int32_value : model_t ptr -> term_t -> sint ptr -> sint
-    val get_int64_value : model_t ptr -> term_t -> long ptr -> sint
-    val get_rational32_value : model_t ptr -> term_t -> sint ptr -> uint ptr -> sint
-    val get_rational64_value : model_t ptr -> term_t -> long ptr -> ulong ptr -> sint
-    val get_double_value : model_t ptr -> term_t -> float ptr -> sint
+    val get_int32_value      : model_t ptr -> term_t -> sint EH.t
+    val get_int64_value      : model_t ptr -> term_t -> long EH.t
+    val get_rational32_value : model_t ptr -> term_t -> (sint*uint) EH.t
+    val get_rational64_value : model_t ptr -> term_t -> (long*ulong) EH.t
+    val get_double_value     : model_t ptr -> term_t -> float EH.t
 
     (* #ifdef __GMP_H__
      * __YICES_DLLSPEC__ extern int32_t yices_get_mpz_value(model_t *mdl, term_t t, mpz_t val);
@@ -2410,7 +2395,7 @@ module Make(EH: ErrorHandling) : sig
      * If t is not a bitvector term
      *   code = BITVECTOR_REQUIRED
      *   term1 = t *)
-    val get_bv_value : model_t ptr -> term_t -> sint ptr -> sint
+    val get_bv_value : model_t ptr -> term_t -> sint EH.t
 
     (* Value of term t of uninterpreted or scalar type
      * - the value is returned as a constant index in *val
@@ -2427,7 +2412,7 @@ module Make(EH: ErrorHandling) : sig
      * - if t does not have a scalar or uninterpreted type:
      *   code = SCALAR_TERM_REQUIRED
      *   term1 = t *)
-    val get_scalar_value : model_t ptr -> term_t -> sint ptr -> sint
+    val get_scalar_value : model_t ptr -> term_t -> sint EH.t
 
 
     (* GENERIC FORM: VALUE DESCRIPTORS AND NODES *)
@@ -2514,7 +2499,7 @@ module Make(EH: ErrorHandling) : sig
      *   code = EVAL_LAMBDA
      * If the evaluation fails for other reasons:
      *   code = EVAL_FAILED *)
-    val get_value : model_t ptr -> term_t -> yval_t ptr -> unit_t
+    val get_value : model_t ptr -> term_t -> yval_t ptr EH.t
 
     (* Queries on the value of a rational node:
      * - if v->node_tag is YVAL_RATIONAL, the functions below check whether v's value
@@ -2532,36 +2517,36 @@ module Make(EH: ErrorHandling) : sig
      *    is a signed 64bit integer and den is an unsigned 64bit integer
      *
      * yices_val_is_integer: check whether v's value is an integer *)
-    val val_is_int32 : model_t ptr -> yval_t ptr -> bool
-    val val_is_int64 : model_t ptr -> yval_t ptr -> bool
-    val val_is_rational32 : model_t ptr -> yval_t ptr -> bool
-    val val_is_rational64 : model_t ptr -> yval_t ptr -> bool
-    val val_is_integer : model_t ptr -> yval_t ptr -> bool
+    val val_is_int32      : model_t ptr -> yval_t ptr -> bool EH.t
+    val val_is_int64      : model_t ptr -> yval_t ptr -> bool EH.t
+    val val_is_rational32 : model_t ptr -> yval_t ptr -> bool EH.t
+    val val_is_rational64 : model_t ptr -> yval_t ptr -> bool EH.t
+    val val_is_integer    : model_t ptr -> yval_t ptr -> bool EH.t
 
 
     (* Get the number of bits in a bv constant, the number of components in a tuple,
      * or the arity of a mapping. These function return 0 if v has the wrong tag (i.e.,
      * not a bitvector constant, or not a tuple, or not a mapping). *)
-    val val_bitsize : model_t ptr -> yval_t ptr -> uint
-    val val_tuple_arity : model_t ptr -> yval_t ptr -> uint
-    val val_mapping_arity : model_t ptr -> yval_t ptr -> uint
+    val val_bitsize       : model_t ptr -> yval_t ptr -> int EH.t
+    val val_tuple_arity   : model_t ptr -> yval_t ptr -> int EH.t
+    val val_mapping_arity : model_t ptr -> yval_t ptr -> int EH.t
 
     (* Arity of a function node. This function returns 0 if v has tag
      * other than YVAL_FUNCTION, otherwise it returns the function's
      * arity (i.e., the number of parameters that the function takes). *)
-    val val_function_arity : model_t ptr -> yval_t ptr -> uint
+    val val_function_arity : model_t ptr -> yval_t ptr -> int EH.t
 
     (* Type of a function node. This function returns -1 if v has tag
      * other than YVAL_FUNCTION. Otherwise, it returns the type of the
      * object v. *)
-    val val_function_type : model_t ptr -> yval_t ptr -> type_t
+    val val_function_type : model_t ptr -> yval_t ptr -> type_t EH.t
 
     (* Get the value of a Boolean node v.
      * - returns 0 if there's no error and store v's value in *val:
      *   *val is either 0 (for false) or 1 (for true).
      * - returns -1 if v does not have tag YVAL_BOOL and sets the error code
      *   to YVAL_INVALID_OP. *)
-    val val_get_bool : model_t ptr -> yval_t ptr -> sint ptr -> unit_t
+    val val_get_bool : model_t ptr -> yval_t ptr -> bool EH.t
 
     (* Get the value of a rational node v
      * - the functions return 0 if there's no error and store v's value in *val
@@ -2571,13 +2556,13 @@ module Make(EH: ErrorHandling) : sig
      * The error code is set to YVAL_INVALID_OP if v's tag is not YVAL_RATIONAL.
      * The error code is set to YVAL_OVERFLOW if v's value does not fit in
      * ( *val ) or in ( *num )/( *den ). *)
-    val val_get_int32 : model_t ptr -> yval_t ptr -> sint ptr -> unit_t
-    val val_get_int64 : model_t ptr -> yval_t ptr -> long ptr -> unit_t
-    val val_get_rational32 : model_t ptr -> yval_t ptr -> sint ptr -> uint ptr -> unit_t
-    val val_get_rational64 : model_t ptr -> yval_t ptr -> long ptr -> ulong ptr -> unit_t
+    val val_get_int32      : model_t ptr -> yval_t ptr -> sint EH.t
+    val val_get_int64      : model_t ptr -> yval_t ptr -> long EH.t
+    val val_get_rational32 : model_t ptr -> yval_t ptr -> (sint*uint) EH.t
+    val val_get_rational64 : model_t ptr -> yval_t ptr -> (long*ulong) EH.t
 
     (* Value converted to a floating point number *)
-    val val_get_double : model_t ptr -> yval_t ptr -> float ptr -> unit_t
+    val val_get_double : model_t ptr -> yval_t ptr -> float EH.t
 
     (* (*  * Export an algebraic number
      *  * - v->tag must be YVAL_ALGEBRAIC
@@ -2599,13 +2584,13 @@ module Make(EH: ErrorHandling) : sig
      *   every val[i] is either 0 or 1.
      * - the function returns 0 if v has tag YVAL_BV
      * - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP. *)
-    val val_get_bv : model_t ptr -> yval_t ptr -> sint ptr -> unit_t
+    val val_get_bv : model_t ptr -> yval_t ptr -> sint EH.t
 
     (* Get the value of a scalar node:
      * - the function returns 0 if v's tag is YVAL_SCALAR
      *   the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
      * - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP. *)
-    val val_get_scalar : model_t ptr -> yval_t ptr -> sint ptr -> sint ptr -> unit_t
+    val val_get_scalar : model_t ptr -> yval_t ptr -> (sint*type_t) EH.t
 
     (* Expand a tuple node:
      * - child must be an array large enough to store all children of v (i.e.,
@@ -2614,7 +2599,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * Return code = 0 if v's tag is YVAL_TUPLE.
      * Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP. *)
-    val val_expand_tuple : model_t ptr -> yval_t ptr -> yval_t ptr -> unit_t
+    val val_expand_tuple : model_t ptr -> yval_t ptr -> yval_t ptr list EH.t
 
     (* Expand a function node f
      * - the default value for f is stored in *def
@@ -2625,7 +2610,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * Return code = 0 if v's tag is YVAL_FUNCTION.
      * Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP. *)
-    val val_expand_function : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_vector_t ptr -> unit_t
+    val val_expand_function : model_t ptr -> yval_t ptr -> ((yval_t ptr) * (yval_t ptr list)) EH.t
 
     (* Expand a mapping node m
      * - the mapping is of the form [x_1 ... x_k -> v] where k = yices_val_mapping_arity(mdl, m)
@@ -2635,7 +2620,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * Return code = 0 if v's tag is YVAL_MAPPING.
      * Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP. *)
-    val val_expand_mapping : model_t ptr -> yval_t ptr -> yval_t ptr -> yval_t ptr -> unit_t
+    val val_expand_mapping : model_t ptr -> yval_t ptr -> ((yval_t ptr list) * (yval_t ptr)) EH.t
 
     (* CHECK THE VALUE OF BOOLEAN FORMULAS *)
 
@@ -2647,7 +2632,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * Error codes:
      * - same as yices_get_bool_value *)
-    val formula_true_in_model : model_t ptr -> term_t -> bool_t
+    val formula_true_in_model : model_t ptr -> term_t -> bool EH.t
 
     (* Check whether f[0 ... n-1] are all true in mdl
      * - the returned value is as in the previous function:
@@ -2660,7 +2645,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * NOTE: if n>1, it's more efficient to call this function once than to
      * call the previous function n times. *)
-    val formulas_true_in_model : model_t ptr -> uint -> term_t ptr -> bool_t
+    val formulas_true_in_model : model_t ptr -> term_t list -> bool EH.t
 
     (* CONVERSION OF VALUES TO CONSTANT TERMS *)
 
@@ -2690,7 +2675,7 @@ module Make(EH: ErrorHandling) : sig
      *   if the conversion to term fails (because it would require
      *   converting a function to a term).
      * *)   
-    val get_value_as_term : model_t ptr -> term_t -> term_t
+    val get_value_as_term : model_t ptr -> term_t -> term_t EH.t
 
     (* Get the values of terms a[0 .. n-1] in mdl and convert the values to terms.
      * - a must be an array of n terms
@@ -2702,7 +2687,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * Otherwise, the function returns -1 and sets the error report.
      * The error codes are the same as for yices_get_value_as_term. *)
-    val term_array_value : model_t ptr -> uint -> term_t ptr -> term_t ptr -> unit_t
+    val term_array_value : model_t ptr -> term_t list -> term_t list EH.t
 
     (* IMPLICANTS *)
 
@@ -2739,7 +2724,7 @@ module Make(EH: ErrorHandling) : sig
      *   EVAL_QUANTIFIER
      *   EVAL_LAMBDA
      *   EVAL_FAILED *)
-    val implicant_for_formula : model_t ptr -> term_t -> term_vector_t ptr -> unit_t
+    val implicant_for_formula : model_t ptr -> term_t -> term_t list EH.t
 
     (* Variant: compute an implicant for an array of formulas in mdl.
      * - n = size of the array
@@ -2755,7 +2740,7 @@ module Make(EH: ErrorHandling) : sig
      *    v->size = number of literals
      *    v->data contains the array of literals.
      * Otherwise, v->size is set to 0. *)
-    val implicant_for_formulas : model_t ptr -> uint -> term_t ptr -> term_vector_t ptr -> unit_t
+    val implicant_for_formulas : model_t ptr -> term_t list -> term_t list EH.t
 
     (* MODEL GENERALIZATION *)
 
@@ -2879,7 +2864,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * If there's an error (i.e., the configuration is not supported), the
      * function returns NULL and set an error code: CTX_INVALID_CONFIG. *)
-    val malloc : ctx_config_t ptr -> context_t ptr
+    val malloc : ctx_config_t ptr -> context_t ptr EH.t
 
     (* Deletion *)
     val free : context_t ptr -> unit
@@ -2910,7 +2895,7 @@ module Make(EH: ErrorHandling) : sig
      *   code = CTX_OPERATION_NOT_SUPPORTED
      * - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
      *   code = CTX_INVALID_OPERATION *)
-    val push           : context_t ptr -> unit_t
+    val push : context_t ptr -> unit EH.t
 
     (* Pop: backtrack to the previous backtrack point (i.e., the matching
      * call to yices_push).
@@ -2922,7 +2907,7 @@ module Make(EH: ErrorHandling) : sig
      * - if there's no matching push (i.e., the context stack is empty)
      *   or if the context's status is STATUS_SEARCHING
      *   code = CTX_INVALID_OPERATION *)
-    val pop            : context_t ptr -> unit_t
+    val pop  : context_t ptr -> unit EH.t
 
     (* Several options determine how much simplification is performed
      * when formulas are asserted. It's best to leave them untouched
@@ -2965,8 +2950,8 @@ module Make(EH: ErrorHandling) : sig
      *
      * Error codes:
      *  CTX_UNKNOWN_PARAMETER if the option name is not one of the above. *)
-    val enable_option  : context_t ptr -> option:string -> unit_t
-    val disable_option : context_t ptr -> option:string -> unit_t
+    val enable_option  : context_t ptr -> option:string -> unit EH.t
+    val disable_option : context_t ptr -> option:string -> unit EH.t
 
     (* Assert formula t in ctx
      * - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
@@ -2997,7 +2982,7 @@ module Make(EH: ErrorHandling) : sig
      *
      * Other error codes are defined in yices_types.h to report that t is
      * outside the logic supported by ctx. *)
-    val assert_formula : context_t ptr -> term_t -> unit_t
+    val assert_formula : context_t ptr -> term_t -> unit EH.t
 
     (* Assert an array of n formulas t[0 ... n-1]
      * - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
@@ -3006,7 +2991,7 @@ module Make(EH: ErrorHandling) : sig
      * The function returns -1 on error, 0 otherwise.
      *
      * The error report is set as in the previous function. *)
-    val assert_formulas : context_t ptr -> uint -> term_t ptr -> unit_t
+    val assert_formulas : context_t ptr -> term_t list -> unit EH.t
 
     (* Add a blocking clause: this is intended to help enumerate different models
      * for a set of assertions.
@@ -3025,7 +3010,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = CTX_INVALID_OPERATION
      * if ctx is not configured to support multiple checks
      *    code = CTX_OPERATION_NOT_SUPPORTED *)
-    val assert_blocking_clause : context_t ptr -> unit_t
+    val assert_blocking_clause : context_t ptr -> unit EH.t
 
     (* Check satisfiability: check whether the assertions stored in ctx
      * are satisfiable.
@@ -3076,7 +3061,7 @@ module Make(EH: ErrorHandling) : sig
      * If this function returns STATUS_UNSAT, then one can construct an unsat core by
      * calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
      * that's inconsistent with ctx. *)
-    val check_with_assumptions : context_t ptr -> param_t ptr -> uint -> term_t ptr -> smt_status
+    val check_with_assumptions : context_t ptr -> param_t ptr -> term_t list -> smt_status
 
     (* Interrupt the search:
      * - this can be called from a signal handler to stop the search,
@@ -3086,7 +3071,38 @@ module Make(EH: ErrorHandling) : sig
      * interrupted. Otherwise, the function does nothing. *)
     val stop : context_t ptr -> unit
 
-    val get_model : context_t ptr -> sint -> model_t ptr
+    (* Build a model from ctx
+     * - keep_subst indicates whether the model should include
+     *   the eliminated variables:
+     *   keep_subst = 0 means don't keep substitutions,
+     *   keep_subst != 0 means keep them
+     * - ctx status must be STATUS_SAT or STATUS_UNKNOWN
+     *
+     * The function returns NULL if the status isn't SAT or STATUS_UNKNOWN
+     * and sets an error report (code = CTX_INVALID_OPERATION).
+     *
+     * When assertions are added to the context, the simplifications may
+     * eliminate variables (cf. simplification options above).  The flag
+     * 'keep_subst' indicates whether the model should keep track of these
+     * eliminated variables and include their value.
+     *
+     * Example: after the following assertions
+     *
+     *    (= x (bv-add y z))
+     *    (bv-gt y 0b000)
+     *    (bg-gt z 0b000)
+     *
+     * variable 'x' gets eliminated. Then a call to 'check_context' will
+     * return STATUS_SAT and we can ask for a model 'M'
+     * - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
+     * - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
+     *   based on the value of 'y' and 'z' in 'M'.
+     *
+     * It's always better to set 'keep_subst' true. The only exceptions
+     * are some of the large SMT_LIB benchmarks where millions of variables
+     * are eliminated.  In such cases, it saves memory to set 'keep_subst'
+     * false, and model construction is faster too. *)
+    val get_model : context_t ptr -> keep_subst:bool -> model_t ptr EH.t
 
     (****************
      *  UNSAT CORE  *
@@ -3134,7 +3150,7 @@ module Make(EH: ErrorHandling) : sig
      * calling yices_free_param_structure(param). *)
 
     (* Return a parameter record initialized with default settings. *)
-    val malloc : unit -> param_t ptr
+    val malloc : unit -> param_t ptr EH.t
 
     (* Delete the record param *)
     val free : param_t ptr -> unit
@@ -3154,7 +3170,7 @@ module Make(EH: ErrorHandling) : sig
      * Error codes:
      * - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
      * - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter *)
-    val set : param_t ptr -> name:string -> value:string -> unit_t
+    val set : param_t ptr -> name:string -> value:string -> unit EH.t
 
   end
 
@@ -3196,8 +3212,8 @@ module Make(EH: ErrorHandling) : sig
      * - other errors (for both)
      *    code = OUTPUT_ERROR if writing to file f failed.
      *    in this case, errno, perror, etc. can be used for diagnostic. *)
-    val type_file : FILE.t ptr -> type_t -> width:int -> height:int -> offset:int -> unit_t
-    val term_file : FILE.t ptr -> term_t -> width:int -> height:int -> offset:int -> unit_t
+    val type_file : FILE.t ptr -> type_t -> width:int -> height:int -> offset:int -> unit EH.t
+    val term_file : FILE.t ptr -> term_t -> width:int -> height:int -> offset:int -> unit EH.t
 
     (* Pretty print an array of terms:
      * - f = output file to use
@@ -3230,7 +3246,7 @@ module Make(EH: ErrorHandling) : sig
      *    code = OUTPUT_ERROR
      * *)
     val term_array_file :
-      FILE.t ptr -> term_t list -> width:int -> height:int -> offset:int -> layout:bool -> unit_t
+      FILE.t ptr -> term_t list -> width:int -> height:int -> offset:int -> layout:bool -> unit EH.t
 
     (* Print model mdl on FILE f
      * - f must be open/writable
@@ -3266,9 +3282,9 @@ module Make(EH: ErrorHandling) : sig
      *
      * In the case of yices_print_model_fd we return 0 if successful, -1 if there is a problem converting
      * the file descriptor into a FILE* object. *)
-    val type_fd : sint -> type_t -> width:int -> height:int -> offset:int -> unit_t
-    val term_fd : sint -> term_t -> width:int -> height:int -> offset:int -> unit_t
-    val term_array_fd : sint -> term_t list -> width:int -> height:int -> offset:int -> layout:bool -> unit_t
+    val type_fd : sint -> type_t -> width:int -> height:int -> offset:int -> unit EH.t
+    val term_fd : sint -> term_t -> width:int -> height:int -> offset:int -> unit EH.t
+    val term_array_fd : sint -> term_t list -> width:int -> height:int -> offset:int -> layout:bool -> unit EH.t
     val model_fd : sint -> ?width:int -> ?height:int -> ?offset:int -> model_t ptr -> unit EH.t
 
     (* Convert type tau or term t to a string using the pretty printer.
@@ -3286,14 +3302,14 @@ module Make(EH: ErrorHandling) : sig
      *    code = INVALID_TERM
      *    term1 = t
      * *)
-    val type_string : type_t -> width:int -> height:int -> offset:int -> string
-    val term_string : term_t -> width:int -> height:int -> offset:int -> string
+    val type_string : type_t -> width:int -> height:int -> offset:int -> string EH.t
+    val term_string : term_t -> width:int -> height:int -> offset:int -> string EH.t
 
     (* Convert model to a string using the pretty printer.
      * - width, height, offset define the print area
      *
      * Returns a '\0'-terminated string otherwise. This string must be deleted
      * when no longer needed by calling yices_free_string. *)
-    val model_string : model_t ptr -> width:int -> height:int -> offset:int -> string
+    val model_string : model_t ptr -> width:int -> height:int -> offset:int -> string EH.t
   end
 end

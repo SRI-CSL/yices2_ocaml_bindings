@@ -1,6 +1,9 @@
 open High
 
+module EH = Make(ExceptionsErrorHandling)
+
 let () =
+  let open EH in
   let open Global in
   print_endline("Initialising Yices version "^version);
   init();
