@@ -21,18 +21,22 @@ But you should have yices for linking.
 #### Quick Installation (in findlib)
 
 With opam (needs 2.0 or higher):
-In the top-level directory, do something like
+In the top-level directory, build and install with the following command:
 ```opam pin add yices2_bindings .```
 
 With ocamlbuild directly:
-Follow the `build` and `install` sections of the opam file, and the `build.sh` script.
+Follow the `build` and `install` sections of the opam file; see also the `build.sh` script.
 
 #### Quick Testing (once findlib has the yices2_bindings library)
 
-In the top-level directory, do:
+In the top-level directory, build with the following command:
 ```
 ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
 ```
+
+Run with the following command:
+```yices_runtime.native```
+
 
 #### Building the documentation
 
@@ -40,6 +44,8 @@ In the top-level directory, do:
 ```
 ocamlbuild -use-ocamlfind 'src/yices2_bindings.docdir/index.html'
 ```
+You can then open `yices2_bindings.docdir/index.html` in a web browser.
+
 
 #### Note
 
