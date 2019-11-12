@@ -8,7 +8,7 @@ authors: "Stephane Graham-Lengrand <stephane.graham-lengrand@csl.sri.com>"
 # homepage: "none yet"
 # bug-reports: "no way"
 depends: [
-  "ocaml" {>= "4.06" & < "4.09"}
+  "ocaml" {>= "4.08" & < "4.09"}
   "ocamlbuild"
   "ocamlfind"
   "ctypes"
