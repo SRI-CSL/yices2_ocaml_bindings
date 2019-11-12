@@ -13,8 +13,6 @@ An ocaml library containing bindings for yices2's standard API (https://yices.cs
 
 To build the ocaml bindings library from the source, you need the following OCaml dependencies (as in the opam file): ocaml, ocamlbuild, ocamlfind, ctypes, ctypes-foreign
 
-To build the documentation, you also need: TBD
-
 Technically you don't need yices to build and install the library: the yices binary code is not in the library itself.
 But you should have yices for linking.
 
@@ -22,7 +20,9 @@ But you should have yices for linking.
 
 With opam (needs 2.0 or higher):
 In the top-level directory, build and install with the following command:
-```opam pin add yices2_bindings .```
+```
+opam pin add yices2_bindings .
+```
 
 With ocamlbuild directly:
 Follow the `build` and `install` sections of the opam file; see also the `build.sh` script.
@@ -37,6 +37,34 @@ ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
 Run with the following command:
 ```yices_runtime.native```
 
+You should get
+```
+First test, using exceptions for error handling
+Initialising Yices version 2.6.1
+Init done
+New config done
+Set config done
+New context done
+New param done
+Set param done
+SAT
+Adding assertion "false"
+UNSAT
+Exited gracefully
+
+Second test, using Result monad for error handling
+Initialising Yices version 2.6.1
+Init done
+New config done
+Set config done
+New context done
+New param done
+Set param done
+SAT
+Adding assertion "false"
+UNSAT
+Exited gracefully
+```
 
 #### Building the documentation
 
