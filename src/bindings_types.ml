@@ -219,12 +219,13 @@ module type Low = sig
 
   (* Opaque C types, only accessible through the API functions *)
   type uint_t = [`uint_t] uintbase
+  type sint_t = [`sint_t] sintbase
   type unit_t = [`unit_t] sintbase
   type bool_t = [`bool_t] sintbase
-  type sint_t = [`sint_t] sintbase
   type term_t = [`term_t] sintbase
   type type_t = [`type_t] sintbase
   val uint_t : uint_t typ
+  val sint_t : sint_t typ
   val unit_t : unit_t typ
   val bool_t : bool_t typ
   val type_t : type_t typ
@@ -251,8 +252,8 @@ module type Low = sig
        ocaml types have been introduced in Yices_types *)
     val unit             : (unit_t            , unit)             converter
     val bool             : (bool_t            , bool)             converter
-    val sint             : (sint_t            , int)              converter
     val uint             : (uint_t            , int)              converter
+    val sint             : (sint_t            , int)              converter
     val smt_status       : (smt_status_t      , smt_status)       converter
     val term_constructor : (term_constructor_t, term_constructor) converter
     val yval_tag         : (yval_tag_t        , yval_tag)         converter
@@ -2243,8 +2244,8 @@ module type Low = sig
    *    term1 = t
    * if t is not of the right kind
    *    code = INVALID_TERM_OP *)
-  val yices_bool_const_value : term_t -> sint ptr -> unit_t checkable
-  val yices_bv_const_value : term_t -> sint ptr -> unit_t checkable
+  val yices_bool_const_value   : term_t -> bool_t ptr -> unit_t checkable
+  val yices_bv_const_value     : term_t -> sint ptr -> unit_t checkable
   val yices_scalar_const_value : term_t -> sint ptr -> unit_t checkable
 
   (* Components of a sum t
@@ -3668,3 +3669,5 @@ module type Low = sig
   val yices_model_to_string : model_t ptr -> uint -> uint -> uint -> char ptr checkable
 
 end
+
+module type LowId = Low with type 'a checkable = 'a

@@ -21,6 +21,108 @@ type nonrec ytype =
 
 type 'a composite = private Composite
 
+(** Internal term structure:
+
+    - atomic terms are Boolean, bitvector, arithmetic constants,
+      and variables and uninterpreted terms (i.e., terms that
+      don't have subterms)
+
+    - composite terms are of the form
+      (constructor, number-of-children, list-of-children)
+
+    - projection terms are of the form
+      (constructor, index, child)
+
+    - a sum is a term of the form
+        a_0 t_0 + ... + a_n t_n
+      where a_0 ... a_n are rational coefficients (constant)
+      and t_0 ... t_n are arithmetic terms
+
+    - a bitvector sum is a sum
+        a_0 t_0 + ... + a_n t_n
+      where the coefficients a_0 ... a_n are bitvector constants
+      and t_0 ... t_n are bitvector terms
+
+    - a product is a term of the form t_0^d_0 x ... x t_n ^d_n
+      where d_0 ... d_n are positive exponents,
+      and t_0 ... t_n are either all arithmetic terms or all
+      bitvector terms
+
+    - the number of terms in a sum, bitvector sum, or product
+      is always positive, but it may be equal to 1. For
+      example, the expression (- x) is internally represented
+      as a sum with one monomial (-1 * x).
+
+
+    Composite terms:
+
+     if-then-else: (if c t1 t2)
+    - three children
+    - the first child is the condition c
+    - the second child is the 'then' part t1
+    - the third child is the 'else' part  t2
+
+     function application:  (apply f t1 .. t_n)
+    - n+1 children if f has arity n
+    - the first child is the function f
+    - the other children are the arguments t_1 ... t_n
+
+     function update: (update f t1 .. t_n v)
+    - n+2 children if f has arity n
+    - the first child is the function f
+    - the next n children = arguments
+    - last children = new value
+
+     tuple: (tuple t1 ... t_n)
+
+     equality: (eq t1 t2)
+
+     distinct: (distinct t1 ... t_n)
+
+     forall: (forall x_1 ... x_n p)
+    - the variables are the n first children
+    - the body p is the last child
+
+     lambda: (lambda x_1 ... x_n t)
+    - the variables are the n first children
+    - the body t is the last child
+
+     negation: (not t)
+
+     disjunction: (or t1 ... t_n)
+
+     exclusive or: (xor t1 ... t_n)
+
+     bit array: (bv-array t1 ... t_n)
+    - each t_i is a Boolean term
+    - this uses little-endian form: the first child is the
+       low-order bit, the last child is the high-order bit.
+
+     bitvector operators:
+       (bvdiv  t1 t2)    unsigned division
+       (bvrem  t1 t2)    unsigned remainder
+       (bvsdiv t1 t2)    signed division
+       (bvsrem t1 t2)    signed remainder (rounding to 0)
+       (bvsmod t1 t2)    signed remainder (rounding to -infinity)
+       (bvshl  t1 t2)    shift left
+       (bvlshr t1 t2)    logical shift right
+       (bvashr t1 t2)    arithmetic shift right
+       (bvge   t1 t2)    unsigned comparison: (t1 >= t2)
+       (bvsge  t1 t2)    signed comparison: (t1 >= t2)
+
+     arithmetic atom:
+       (ge t1 t2)   t1 >= t2
+
+
+    Projection terms:
+
+     tuple projection:  (select i t)
+    - the child t is a tuple term (of type tau_1 x ... x tau_n)
+    - i is an index between 1 and n
+
+     bit selection:  (bit i t)
+    - the child t is a bitvector term of n bits
+    - i is an index between 0 and n-1  *)
 type 'a termstruct =
   | A0 : [ `YICES_BOOL_CONSTANT
          | `YICES_ARITH_CONSTANT
@@ -1546,22 +1648,22 @@ module Make(EH: ErrorHandling) : sig
 
       (** Equality and disequality  *)
 
-      val bveq_atom : term_t -> term_t -> term_t EH.t
-      val bvneq_atom : term_t -> term_t -> term_t EH.t
+      val bveq : term_t -> term_t -> term_t EH.t
+      val bvneq : term_t -> term_t -> term_t EH.t
 
       (** Unsigned inequalities  *)
 
-      val bvge_atom : term_t -> term_t -> term_t EH.t
-      val bvgt_atom : term_t -> term_t -> term_t EH.t
-      val bvle_atom : term_t -> term_t -> term_t EH.t
-      val bvlt_atom : term_t -> term_t -> term_t EH.t
+      val bvge : term_t -> term_t -> term_t EH.t
+      val bvgt : term_t -> term_t -> term_t EH.t
+      val bvle : term_t -> term_t -> term_t EH.t
+      val bvlt : term_t -> term_t -> term_t EH.t
 
       (** Signed inequalities  *)
 
-      val bvsge_atom : term_t -> term_t -> term_t EH.t
-      val bvsgt_atom : term_t -> term_t -> term_t EH.t
-      val bvsle_atom : term_t -> term_t -> term_t EH.t
-      val bvslt_atom : term_t -> term_t -> term_t EH.t
+      val bvsge : term_t -> term_t -> term_t EH.t
+      val bvsgt : term_t -> term_t -> term_t EH.t
+      val bvsle : term_t -> term_t -> term_t EH.t
+      val bvslt : term_t -> term_t -> term_t EH.t
     end
 
     (** ****************
@@ -1632,14 +1734,14 @@ module Make(EH: ErrorHandling) : sig
         If t is not a valid term, the check functions return false
         and set the error report as above.  *)
 
-    val term_is_bool       : term_t -> bool EH.t
-    val term_is_int        : term_t -> bool EH.t
-    val term_is_real       : term_t -> bool EH.t
-    val term_is_arithmetic : term_t -> bool EH.t
-    val term_is_bitvector  : term_t -> bool EH.t
-    val term_is_tuple      : term_t -> bool EH.t
-    val term_is_function   : term_t -> bool EH.t
-    val term_is_scalar     : term_t -> bool EH.t
+    val is_bool       : term_t -> bool EH.t
+    val is_int        : term_t -> bool EH.t
+    val is_real       : term_t -> bool EH.t
+    val is_arithmetic : term_t -> bool EH.t
+    val is_bitvector  : term_t -> bool EH.t
+    val is_tuple      : term_t -> bool EH.t
+    val is_function   : term_t -> bool EH.t
+    val is_scalar     : term_t -> bool EH.t
 
     (** Size of a bitvector term (i.e., number of bits)
         - returns 0 if there's an error
@@ -1651,115 +1753,13 @@ module Make(EH: ErrorHandling) : sig
         if t is not a bitvector term
           code = BITVECTOR_REQUIRED
           term1 = t  *)
-    val term_bitsize : term_t -> int EH.t
+    val bitsize : term_t -> int EH.t
 
     (** Check whether t is a ground term (i.e., does not have free variables)
 
         Also return false and set the error report if t is not valid  *)
-    val term_is_ground : term_t -> bool EH.t
+    val is_ground : term_t -> bool EH.t
 
-    (** Internal term structure:
-
-        - atomic terms are Boolean, bitvector, arithmetic constants,
-          and variables and uninterpreted terms (i.e., terms that
-          don't have subterms)
-
-        - composite terms are of the form
-          (constructor, number-of-children, list-of-children)
-
-        - projection terms are of the form
-          (constructor, index, child)
-
-        - a sum is a term of the form
-            a_0 t_0 + ... + a_n t_n
-          where a_0 ... a_n are rational coefficients (constant)
-          and t_0 ... t_n are arithmetic terms
-
-        - a bitvector sum is a sum
-            a_0 t_0 + ... + a_n t_n
-          where the coefficients a_0 ... a_n are bitvector constants
-          and t_0 ... t_n are bitvector terms
-
-        - a product is a term of the form t_0^d_0 x ... x t_n ^d_n
-          where d_0 ... d_n are positive exponents,
-          and t_0 ... t_n are either all arithmetic terms or all
-          bitvector terms
-
-        - the number of terms in a sum, bitvector sum, or product
-          is always positive, but it may be equal to 1. For
-          example, the expression (- x) is internally represented
-          as a sum with one monomial (-1 * x).
-
-
-        Composite terms:
-
-         if-then-else: (if c t1 t2)
-        - three children
-        - the first child is the condition c
-        - the second child is the 'then' part t1
-        - the third child is the 'else' part  t2
-
-         function application:  (apply f t1 .. t_n)
-        - n+1 children if f has arity n
-        - the first child is the function f
-        - the other children are the arguments t_1 ... t_n
-
-         function update: (update f t1 .. t_n v)
-        - n+2 children if f has arity n
-        - the first child is the function f
-        - the next n children = arguments
-        - last children = new value
-
-         tuple: (tuple t1 ... t_n)
-
-         equality: (eq t1 t2)
-
-         distinct: (distinct t1 ... t_n)
-
-         forall: (forall x_1 ... x_n p)
-        - the variables are the n first children
-        - the body p is the last child
-
-         lambda: (lambda x_1 ... x_n t)
-        - the variables are the n first children
-        - the body t is the last child
-
-         negation: (not t)
-
-         disjunction: (or t1 ... t_n)
-
-         exclusive or: (xor t1 ... t_n)
-
-         bit array: (bv-array t1 ... t_n)
-        - each t_i is a Boolean term
-        - this uses little-endian form: the first child is the
-           low-order bit, the last child is the high-order bit.
-
-         bitvector operators:
-           (bvdiv  t1 t2)    unsigned division
-           (bvrem  t1 t2)    unsigned remainder
-           (bvsdiv t1 t2)    signed division
-           (bvsrem t1 t2)    signed remainder (rounding to 0)
-           (bvsmod t1 t2)    signed remainder (rounding to -infinity)
-           (bvshl  t1 t2)    shift left
-           (bvlshr t1 t2)    logical shift right
-           (bvashr t1 t2)    arithmetic shift right
-           (bvge   t1 t2)    unsigned comparison: (t1 >= t2)
-           (bvsge  t1 t2)    signed comparison: (t1 >= t2)
-
-         arithmetic atom:
-           (ge t1 t2)   t1 >= t2
-
-
-        Projection terms:
-
-         tuple projection:  (select i t)
-        - the child t is a tuple term (of type tau_1 x ... x tau_n)
-        - i is an index between 1 and n
-
-         bit selection:  (bit i t)
-        - the child t is a bitvector term of n bits
-        - i is an index between 0 and n-1  *)
 
     (** The following functions check the structure of a term_t.
         They return 0 for false, 1 for true.
@@ -1769,12 +1769,12 @@ module Make(EH: ErrorHandling) : sig
           code = INVALID_TERM
           term1 = t  *)
 
-    val term_is_atomic     : term_t -> bool EH.t
-    val term_is_composite  : term_t -> bool EH.t
-    val term_is_projection : term_t -> bool EH.t
-    val term_is_sum        : term_t -> bool EH.t
-    val term_is_bvsum      : term_t -> bool EH.t
-    val term_is_product    : term_t -> bool EH.t
+    val is_atomic     : term_t -> bool EH.t
+    val is_composite  : term_t -> bool EH.t
+    val is_projection : term_t -> bool EH.t
+    val is_sum        : term_t -> bool EH.t
+    val is_bvsum      : term_t -> bool EH.t
+    val is_product    : term_t -> bool EH.t
 
     val reveal : term_t -> yterm EH.t
 
@@ -1839,7 +1839,7 @@ module Make(EH: ErrorHandling) : sig
         (i.e., YICES_CONSTRUCTOR_ERROR) and sets the error report.
           code = INVALID_TERM
           term1 = t  *)
-    val term_constructor : term_t -> term_constructor EH.t
+    val constructor : term_t -> term_constructor EH.t
 
     (** Number of children of term t
         - for atomic terms, returns 0
@@ -1849,7 +1849,7 @@ module Make(EH: ErrorHandling) : sig
         - for products, returns the number of factors
 
         - returns -1 if t is not a valid term and sets the error report  *)
-    val term_num_children : term_t -> int EH.t
+    val num_children : term_t -> int EH.t
 
     (** Get i-th child of a composite term
         - if t has n children (as returned by yices_term_num_children)
@@ -1863,7 +1863,7 @@ module Make(EH: ErrorHandling) : sig
           term1 = t
         if t is not a composite, or i is not in the range [0 .. n-1]
           code = INVALID_TERM_OP  *)
-    val term_child : term_t -> int -> term_t EH.t
+    val child : term_t -> int -> term_t EH.t
 
     (** Get the argument and index of a projection
         - if t is invalid or not a projection term then
@@ -1895,9 +1895,9 @@ module Make(EH: ErrorHandling) : sig
         if t is not of the right kind
           code = INVALID_TERM_OP  *)
 
-    val bool_const_value   : term_t -> sint ptr -> unit_t EH.t
-    val bv_const_value     : term_t -> sint ptr -> unit_t EH.t
-    val scalar_const_value : term_t -> sint ptr -> unit_t EH.t
+    val bool_const_value   : term_t -> bool EH.t
+    val bv_const_value     : term_t -> sint EH.t
+    val scalar_const_value : term_t -> sint EH.t
 
     (** Components of a sum t
         - i = index (must be between 0 and t's number of children - 1)

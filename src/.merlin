@@ -1,0 +1,4 @@
+PKG ctypes ctypes.foreign ctypes-of-clang.ppx
+S ../_build/src
+B ../_build/src
+

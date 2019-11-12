@@ -14,9 +14,9 @@ type _ uintbase = uint
 
 (* Opaque C types, only accessible through the API functions *)
 type uint_t = [`uint_t] uintbase
+type sint_t = [`sint_t] sintbase
 type unit_t = [`unit_t] sintbase
 type bool_t = [`bool_t] sintbase
-type sint_t = [`sint_t] sintbase
 type term_t = [`term_t] sintbase
 type type_t = [`type_t] sintbase
 
@@ -30,6 +30,7 @@ type error_code_t       = uint
 let null_term = Signed.SInt.minus_one
 let null_type = Signed.SInt.minus_one
 let uint_t = uint
+let sint_t = sint
 let unit_t = sint
 let bool_t = sint
 

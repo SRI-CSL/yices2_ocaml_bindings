@@ -185,7 +185,7 @@ module SafeMake
   let (let/=) b f = (let+) (return_uint b) f
   let (let*) b f = (let+) (return_ptr b) f
 
-  let (<+>) f g x1 x2      = let+ x = f x1 x2 in g x
+  let (<+>) f g x1         = let+ x = f x1 in g x
   let (<++>) f g x1 x2     = let+ x = f x1 x2 in g x
   let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x
 
@@ -217,6 +217,17 @@ module SafeMake
   
   let carray t l = CArray.(let c = of_list t l in !>(length c), start c)
 
+  let alloc1 t f =
+    let x = allocate_n t ~count:1 in
+    let<= _ = f x in
+    return !@ x
+
+  let alloc2 t1 t2 f =
+    let x1 = allocate_n t1 ~count:1 in
+    let x2 = allocate_n t2 ~count:1 in
+    let<= _ = f x1 x2 in
+    return(!@x1,!@x2)
+
   module type Names = sig
     type t
     val set     : t -> string -> unit EH.t
@@ -243,9 +254,9 @@ module SafeMake
   end
 
   module ErrorPrint = struct
-    let print  = yices_print_error <.> return_sint
+    let print    = yices_print_error    <.> return_sint
     let print_fd = yices_print_error_fd <.> return_sint
-    let string = yices_error_string <.> toString
+    let string   = yices_error_string   <.> toString
   end
 
   module type Vector = sig
@@ -339,42 +350,42 @@ module SafeMake
     let tuple_type    = ofList1 type_t yices_tuple_type     <.> return_sint
     let function_type = ofList1 type_t yices_function_type <..> return_sint
 
-    let type_is_bool       = yices_type_is_bool <.> toBool
-    let type_is_int        = yices_type_is_int  <.> toBool
-    let type_is_real       = yices_type_is_real <.> toBool
-    let type_is_arithmetic = yices_type_is_arithmetic <.> toBool
-    let type_is_bitvector  = yices_type_is_bitvector  <.> toBool
-    let type_is_tuple      = yices_type_is_tuple      <.> toBool
-    let type_is_function   = yices_type_is_function   <.> toBool
-    let type_is_scalar     = yices_type_is_scalar <.> toBool
-    let type_is_uninterpreted = yices_type_is_uninterpreted <.> toBool
+    let is_bool       = yices_type_is_bool <.> toBool
+    let is_int        = yices_type_is_int  <.> toBool
+    let is_real       = yices_type_is_real <.> toBool
+    let is_arithmetic = yices_type_is_arithmetic <.> toBool
+    let is_bitvector  = yices_type_is_bitvector  <.> toBool
+    let is_tuple      = yices_type_is_tuple      <.> toBool
+    let is_function   = yices_type_is_function   <.> toBool
+    let is_scalar     = yices_type_is_scalar <.> toBool
+    let is_uninterpreted = yices_type_is_uninterpreted <.> toBool
     let test_subtype       = yices_test_subtype     <..> toBool
     let compatible_types   = yices_compatible_types <..> toBool
 
-    let bvtype_size       = yices_bvtype_size       <.> toIntu
-    let scalar_type_card  = yices_scalar_type_card  <.> toIntu
-    let type_num_children = yices_type_num_children <.> toInts
-    (* let type_child     = yices_type_child *)
-    let type_children     = yices_type_children <.> TypeVector.to_list
+    let bvsize       = yices_bvtype_size       <.> toIntu
+    let scalar_card  = yices_scalar_type_card  <.> toIntu
+    let num_children = yices_type_num_children <.> toInts
+    (* let child     = yices_type_child *)
+    let children     = yices_type_children <.> TypeVector.to_list
 
     let rec ifseries t = function
       | [] -> assert false
       | (f,x)::tail -> let+ b = f t in
         if b then Lazy.force x else ifseries t tail
-    
+
     let reveal t = ifseries t
-        [type_is_bool, lazy(return Bool);
-         type_is_int,  lazy(return Int);
-         type_is_real, lazy(return Real);
-         type_is_bitvector, lazy(let+ x = bvtype_size t in return(BV x));
-         type_is_scalar, lazy(return(Scalar t));
-         type_is_uninterpreted, lazy(return(Uninterpreted t));
-         type_is_tuple, lazy(let+ l = type_children t in return(Tuple l));
-         type_is_function, lazy(let+ x = type_children t in
-                                match List.rev x with
-                                | [] -> raise_error
-                                          "functions must have at least 1 child"
-                                | codom::dom -> let dom = List.rev dom in return(Fun{dom; codom}))]
+        [is_bool, lazy(return Bool);
+         is_int,  lazy(return Int);
+         is_real, lazy(return Real);
+         is_bitvector, lazy(let+ x = bvsize t in return(BV x));
+         is_scalar, lazy(return(Scalar t));
+         is_uninterpreted, lazy(return(Uninterpreted t));
+         is_tuple, lazy(let+ l = children t in return(Tuple l));
+         is_function, lazy(let+ x = children t in
+                           match List.rev x with
+                           | [] -> raise_error
+                                     "functions must have at least 1 child"
+                           | codom::dom -> let dom = List.rev dom in return(Fun{dom; codom}))]
 
     let build = function
       | Bool -> bool_type()
@@ -523,16 +534,16 @@ module SafeMake
       let redcomp = yices_redcomp <..> return_sint
       let bvarray = ofList1 term_t yices_bvarray <.> return_sint
       let bitextract t i = yices_bitextract t !>i |> return_sint
-      let bveq_atom = yices_bveq_atom <..> return_sint
-      let bvneq_atom = yices_bvneq_atom <..> return_sint
-      let bvge_atom = yices_bvge_atom <..> return_sint
-      let bvgt_atom = yices_bvgt_atom <..> return_sint
-      let bvle_atom = yices_bvle_atom <..> return_sint
-      let bvlt_atom = yices_bvlt_atom <..> return_sint
-      let bvsge_atom = yices_bvsge_atom <..> return_sint
-      let bvsgt_atom = yices_bvsgt_atom <..> return_sint
-      let bvsle_atom = yices_bvsle_atom <..> return_sint
-      let bvslt_atom = yices_bvslt_atom <..> return_sint
+      let bveq = yices_bveq_atom <..> return_sint
+      let bvneq = yices_bvneq_atom <..> return_sint
+      let bvge = yices_bvge_atom <..> return_sint
+      let bvgt = yices_bvgt_atom <..> return_sint
+      let bvle = yices_bvle_atom <..> return_sint
+      let bvlt = yices_bvlt_atom <..> return_sint
+      let bvsge = yices_bvsge_atom <..> return_sint
+      let bvsgt = yices_bvsgt_atom <..> return_sint
+      let bvsle = yices_bvsle_atom <..> return_sint
+      let bvslt = yices_bvslt_atom <..> return_sint
     end
 
     let subst_term = ofList2 term_t term_t yices_subst_term <..> return_sint
@@ -541,28 +552,28 @@ module SafeMake
 
     let type_of_term = yices_type_of_term <.> return_sint
 
-    let term_is_bool       = yices_term_is_bool <.> toBool
-    let term_is_int        = yices_term_is_int  <.> toBool
-    let term_is_real       = yices_term_is_real <.> toBool
-    let term_is_arithmetic = yices_term_is_arithmetic <.> toBool
-    let term_is_bitvector  = yices_term_is_bitvector  <.> toBool
-    let term_is_tuple      = yices_term_is_tuple      <.> toBool
-    let term_is_function   = yices_term_is_function   <.> toBool
-    let term_is_scalar     = yices_term_is_scalar     <.> toBool
+    let is_bool       = yices_term_is_bool <.> toBool
+    let is_int        = yices_term_is_int  <.> toBool
+    let is_real       = yices_term_is_real <.> toBool
+    let is_arithmetic = yices_term_is_arithmetic <.> toBool
+    let is_bitvector  = yices_term_is_bitvector  <.> toBool
+    let is_tuple      = yices_term_is_tuple      <.> toBool
+    let is_function   = yices_term_is_function   <.> toBool
+    let is_scalar     = yices_term_is_scalar     <.> toBool
 
-    let term_bitsize       = yices_term_bitsize <.> toIntu
+    let bitsize       = yices_term_bitsize <.> toIntu
 
-    let term_is_ground     = yices_term_is_ground <.> toBool
-    let term_is_atomic     = yices_term_is_atomic <.> toBool
-    let term_is_composite  = yices_term_is_composite  <.> toBool
-    let term_is_projection = yices_term_is_projection <.> toBool
-    let term_is_sum        = yices_term_is_sum     <.> toBool
-    let term_is_bvsum      = yices_term_is_bvsum   <.> toBool
-    let term_is_product    = yices_term_is_product <.> toBool
+    let is_ground     = yices_term_is_ground <.> toBool
+    let is_atomic     = yices_term_is_atomic <.> toBool
+    let is_composite  = yices_term_is_composite  <.> toBool
+    let is_projection = yices_term_is_projection <.> toBool
+    let is_sum        = yices_term_is_sum     <.> toBool
+    let is_bvsum      = yices_term_is_bvsum   <.> toBool
+    let is_product    = yices_term_is_product <.> toBool
 
-    let term_num_children  = yices_term_num_children <.> toInts
+    let num_children  = yices_term_num_children <.> toInts
 
-    let term_child t        = SInt.of_int <.> yices_term_child t <.> return_sint
+    let child t        = SInt.of_int <.> yices_term_child t <.> return_sint
     let bvsum_component t i =
       let coeff_ptr = allocate_n sint ~count:1 in
       let term_ptr = allocate_n term_t ~count:1 in
@@ -576,22 +587,22 @@ module SafeMake
       let<= _ = (SInt.of_int <.> yices_product_component t) i term_ptr exp_ptr in
       return(!@ term_ptr, !< !@ exp_ptr)
 
-    let term_args f t =
-      let+ x = term_num_children t in
+    let args f t =
+      let+ x = num_children t in
       let rec aux accu i = if i < 0 then return accu else
           let+ call = f t i in
           aux (call::accu) (i-1)
       in
       aux [] x
-    let term_children      = term_args term_child
-    let bvsum_components   = term_args bvsum_component
-    let product_components = term_args product_component
+    let children           = args child
+    let bvsum_components   = args bvsum_component
+    let product_components = args product_component
     let sum_components t   = assert false (* need GMP *)
 
     let proj_index = yices_proj_index <.> toInts
     let proj_arg   = yices_proj_arg   <.> return_sint
 
-    let term_constructor x =
+    let constructor x =
       let<= x = yices_term_constructor x in
       return(Conv.term_constructor.read x)
 
@@ -604,7 +615,7 @@ module SafeMake
       let+ index, last = aux [] l in
       return(List.rev index, last)
 
-    let reveal t = let+ c = term_constructor t in
+    let reveal t = let+ c = constructor t in
       match c with
       | `YICES_CONSTRUCTOR_ERROR -> raise_error "`YICES_CONSTRUCTOR_ERROR"
       | `YICES_BOOL_CONSTANT
@@ -626,7 +637,7 @@ module SafeMake
       | `YICES_CEIL 
       | `YICES_FLOOR 
       | `YICES_ARITH_ROOT_ATOM 
-      | `YICES_IS_INT_ATOM  as c -> let+ children = term_children t in
+      | `YICES_IS_INT_ATOM  as c -> let+ children = children t in
         begin match children with
           | [t] -> return(Term(A1(c,t)))
           | l -> raise_error("Term.reveal expected 1 argument for `YICES_IS_INT_ATOM, got "^string_of_int(List.length l)^" of them instead")
@@ -646,12 +657,12 @@ module SafeMake
       | `YICES_DIVIDES_ATOM 
       | `YICES_IDIV 
       | `YICES_IMOD 
-      | `YICES_RDIV as c -> let+ children = term_children t in
+      | `YICES_RDIV as c -> let+ children = children t in
         begin match children with
           | [a;b] -> return(Term(A2(c,a,b)))
           | l -> raise_error("Term.reveal expected 2 arguments, got "^string_of_int(List.length l)^" of them instead")
         end
-      | `YICES_ITE_TERM -> let+ children = term_children t in
+      | `YICES_ITE_TERM -> let+ children = children t in
         begin match children with
           | [a;b;c] -> return(Term(ITE(a,b,c)))
           | l -> raise_error("Term.reveal expected 3 arguments for `YICES_ITE_TERM, got "^string_of_int(List.length l)^" of them instead")
@@ -660,27 +671,27 @@ module SafeMake
       | `YICES_DISTINCT_TERM 
       | `YICES_OR_TERM 
       | `YICES_XOR_TERM
-      | `YICES_BV_ARRAY as c ->  let+ children = term_children t in
+      | `YICES_BV_ARRAY as c ->  let+ children = children t in
         return(Term(Astar(c,children)))
       | `YICES_FORALL_TERM
-      | `YICES_LAMBDA_TERM as c -> let+ children = term_children t in
+      | `YICES_LAMBDA_TERM as c -> let+ children = children t in
         let+ vars, body = get_last children in
         return(Term(Bindings{ c; vars; body}))
-      | `YICES_APP_TERM -> let+ children = term_children t in
+      | `YICES_APP_TERM -> let+ children = children t in
         begin match children with
           | h::l -> return(Term(App(h,l)))
           | [] -> raise_error("Term.reveal expected at least 1 argument for `YICES_APP_TERM, got empty list instead")
         end
-      | `YICES_UPDATE_TERM -> let+ children = term_children t in
+      | `YICES_UPDATE_TERM -> let+ children = children t in
         begin match children with
           | array::l -> let+ index, value = get_last l in
             return(Term(Update{array; index; value}))
           | [] -> raise_error("Term.reveal expected at least 2 arguments for `YICES_UPDATE_TERM, got empty list instead")
         end
-    
-    let bool_const_value   = yices_bool_const_value   <..> return_sint
-    let bv_const_value     = yices_bv_const_value     <..> return_sint
-    let scalar_const_value = yices_scalar_const_value <..> return_sint
+
+    let bool_const_value   = yices_bool_const_value   <.> alloc1 bool_t <+> (Conv.bool.read <.> return)
+    let bv_const_value     = yices_bv_const_value     <.> alloc1 sint
+    let scalar_const_value = yices_scalar_const_value <.> alloc1 sint
 
     module Names = struct
       let set x     = ofString(yices_set_term_name x) <.> toUnit
@@ -720,18 +731,7 @@ module SafeMake
     let collect_defined_terms m =
       yices_model_collect_defined_terms m |> TermVector.to_list_unit
 
-    let alloc1 t f =
-      let x = allocate_n t ~count:1 in
-      let<= _ = f x in
-      return !@ x
-
-    let alloc2 t1 t2 f =
-      let x1 = allocate_n t1 ~count:1 in
-      let x2 = allocate_n t2 ~count:1 in
-      let<= _ = f x1 x2 in
-      return(!@x1,!@x2)
-      
-    let get_bool_value  = yices_get_bool_value  <..> alloc1 bool_t <+> (fun x -> return(Conv.bool.read x))
+    let get_bool_value  = yices_get_bool_value  <..> alloc1 bool_t <++> (Conv.bool.read <.> return)
     let get_int32_value = yices_get_int32_value <..> alloc1 sint
     let get_int64_value = yices_get_int64_value <..> alloc1 long
     let get_rational32_value = yices_get_rational32_value <..> alloc2 sint uint
@@ -756,7 +756,7 @@ module SafeMake
     let val_function_arity     = yices_val_function_arity <..> toIntu
     let val_function_type      = yices_val_function_type  <..> return_sint
 
-    let val_get_bool           = yices_val_get_bool  <..> alloc1 bool_t <+> (fun x -> return(Conv.bool.read x))
+    let val_get_bool           = yices_val_get_bool  <..> alloc1 bool_t <++> (Conv.bool.read <.> return)
     let val_get_int32          = yices_val_get_int32 <..> alloc1 sint
     let val_get_int64          = yices_val_get_int64 <..> alloc1 long
     let val_get_rational32     = yices_val_get_rational32 <..> alloc2 sint uint
