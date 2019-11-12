@@ -1,6 +1,6 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-# OCampl Bindings for Yices 2 OCaml bindings
+# OCaml Bindings for Yices 2
 
 This repository provides an ocaml library containing bindings for yices2's standard API (https://yices.csl.sri.com/doc/).
 We provide two layers: of abstraction that wrap the yices C functions:
