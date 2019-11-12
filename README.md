@@ -34,6 +34,15 @@ In the top-level directory, do:
 ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
 ```
 
+#### Building the documentation
+
+In the top-level directory, do:
+```
+ocamlbuild -use-ocamlfind 'src/yices2_bindings.docdir/index.html'
+```
+
+#### Note
+
 The file that immediately refers to yices's C API (in `yices.h` of its distribution) is `src/yices_header.ml`.
 This file has been generated automatically from `yices.h` by running the ctypes-of-clang ppx (https://github.com/ujamjar/ctypes_of_clang) on file `src/yices_header_src.ml`.
 It is discouraged to edit it by hand `src/yices_header.ml`. If the yices API changes, the advised way of updating this library is to start by re-running ctypes_of_clang on `src/yices_header_src.ml` and then edit the two levels of ocaml wrappings.

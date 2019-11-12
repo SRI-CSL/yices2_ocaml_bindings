@@ -60,13 +60,77 @@ let ofList3 t1 t2 t3 f l =
     multipack (TypList.build3(t1,t2,t3)) (List.map AList.build3 l)
   in f !>(List.length l) b1 b2 b3
 
+type scalar = type_t
+type uninterpreted = type_t
+
+type nonrec ytype =
+  | Bool
+  | Int
+  | Real
+  | BV of int
+  | Scalar of scalar
+  | Uninterpreted of uninterpreted
+  | Tuple of type_t list
+  | Fun of { dom : type_t list; codom : type_t }
+
+type 'a composite = private Composite
+
+type 'a termstruct =
+  | A0 : [ `YICES_BOOL_CONSTANT
+         | `YICES_ARITH_CONSTANT
+         | `YICES_BV_CONSTANT
+         | `YICES_SCALAR_CONSTANT
+         | `YICES_VARIABLE
+         | `YICES_UNINTERPRETED_TERM ]
+         * term_t                        -> [`a0] termstruct
+  | A1 : [ `YICES_NOT_TERM
+         | `YICES_ABS
+         | `YICES_CEIL 
+         | `YICES_FLOOR 
+         | `YICES_ARITH_ROOT_ATOM 
+         | `YICES_IS_INT_ATOM ] * term_t -> [`a1] composite termstruct
+  | A2 : [ `YICES_EQ_TERM 
+         | `YICES_BV_ASHR 
+         | `YICES_BV_DIV 
+         | `YICES_BV_GE_ATOM 
+         | `YICES_BV_LSHR 
+         | `YICES_BV_REM 
+         | `YICES_BV_SDIV 
+         | `YICES_BV_SGE_ATOM 
+         | `YICES_BV_SHL 
+         | `YICES_BV_SMOD 
+         | `YICES_BV_SREM
+         | `YICES_ARITH_GE_ATOM
+         | `YICES_DIVIDES_ATOM 
+         | `YICES_IDIV 
+         | `YICES_IMOD 
+         | `YICES_RDIV ]
+         * term_t * term_t         -> [`a2] composite termstruct
+  | ITE : term_t * term_t * term_t -> [`a3] composite termstruct
+  | Astar : [ `YICES_TUPLE_TERM
+            | `YICES_DISTINCT_TERM 
+            | `YICES_OR_TERM 
+            | `YICES_XOR_TERM
+            | `YICES_BV_ARRAY ] * term_t list -> [`astar] composite termstruct
+  | Bindings : { c    : [ `YICES_FORALL_TERM | `YICES_LAMBDA_TERM ];
+                 vars : term_t list;
+                 body : term_t }              -> [`bindings] composite termstruct
+  | App    : term_t * term_t list             -> [`app]      composite termstruct
+  | Update : { array : term_t; index : term_t list; value : term_t}      -> [`update] composite termstruct
+  | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
+  | BV_Sum    : (sint * (term_t option)) list -> [`bvsum] termstruct
+  | Sum       : (sint * (term_t option)) list -> [`sum]   termstruct
+  | Product   : (term_t * int) list           -> [`prod]  termstruct
+
+type yterm = Term : _ termstruct -> yterm [@@unboxed]
+
 module Error = struct
   let code     = yices_error_code <.> Conv.error_code.read
   let report   = yices_error_report
   let clear    = yices_clear_error
 end
 
-module type ErrorHandling = sig
+module type SafeErrorHandling = sig
   type 'a checkable
   type 'a t
   val raise_error : string -> _ t
@@ -76,6 +140,8 @@ module type ErrorHandling = sig
   val return      : 'a -> 'a t
   val bind : 'a t -> ('a -> 'b t) -> 'b t
 end
+
+module type ErrorHandling = SafeErrorHandling with type 'a checkable := 'a
 
 module ExceptionsErrorHandling = struct
   type 'a t = 'a
@@ -109,7 +175,7 @@ end
 module SafeMake
     (L : Bindings_types.Low with type 'a sintbase = 'a sintbase
                              and type 'a uintbase = 'a uintbase)
-    (EH: ErrorHandling with type 'a checkable := 'a L.checkable) = struct
+    (EH: SafeErrorHandling with type 'a checkable := 'a L.checkable) = struct
 
   open L
   open EH
@@ -290,19 +356,6 @@ module SafeMake
     let type_num_children = yices_type_num_children <.> toInts
     (* let type_child     = yices_type_child *)
     let type_children     = yices_type_children <.> TypeVector.to_list
-
-    type scalar = type_t
-    type uninterpreted = type_t
-
-    type nonrec t =
-      | Bool
-      | Int
-      | Real
-      | BV of int
-      | Scalar of scalar
-      | Uninterpreted of uninterpreted
-      | Tuple of type_t list
-      | Fun of { dom : type_t list; codom : type_t }
 
     let rec ifseries t = function
       | [] -> assert false
@@ -541,57 +594,6 @@ module SafeMake
     let term_constructor x =
       let<= x = yices_term_constructor x in
       return(Conv.term_constructor.read x)
-
-    type 'a composite = private Composite
-
-    type 'a termstruct =
-      | A0 : [ `YICES_BOOL_CONSTANT
-             | `YICES_ARITH_CONSTANT
-             | `YICES_BV_CONSTANT
-             | `YICES_SCALAR_CONSTANT
-             | `YICES_VARIABLE
-             | `YICES_UNINTERPRETED_TERM ]
-             * term_t                        -> [`a0] termstruct
-      | A1 : [ `YICES_NOT_TERM
-             | `YICES_ABS
-             | `YICES_CEIL 
-             | `YICES_FLOOR 
-             | `YICES_ARITH_ROOT_ATOM 
-             | `YICES_IS_INT_ATOM ] * term_t -> [`a1] composite termstruct
-      | A2 : [ `YICES_EQ_TERM 
-             | `YICES_BV_ASHR 
-             | `YICES_BV_DIV 
-             | `YICES_BV_GE_ATOM 
-             | `YICES_BV_LSHR 
-             | `YICES_BV_REM 
-             | `YICES_BV_SDIV 
-             | `YICES_BV_SGE_ATOM 
-             | `YICES_BV_SHL 
-             | `YICES_BV_SMOD 
-             | `YICES_BV_SREM
-             | `YICES_ARITH_GE_ATOM
-             | `YICES_DIVIDES_ATOM 
-             | `YICES_IDIV 
-             | `YICES_IMOD 
-             | `YICES_RDIV ]
-             * term_t * term_t         -> [`a2] composite termstruct
-      | ITE : term_t * term_t * term_t -> [`a3] composite termstruct
-      | Astar : [ `YICES_TUPLE_TERM
-                | `YICES_DISTINCT_TERM 
-                | `YICES_OR_TERM 
-                | `YICES_XOR_TERM
-                | `YICES_BV_ARRAY ] * term_t list -> [`astar] composite termstruct
-      | Bindings : { c    : [ `YICES_FORALL_TERM | `YICES_LAMBDA_TERM ];
-                     vars : term_t list;
-                     body : term_t }              -> [`bindings] composite termstruct
-      | App    : term_t * term_t list             -> [`app]      composite termstruct
-      | Update : { array : term_t; index : term_t list; value : term_t}      -> [`update] composite termstruct
-      | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
-      | BV_Sum    : (sint * (term_t option)) list -> [`bvsum] termstruct
-      | Sum       : (sint * (term_t option)) list -> [`sum]   termstruct
-      | Product   : (term_t * int) list           -> [`prod]  termstruct
-
-    type t = Term : _ termstruct -> t [@@unboxed]
 
     let get_last l =
       let rec aux accu = function
@@ -862,5 +864,4 @@ module SafeMake
   end
 end
 
-module Make(EH: ErrorHandling with type 'a checkable := 'a) =
-  SafeMake(Low)(EH)
+module Make(EH: ErrorHandling) = SafeMake(struct include Low type 'a checkable = 'a end)(EH)
