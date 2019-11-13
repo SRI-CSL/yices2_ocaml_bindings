@@ -25,8 +25,11 @@ In the top-level directory, build and install with the following command:
 opam pin add yices2_bindings .
 ```
 
-With ocamlbuild directly:
-Follow the `build` and `install` sections of the opam file; see also the `build.sh` script.
+With ocamlbuild directly, the bindings can be build with the `build.sh` script:
+```
+ocamlbuild -use-ocamlfind src/yices2_bindings.cma src/yices2_bindings.cmxa
+```
+To install in findlib, follow the `install` section of the opam file.
 
 #### Quick Testing (once findlib has the yices2_bindings library)
 

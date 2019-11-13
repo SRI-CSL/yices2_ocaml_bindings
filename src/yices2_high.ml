@@ -1,9 +1,10 @@
 open Ctypes
 open Signed
 open Unsigned
-open Low
+open Yices2_low
 
-open Bindings_types.Common
+open Yices2_bindings_types
+open Common
     
 (* Mnemotechnic: ! represents OCaml's int.
    No possibility of error checking in unsigned int conversion *)
@@ -173,8 +174,8 @@ module SumErrorHandling = struct
 end
 
 module SafeMake
-    (L : Bindings_types.Low with type 'a sintbase = 'a sintbase
-                             and type 'a uintbase = 'a uintbase)
+    (L : Low with type 'a sintbase = 'a sintbase
+              and type 'a uintbase = 'a uintbase)
     (EH: SafeErrorHandling with type 'a checkable := 'a L.checkable) = struct
 
   open L
@@ -864,4 +865,4 @@ module SafeMake
   end
 end
 
-module Make(EH: ErrorHandling) = SafeMake(struct include Low type 'a checkable = 'a end)(EH)
+module Make(EH: ErrorHandling) = SafeMake(struct include Yices2_low type 'a checkable = 'a end)(EH)

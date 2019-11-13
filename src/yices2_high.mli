@@ -3,8 +3,8 @@ open Ctypes_static
 open Unsigned
 open Signed
 
-open Bindings_types.Common
-open Low
+open Yices2_bindings_types.Common
+open Yices2_low
 
 type scalar = type_t
 type uninterpreted = type_t

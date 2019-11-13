@@ -1,4 +1,4 @@
-open High
+open Yices2_high
 
 module EH1 = Make(ExceptionsErrorHandling)
 

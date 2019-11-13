@@ -4,7 +4,7 @@ open Unsigned
 
 let (<.>) f g x = g(f x)
 
-open Bindings_types.Common
+open Yices2_bindings_types.Common
 
 (* Type of things that yices implements as a signed int, that can be checked for error *)
 type _ sintbase = sint
@@ -39,7 +39,7 @@ let sintcheck i = Signed.SInt.(compare zero i) <= 0
 let uintcheck i = Unsigned.UInt.(compare zero i) < 0
 let ptrcheck  p = not(is_null p)
 
-include Yices_header
+include Yices2_header
 
 module type Conv64 = sig
   type t
