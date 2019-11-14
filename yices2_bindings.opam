@@ -6,7 +6,7 @@ maintainer: "Stephane Graham-Lengrand <stephane.graham-lengrand@csl.sri.com>"
 authors: "Stephane Graham-Lengrand <stephane.graham-lengrand@csl.sri.com>"
 license: "GPLv3"
 homepage: "https://github.com/SRI-CSL/yices2_ocaml_bindings"
-bug-reports: "https://github.com/SRI-CSL/yices2_ocaml_bindings"
+bug-reports: "https://github.com/SRI-CSL/yices2_ocaml_bindings/issues"
 depends: [
   "ocaml" {>= "4.08" & < "4.09"}
   "ocamlbuild"

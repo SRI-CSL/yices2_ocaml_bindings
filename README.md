@@ -81,12 +81,12 @@ You can then open `yices2_bindings.docdir/index.html` in a web browser.
 
 #### Note
 
-The file that immediately refers to yices's C API (located in `yices.h` of its distribution) is `src/yices_header.ml`.
-This file has been generated automatically from `yices.h` by running the ctypes-of-clang ppx (https://github.com/ujamjar/ctypes_of_clang) on file `src/yices_header_src.ml`.
-Editing the file, `src/yices_header.ml`, by hand is discouraged. If the yices API changes, 
+The file that immediately refers to yices's C API (located in `yices.h` of its distribution) is `src/yices2_header.ml`.
+This file has been generated automatically from `yices.h` by running the ctypes-of-clang ppx (https://github.com/disteph/ctypes_of_clang) on file `src/yices2_header_src.ml`.
+Editing the file, `src/yices2_header.ml`, by hand is discouraged. If the yices API changes, 
 then the suggested way of updating the bindings library is to 
 
-1. Rerun ctypes_of_clang on `src/yices_header_src.ml`, then 
+1. Rerun ctypes_of_clang on `src/yices2_header_src.ml`, then 
 2. Edit the two levels of ocaml wrappings.
 
 For running the ctypes-of-clang ppx, you need clang, and clang needs to find its standard libraries (stdio.h, stdint.h, etc) as well as yices.h.
