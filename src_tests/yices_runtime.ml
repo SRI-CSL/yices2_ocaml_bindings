@@ -19,20 +19,12 @@ let () =
   print_endline "New param done";
   Param.default context param;
   print_endline "Set param done";
-  begin
-    match Context.check context param with
-    | `STATUS_SAT   -> print_endline "SAT"
-    | `STATUS_UNSAT -> print_endline "UNSAT"
-    | _ -> print_endline "other"
-  end;
+  let status = Context.check context param in
+  print_endline(Common.show_smt_status status);
   print_endline "Adding assertion \"false\"";
-  let _ = Context.assert_formula context (Term.yfalse()) in
-  begin
-    match Context.check context param with
-    | `STATUS_SAT   -> print_endline "SAT"
-    | `STATUS_UNSAT -> print_endline "UNSAT"
-    | _ -> print_endline "other"
-  end;
+  let () = Context.assert_formula context (Term.yfalse()) in
+  let status = Context.check context param in
+  print_endline(Common.show_smt_status status);
   Param.free param;
   Context.free context;
   Config.free config;
@@ -50,31 +42,23 @@ let _ =
   print_endline("Initialising Yices version "^s);
   init();
   print_endline "Init done";
-  let+ config = Config.malloc () in
+  let+ config  = Config.malloc () in
   print_endline "New config done";
-  let+ _ = Config.default config ~logic:"QF_BV" in
+  let+ ()      = Config.default config ~logic:"QF_BV" in
   print_endline "Set config done";
   let+ context = Context.malloc config in
   print_endline "New context done";
-  let+ param = Param.malloc() in
+  let+ param   = Param.malloc() in
   print_endline "New param done";
   Param.default context param;
   print_endline "Set param done";
-  begin
-    match Context.check context param with
-    | `STATUS_SAT   -> print_endline "SAT"
-    | `STATUS_UNSAT -> print_endline "UNSAT"
-    | _ -> print_endline "other"
-  end;
+  let status   = Context.check context param in
+  print_endline(Common.show_smt_status status);
   print_endline "Adding assertion \"false\"";
   let+ formula = Term.yfalse() in
-  let+ _ = Context.assert_formula context formula in
-  begin
-    match Context.check context param with
-    | `STATUS_SAT   -> print_endline "SAT"
-    | `STATUS_UNSAT -> print_endline "UNSAT"
-    | _ -> print_endline "other"
-  end;
+  let+ ()      = Context.assert_formula context formula in
+  let status   = Context.check context param in
+  print_endline(Common.show_smt_status status);
   Param.free param;
   Context.free context;
   Config.free config;

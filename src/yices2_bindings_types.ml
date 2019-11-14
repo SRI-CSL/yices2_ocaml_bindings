@@ -25,7 +25,7 @@ module Common = struct
     | `STATUS_SAT
     | `STATUS_SEARCHING
     | `STATUS_UNKNOWN
-    | `STATUS_UNSAT ]
+    | `STATUS_UNSAT ] [@@deriving eq,show]
 
   type term_constructor =
     [ `YICES_ABS
@@ -71,7 +71,7 @@ module Common = struct
     | `YICES_UNINTERPRETED_TERM
     | `YICES_UPDATE_TERM
     | `YICES_VARIABLE
-    | `YICES_XOR_TERM ]
+    | `YICES_XOR_TERM ] [@@deriving eq,show]
 
   type yval_tag =
     [ `YVAL_ALGEBRAIC
@@ -82,12 +82,12 @@ module Common = struct
     | `YVAL_RATIONAL
     | `YVAL_SCALAR
     | `YVAL_TUPLE
-    | `YVAL_UNKNOWN ]
+    | `YVAL_UNKNOWN ] [@@deriving eq,show]
 
   type yices_gen_mode =
     [ `YICES_GEN_BY_PROJ
     | `YICES_GEN_BY_SUBST
-    | `YICES_GEN_DEFAULT ]
+    | `YICES_GEN_DEFAULT ] [@@deriving eq,show]
 
   type error_code = 
     [ `ARITHCONSTANT_REQUIRED
@@ -201,7 +201,7 @@ module Common = struct
     | `WRONG_NUMBER_OF_ARGUMENTS
     | `YVAL_INVALID_OP
     | `YVAL_NOT_SUPPORTED
-    | `YVAL_OVERFLOW ]
+    | `YVAL_OVERFLOW ] [@@deriving eq,show]
 
   type ('a,'b) converter = { read  : 'a -> 'b;
                              write : 'b -> 'a }

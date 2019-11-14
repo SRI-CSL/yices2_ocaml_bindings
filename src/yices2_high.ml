@@ -4,6 +4,7 @@ open Unsigned
 open Yices2_low
 
 open Yices2_bindings_types
+module Common = Common
 open Common
     
 (* Mnemotechnic: ! represents OCaml's int.
@@ -160,7 +161,8 @@ module ExceptionsErrorHandling = struct
 end
 
 module SumErrorHandling = struct
-  type error = Yices of error_code*(error_report_t ptr) | Bindings of string
+  type error = Yices of error_code*(error_report_t ptr) | Bindings of string [@@ show]
+  open Stdlib
   type 'a t = ('a, error) Result.t
   let raise_error s = Error(Bindings s)
   let aux check t =

@@ -3,9 +3,11 @@ open Ctypes_static
 open Unsigned
 open Signed
 
-open Yices2_bindings_types.Common
 open Yices2_low
 
+module Common : module type of Yices2_bindings_types.Common
+open Common
+  
 type scalar = type_t
 type uninterpreted = type_t
 
@@ -225,7 +227,7 @@ end
 
 module SumErrorHandling : sig
   type error = Yices of error_code*(error_report_t ptr) | Bindings of string
-  include ErrorHandling with type 'a t = ('a, error) Result.t
+  include ErrorHandling with type 'a t = ('a, error) Stdlib.Result.t
 end
 
 module Make(EH: ErrorHandling) : sig

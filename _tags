@@ -16,9 +16,11 @@ true: debug, optimize(3), unbox_closures
 # <src/yices_limits.{ml,mli}> : package(ctypes-of-clang.ppx)
                     
 <src/*> : package(ctypes),\
-          package(ctypes.foreign)
+          package(ctypes.foreign),\
+          package(ppx_deriving.std)
 
 <src_tests/*> : package(ctypes),\
                 package(ctypes.foreign),\
                 package(yices2_bindings),\
+                package(ppx_deriving.std),\
                 cclib(-lyices)
