@@ -51,9 +51,9 @@ Set config done
 New context done
 New param done
 Set param done
-SAT
+`STATUS_SAT
 Adding assertion "false"
-UNSAT
+`STATUS_UNSAT
 Exited gracefully
 
 Second test, using Result monad for error handling
@@ -64,9 +64,9 @@ Set config done
 New context done
 New param done
 Set param done
-SAT
+`STATUS_SAT
 Adding assertion "false"
-UNSAT
+`STATUS_UNSAT
 Exited gracefully
 ```
 
