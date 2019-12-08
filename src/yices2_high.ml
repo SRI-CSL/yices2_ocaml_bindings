@@ -4,14 +4,28 @@ open Unsigned
 open Yices2_low
 
 open Yices2_bindings_types
-module Common = Common
-open Common
 
 module List = struct
   include List
   let map f l = rev(rev_map f l) (* Tail-recursive version of map to avoid stack overflows *)
 end
-    
+
+module Common = Common
+open Common
+
+(* Type of things that yices implements as a signed int, that can be checked for error *)
+type 'a sintbase = 'a Yices2_low.sintbase 
+(* Type of things that yices implements as an unsigned int, that can be checked for error *)
+type 'a uintbase = 'a Yices2_low.uintbase
+
+(* Opaque C types, only accessible through the API functions *)
+type uint_t = [`uint_t] uintbase
+type sint_t = [`sint_t] sintbase
+type unit_t = [`unit_t] sintbase
+type bool_t = [`bool_t] sintbase
+type term_t = [`term_t] sintbase
+type type_t = [`type_t] sintbase
+
 (* Mnemotechnic: ! represents OCaml's int.
    No possibility of error checking in unsigned int conversion *)
 let (!>)  = UInt.of_int
