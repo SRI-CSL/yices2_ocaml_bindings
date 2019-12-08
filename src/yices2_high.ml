@@ -6,6 +6,11 @@ open Yices2_low
 open Yices2_bindings_types
 module Common = Common
 open Common
+
+module List = struct
+  include List
+  let map f l = rev(rev_map f l) (* Tail-recursive version of map to avoid stack overflows *)
+end
     
 (* Mnemotechnic: ! represents OCaml's int.
    No possibility of error checking in unsigned int conversion *)
@@ -32,21 +37,23 @@ module PtrList = DepList(struct type 'a t = 'a ptr end)
 
 let multipack (ids: 'a TypList.t) (l: 'a AList.t list) =
   let module ListList = DepList(struct type 'a t = 'a list end) in
-  let rec init : type a. a TypList.t -> a ListList.t = function
-    | El -> El
-    | Cons(a,b) -> Cons([], init b)
+  let rec init : type a b. a TypList.t -> (a ListList.t -> b ListList.t) -> b ListList.t
+    = fun l cont -> match l with
+    | El -> cont El
+    | Cons(_,b) -> init b (fun r -> cont(Cons([], r)))
   in
-  let rec aux : type a. a ListList.t -> a AList.t -> a ListList.t = fun a b ->
-    match a,b with
-    | El, El -> El
-    | Cons(a',a), Cons(b',b) -> Cons((b'::a'),aux a b)
+  let rec aux : type a b. a ListList.t -> a AList.t -> (a ListList.t -> b ListList.t) -> b ListList.t
+    = fun a b cont -> match a,b with
+    | El, El -> cont El
+    | Cons(a',a), Cons(b',b) -> aux a b (fun r -> cont(Cons((b'::a'),r)))
   in
-  let rec aux2 : type a. a TypList.t -> a ListList.t -> a PtrList.t = fun a b ->
-    match a, b with
-    | El,El -> El
-    | Cons(a',a),Cons(b',b) -> Cons(CArray.(start(of_list a' b')), aux2 a b)
+  let rec aux2 : type a b. a TypList.t -> a ListList.t -> (a PtrList.t -> b PtrList.t) -> b PtrList.t
+    = fun a b cont -> match a, b with
+    | El,El -> cont El
+    | Cons(a',a),Cons(b',b) -> aux2 a b (fun r -> cont(Cons(CArray.(start(of_list a' b')), r)))
   in
-  aux2 ids (List.fold_left aux (init ids) l)
+  let id x = x in
+  aux2 ids (List.fold_left (fun x y -> aux x y id) (init ids id) l) id
 
 let ofList1 t f l = 
   let PtrList.(Cons(b1,El)) = multipack (TypList.build1 t) (List.map AList.build1 l)
