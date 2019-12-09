@@ -208,9 +208,9 @@ module Common = struct
 
 end
 
-module type Low = sig
+module type Common = sig
 
-  open Common
+  include module type of Common
 
   (* Type of things that yices implements as a signed int, that can be checked for error *)
   type _ sintbase
@@ -224,6 +224,25 @@ module type Low = sig
   type bool_t = [`bool_t] sintbase
   type term_t = [`term_t] sintbase
   type type_t = [`type_t] sintbase
+
+end
+
+module type Low = sig
+
+  module Types : sig
+
+    include Common
+
+    (* C's enums *)
+    type smt_status_t
+    type term_constructor_t = [`term_constructor_t] sintbase
+    type yval_tag_t
+    type yices_gen_mode_t
+    type error_code_t
+  end
+
+  open Types
+
   val uint_t : uint_t typ
   val sint_t : sint_t typ
   val unit_t : unit_t typ
@@ -233,13 +252,6 @@ module type Low = sig
   val type_t : type_t typ
   val null_term : term_t
   val null_type : type_t
-
-  (* C's enums *)
-  type smt_status_t
-  type term_constructor_t = [`term_constructor_t] sintbase
-  type yval_tag_t
-  type yices_gen_mode_t
-  type error_code_t
 
   val smt_status_t       : smt_status_t       typ
   val term_constructor_t : term_constructor_t typ

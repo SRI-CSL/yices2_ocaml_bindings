@@ -4,29 +4,35 @@ open Unsigned
 
 let (<.>) f g x = g(f x)
 
-open Yices2_bindings_types.Common
+module Types = struct
 
-(* Type of things that yices implements as a signed int, that can be checked for error *)
-type _ sintbase = sint
+  include Yices2_low_types.Common
 
-(* Type of things that yices implements as an unsigned int, that can be checked for error *)
-type _ uintbase = uint
+  (* Type of things that yices implements as a signed int, that can be checked for error *)
+  type _ sintbase = sint
 
-(* Opaque C types, only accessible through the API functions *)
-type uint_t = [`uint_t] uintbase
-type sint_t = [`sint_t] sintbase
-type unit_t = [`unit_t] sintbase
-type bool_t = [`bool_t] sintbase
-type term_t = [`term_t] sintbase
-type type_t = [`type_t] sintbase
+  (* Type of things that yices implements as an unsigned int, that can be checked for error *)
+  type _ uintbase = uint
 
-(* C's enums *)
-type smt_status_t       = uint
-type term_constructor_t = [`term_constructor_t] sintbase
-type yval_tag_t         = uint
-type yices_gen_mode_t   = uint
-type error_code_t       = uint
+  (* Opaque C types, only accessible through the API functions *)
+  type uint_t = [`uint_t] uintbase
+  type sint_t = [`sint_t] sintbase
+  type unit_t = [`unit_t] sintbase
+  type bool_t = [`bool_t] sintbase
+  type term_t = [`term_t] sintbase
+  type type_t = [`type_t] sintbase
 
+  (* C's enums *)
+  type smt_status_t       = uint
+  type term_constructor_t = [`term_constructor_t] sintbase
+  type yval_tag_t         = uint
+  type yices_gen_mode_t   = uint
+  type error_code_t       = uint
+
+end
+
+open Types
+    
 let null_term = Signed.SInt.minus_one
 let null_type = Signed.SInt.minus_one
 let uint_t = uint

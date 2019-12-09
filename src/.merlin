@@ -1,4 +1,4 @@
-PKG ctypes ctypes.foreign ctypes-of-clang.ppx ppx_deriving.std
+PKG ctypes ctypes.foreign ctypes-of-clang.ppx ppx_deriving.std sexplib containers
 S ../_build/src
 B ../_build/src
 
