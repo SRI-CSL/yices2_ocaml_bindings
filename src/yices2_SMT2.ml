@@ -134,6 +134,8 @@ end
 
 module ParseType = struct
 
+  type t = (type_t, type_t) Cont.t
+
   let atom types s = return(
       if VarMap.mem types s then VarMap.find types s
       else match s with
@@ -158,7 +160,9 @@ end
 module ParseTerm = struct
 
   open Session
-      
+
+  type t = (term_t, term_t) Cont.t
+
   let atom session s = return
       (match s with
        | _ when Variables.mem session.variables s -> Variables.find session.variables s

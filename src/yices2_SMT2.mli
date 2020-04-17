@@ -58,13 +58,13 @@ module Session : sig
 end
 
 module ParseType : sig
-  type t := (type_t, type_t) Cont.t
+  type t = (type_t, type_t) Cont.t
   val atom  : type_t VarMap.t -> string -> t
   val parse : type_t VarMap.t -> Sexp.t -> t
 end
 
 module ParseTerm : sig
-  type t := (term_t, term_t) Cont.t
+  type t = (term_t, term_t) Cont.t
   val atom        : Session.t -> string -> t
   val right_assoc : Session.t -> (term_t -> term_t -> term_t) -> Sexp.t list -> t
   val left_assoc  : Session.t -> (term_t -> term_t -> term_t) -> Sexp.t list -> t
