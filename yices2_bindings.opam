@@ -8,7 +8,7 @@ license: "GPLv3"
 homepage: "https://github.com/SRI-CSL/yices2_ocaml_bindings"
 bug-reports: "https://github.com/SRI-CSL/yices2_ocaml_bindings/issues"
 depends: [
-  "ocaml" {>= "4.08" && < "4.11"}
+  "ocaml" {>= "4.08" & < "4.11"}
   "ocamlbuild"
   "ocamlfind"
   "ctypes"
