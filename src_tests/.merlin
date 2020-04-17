@@ -1,4 +1,5 @@
-PKG ctypes ctypes.foreign ppx_deriving.std yices2_bindings
-S ../_build/src_tests
-B ../_build/src_tests
-
+PKG ctypes ctypes.foreign sexplib containers ppx_deriving.std yices2_bindings
+S src
+S src_tests
+B _build/src
+B _build/src_tests
