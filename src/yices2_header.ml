@@ -640,6 +640,8 @@ module TMP =
           | `CTX_UTYPE_NOT_SUPPORTED -> 320L
           | `CTX_INVALID_OPERATION -> 400L
           | `CTX_OPERATION_NOT_SUPPORTED -> 401L
+          | `CTX_UNKNOWN_DELEGATE -> 420L
+          | `CTX_DELEGATE_NOT_AVAILABLE -> 421L
           | `CTX_INVALID_CONFIG -> 500L
           | `CTX_UNKNOWN_PARAMETER -> 501L
           | `CTX_INVALID_PARAMETER_VALUE -> 502L
@@ -753,6 +755,8 @@ module TMP =
            | 320L -> `CTX_UTYPE_NOT_SUPPORTED
            | 400L -> `CTX_INVALID_OPERATION
            | 401L -> `CTX_OPERATION_NOT_SUPPORTED
+           | 420L -> `CTX_UNKNOWN_DELEGATE 
+           | 421L -> `CTX_DELEGATE_NOT_AVAILABLE
            | 500L -> `CTX_INVALID_CONFIG
            | 501L -> `CTX_UNKNOWN_PARAMETER
            | 502L -> `CTX_INVALID_PARAMETER_VALUE
@@ -1620,6 +1624,9 @@ module TMP =
     let yices_term_child =
       Foreign.foreign "yices_term_child"
         (Ctypes.(@->) term_t (Ctypes.(@->) int32_t (Ctypes.returning term_t)))
+    let yices_term_children =
+      Foreign.foreign "yices_term_children"
+        (Ctypes.(@->) term_t (Ctypes.(@->) (Ctypes.ptr term_vector_t) (Ctypes.returning int32_t)))
     let yices_proj_index =
       Foreign.foreign "yices_proj_index"
         (Ctypes.(@->) term_t (Ctypes.returning int32_t))
@@ -1792,6 +1799,40 @@ module TMP =
         (Ctypes.(@->) (Ctypes.ptr model_t)
            (Ctypes.(@->) (Ctypes.ptr term_vector_t)
               (Ctypes.returning Ctypes.void)))
+    let yices_check_formula =
+      Foreign.foreign "yices_check_formula"
+        (Ctypes.(@->) term_t
+           (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+              (Ctypes.(@->) (Ctypes.ptr (Ctypes.ptr model_t))
+                 (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+                    (Ctypes.returning smt_status_t)))))
+    let yices_check_formulas =
+      Foreign.foreign "yices_check_formulas"
+        (Ctypes.(@->) (Ctypes.ptr term_t)
+           (Ctypes.(@->) uint32_t
+              (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+                 (Ctypes.(@->) (Ctypes.ptr (Ctypes.ptr model_t))
+                    (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+                       (Ctypes.returning smt_status_t))))))
+    let yices_has_delegate =
+      Foreign.foreign "yices_has_delegate"
+        (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+           (Ctypes.returning int32_t))
+    let yices_export_formula_to_dimacs =
+      Foreign.foreign "yices_export_formula_to_dimacs"
+        (Ctypes.(@->) term_t
+           (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+              (Ctypes.(@->) int32_t
+                 (Ctypes.(@->) (Ctypes.ptr smt_status_t)
+                    (Ctypes.returning int32_t)))))
+    let yices_export_formulas_to_dimacs =
+      Foreign.foreign "yices_export_formulas_to_dimacs"
+        (Ctypes.(@->) (Ctypes.ptr term_t)
+           (Ctypes.(@->) uint32_t
+              (Ctypes.(@->) (Ctypes.ptr Ctypes.char)
+                 (Ctypes.(@->) int32_t
+                    (Ctypes.(@->) (Ctypes.ptr smt_status_t)
+                       (Ctypes.returning int32_t))))))
     let yices_get_bool_value =
       Foreign.foreign "yices_get_bool_value"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -1977,6 +2018,19 @@ module TMP =
            (Ctypes.(@->) uint32_t
               (Ctypes.(@->) (Ctypes.ptr term_t)
                  (Ctypes.(@->) (Ctypes.ptr term_t) (Ctypes.returning int32_t)))))
+    let yices_model_term_support =
+      Foreign.foreign "yices_model_term_support"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) (Ctypes.ptr term_vector_t)
+                 (Ctypes.returning int32_t))))
+    let yices_model_term_array_support =
+      Foreign.foreign "yices_model_term_array_support"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) uint32_t
+              (Ctypes.(@->) (Ctypes.ptr term_t)
+                 (Ctypes.(@->) (Ctypes.ptr term_vector_t)
+                    (Ctypes.returning int32_t)))))
     let yices_implicant_for_formula =
       Foreign.foreign "yices_implicant_for_formula"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -2043,6 +2097,23 @@ module TMP =
               (Ctypes.(@->) uint32_t
                  (Ctypes.(@->) uint32_t
                     (Ctypes.(@->) uint32_t (Ctypes.returning int32_t))))))
+    let yices_print_term_values =
+      Foreign.foreign "yices_print_term_values"
+        (Ctypes.(@->) (Ctypes.ptr _FILE)
+           (Ctypes.(@->) (Ctypes.ptr model_t)
+              (Ctypes.(@->) uint32_t
+                 (Ctypes.(@->) (Ctypes.ptr term_t)
+                    (Ctypes.returning int32_t)))))
+    let yices_pp_term_values =
+      Foreign.foreign "yices_pp_term_values"
+        (Ctypes.(@->) (Ctypes.ptr _FILE)
+           (Ctypes.(@->) (Ctypes.ptr model_t)
+              (Ctypes.(@->) uint32_t
+                 (Ctypes.(@->) (Ctypes.ptr term_t)
+                    (Ctypes.(@->) uint32_t
+                       (Ctypes.(@->) uint32_t
+                          (Ctypes.(@->) uint32_t
+                             (Ctypes.returning int32_t))))))))
     let yices_pp_type_fd =
       Foreign.foreign "yices_pp_type_fd"
         (Ctypes.(@->) Ctypes.sint
@@ -2077,6 +2148,22 @@ module TMP =
               (Ctypes.(@->) uint32_t
                  (Ctypes.(@->) uint32_t
                     (Ctypes.(@->) uint32_t (Ctypes.returning int32_t))))))
+    let yices_print_term_values_fd =
+      Foreign.foreign "yices_print_term_values_fd"
+        (Ctypes.(@->) Ctypes.sint
+           (Ctypes.(@->) (Ctypes.ptr model_t)
+              (Ctypes.(@->) uint32_t
+                 (Ctypes.(@->) (Ctypes.ptr term_t)
+                    (Ctypes.returning int32_t)))))
+    let yices_pp_term_values_fd =
+      Foreign.foreign "yices_print_term_values_fd"
+        (Ctypes.(@->) Ctypes.sint
+           (Ctypes.(@->) (Ctypes.ptr model_t)
+              (Ctypes.(@->) uint32_t
+                 (Ctypes.(@->) (Ctypes.ptr term_t)
+                    (Ctypes.(@->) uint32_t
+                       (Ctypes.(@->) uint32_t
+                          (Ctypes.(@->) uint32_t (Ctypes.returning int32_t))))))))
     let yices_type_to_string =
       Foreign.foreign "yices_type_to_string"
         (Ctypes.(@->) type_t
