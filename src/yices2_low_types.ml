@@ -1906,7 +1906,7 @@ module type Low = sig
    *
    * Error codes: as above *)
   val yices_subst_term_array :
-    uint -> term_t ptr -> term_t ptr -> uint -> term_t ptr -> term_t checkable
+    uint -> term_t ptr -> term_t ptr -> uint -> term_t ptr -> unit_t checkable
 
   (************
    *  NAMES   *
@@ -2251,7 +2251,7 @@ module type Low = sig
    *
    * Since 2.6.2.
   *)
-  val yices_term_children : term_t -> term_vector_t ptr -> bool_t checkable
+  val yices_term_children : term_t -> term_vector_t ptr -> unit_t checkable
   
   (* Get the argument and index of a projection
    * - if t is invalid or not a projection term then
@@ -3197,7 +3197,7 @@ module type Low = sig
    * Other errors are possible if f can't be processed by the bitvector solver.
    *
    * Since 2.6.2. *)
-      
+
   val yices_export_formula_to_dimacs :
     term_t -> char ptr -> bool_t -> smt_status_t ptr -> bool_t checkable
 
@@ -3219,7 +3219,7 @@ module type Low = sig
 
   val yices_export_formulas_to_dimacs :
     term_t ptr -> uint -> char ptr -> bool_t -> smt_status_t ptr -> bool_t checkable
- 
+
   (***********************
    *  VALUES IN A MODEL  *
    **********************)

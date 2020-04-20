@@ -52,7 +52,7 @@ module Bindings = Make(ExceptionsErrorHandling)
 open Bindings
 
 let print verbosity i s = if verbosity >= i then print_endline s
-let print_term term = print_endline(PP.term_string term ~width:80 ~height:80 ~offset:0)
+let print_term term = print_endline(PP.term_string term ~display:{width=80;height=80;offset=0})
 
 exception Yices_SMT2_exception of string
 
@@ -376,6 +376,8 @@ module ParseInstruction = struct
   let get_model env = match env.model with
     | Some m -> m
     | None -> Context.get_model env.context ~keep_subst:true
+
+  let display = { width=80; height=80; offset=0 }
   
   let parse session sexp =
     let print = print session.verbosity in
@@ -428,17 +430,17 @@ module ParseInstruction = struct
       | "get-value", l, Some env ->
         let model = get_model env in
         let terms = List.map (fun x -> get(ParseTerm.parse session x)) l in
-        List.iter print_term (Model.term_array_value model terms);
+        List.iter print_term (Model.terms_value model terms);
         session.env := Some { env with model = Some model }
       | "get-assignment", [], Some env -> raise (Yices_SMT2_exception "TODO")
       | "get-model", [], Some env -> 
         let model = get_model env in
-        print_endline(PP.model_string model ~width:80 ~height:80 ~offset:0)
+        print_endline(PP.model_string model ~display)
       | "get-unsat-assumptions", [], Some env -> raise (Yices_SMT2_exception "TODO")
       | "get-proof", [], Some env             -> raise (Yices_SMT2_exception "Yices produces no proof")
       | "get-unsat-core", [], Some env ->
         let terms = Context.get_unsat_core env.context in
-        List.iter (fun formula -> print_endline(PP.term_string formula ~width:80 ~height:80 ~offset:0)) terms
+        List.iter (fun formula -> print_endline(PP.term_string formula ~display)) terms
       | "get-info", [ _ ], _                  -> raise (Yices_SMT2_exception "TODO")
       | "get-option", [ _ ], _                -> raise (Yices_SMT2_exception "TODO")
       | "echo", [Atom s], _                   -> print_endline s

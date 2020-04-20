@@ -3,7 +3,7 @@ open Ctypes_static
 
 open Yices2_high_types
 
-module Types : module type of Types
+module Types : module type of Types with type display = Types.display
 
 open Types
 

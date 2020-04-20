@@ -68,6 +68,8 @@ let ofList3 t1 t2 t3 f l =
     multipack (TypList.build3(t1,t2,t3)) (List.map AList.build3 l)
   in f !>(List.length l) b1 b2 b3
 
+let swap f a b = f b a
+    
 module Error = struct
   let code     = yices_error_code <.> Conv.error_code.read
   let report   = yices_error_report
@@ -82,7 +84,7 @@ module type SafeErrorHandling = sig
   val return_uint : 'a uintbase checkable -> 'a uintbase t
   val return_ptr  : 'a ptr checkable -> 'a ptr t
   val return      : 'a -> 'a t
-  val bind : 'a t -> ('a -> 'b t) -> 'b t
+  val bind        : 'a t -> ('a -> 'b t) -> 'b t
 end
 
 module type ErrorHandling = SafeErrorHandling with type 'a checkable := 'a
@@ -125,11 +127,13 @@ module SafeMake
   open L
   open EH
 
+  (* Monadic let constructions for error handling *)
   let (let+) = bind
   let (let<=) b f = (let+) (return_sint b) f
   let (let/=) b f = (let+) (return_uint b) f
-  let (let*) b f = (let+) (return_ptr b) f
+  let (let*) b f  = (let+) (return_ptr b) f
 
+  (* Composition operators for error handling *)
   let (<+>) f g x1         = let+ x = f x1 in g x
   let (<++>) f g x1 x2     = let+ x = f x1 x2 in g x
   let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x
@@ -142,14 +146,19 @@ module SafeMake
 
   (* Conversions to/from strings *)
   (* Mnemotechnic: ? represents Ocaml's string, / represents freeing memory *)
+
+  (* Raw conversion from char pointers to strings *)
   let toStringR x = return(coerce (ptr char) string x)
-      
+
+  (* Conversion from char pointers with error handling to a string; the char pointer is freed *)
   let toString x =
     let* x = x in
     let+ r = toStringR x in
     yices_free_string x;
     return r
-      
+
+  (* Conversion from string to char pointer;
+     I think the char pointer is automatically freed by garbage collection *)
   let (?>) = coerce string (ptr char)
   let ofString f x = f ?>x
 
@@ -159,20 +168,24 @@ module SafeMake
   (* Conversions to int *)
   let toInts x = let<= x = x in return(Conv.sint.read x)
   let toIntu x = let/= x = x in return(Conv.uint.read x)
-  
+
+  (* Turn list into pointer+size; t specifies the type of elelments *)
   let carray t l = CArray.(let c = of_list t l in !>(length c), start c)
 
+  (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
   let alloc1 t f =
     let x = allocate_n t ~count:1 in
-    let<= _ = f x in
-    return !@ x
+    let<= (_ : unit_t) = f x in
+    return !@x
 
   let alloc2 t1 t2 f =
     let x1 = allocate_n t1 ~count:1 in
     let x2 = allocate_n t2 ~count:1 in
-    let<= _ = f x1 x2 in
+    let<= (_ : unit_t) = f x1 x2 in
     return(!@x1,!@x2)
 
+  (* Yices High-level bindings *)
+  
   module type Names = sig
     type t
     val set     : t -> string -> unit EH.t
@@ -492,8 +505,12 @@ module SafeMake
     end
 
     let subst_term = ofList2 term_t term_t yices_subst_term <..> return_sint
-    let subst_term_array l =
-      ofList1 term_t (ofList2 term_t term_t yices_subst_term_array l) <.> return_sint
+    let subst_terms l =
+      let aux len ptr =
+        let+ () = ofList2 term_t term_t yices_subst_term_array l len ptr |> toUnit in
+        CArray.(from_ptr ptr !<len |> to_list |> return)
+      in 
+      ofList1 term_t aux
 
     let type_of_term = yices_type_of_term <.> return_sint
 
@@ -518,7 +535,9 @@ module SafeMake
 
     let num_children  = yices_term_num_children <.> toInts
 
-    let child t        = SInt.of_int <.> yices_term_child t <.> return_sint
+    let child t       = SInt.of_int <.> yices_term_child t <.> return_sint
+    let children      = yices_term_children <.> TermVector.to_list
+
     let bvsum_component t i =
       let coeff_ptr = allocate_n sint ~count:1 in
       let term_ptr = allocate_n term_t ~count:1 in
@@ -539,7 +558,6 @@ module SafeMake
           aux (call::accu) (i-1)
       in
       aux [] x
-    let children           = args child
     let bvsum_components   = args bvsum_component
     let product_components = args product_component
     let sum_components t   = assert false (* need GMP *)
@@ -639,11 +657,11 @@ module SafeMake
     let scalar_const_value = yices_scalar_const_value <.> alloc1 sint
 
     module Names = struct
-      let set x     = ofString(yices_set_term_name x) <.> toUnit
-      let remove    = ofString yices_remove_term_name
-      let clear     = yices_clear_term_name <.> toUnit
-      let of_name   = ofString yices_get_term_by_name <.> return_sint
-      let to_name   = yices_get_term_name <.> toString
+      let set     = yices_set_term_name <.> ofString <..> toUnit
+      let remove  = yices_remove_term_name |> ofString
+      let clear   = yices_clear_term_name <.> toUnit
+      let of_name = ofString yices_get_term_by_name <.> return_sint
+      let to_name = yices_get_term_name <.> toString
     end
 
     let parse = ofString yices_parse_term <.> return_sint
@@ -651,8 +669,8 @@ module SafeMake
   end
 
   module GC = struct
-    let num_terms = yices_num_terms <.> UInt.to_int
-    let num_types = yices_num_types <.> UInt.to_int
+    let num_terms   = yices_num_terms <.> UInt.to_int
+    let num_types   = yices_num_types <.> UInt.to_int
     let incref_term = yices_incref_term <.> toUnit
     let decref_term = yices_decref_term <.> toUnit
     let incref_type = yices_incref_type <.> toUnit
@@ -676,6 +694,43 @@ module SafeMake
     let collect_defined_terms m =
       yices_model_collect_defined_terms m |> TermVector.to_list_unit
 
+    let (??>) = function
+      | Some logic -> ?>logic
+      | None -> null |> from_voidp char
+      
+    let check_formula ?logic ?(model=false) ?delegate term =
+      let model_ptr =
+        if model then allocate (ptr model_t) (null |> from_voidp model_t)
+        else null |> from_voidp (ptr model_t)
+      in
+      let status = yices_check_formula term ??>logic model_ptr ??>delegate in
+      (status, if model then Some !@model_ptr else None)
+
+    let check_formulas ?logic ?(model=false) ?delegate terms =
+      let model_ptr =
+        if model then allocate (ptr model_t) (null |> from_voidp model_t)
+        else null |> from_voidp (ptr model_t)
+      in
+      let status =
+        (yices_check_formulas |> swap |> ofList1 term_t) terms ??>logic model_ptr ??>delegate
+      in
+      (status, if model then Some !@model_ptr else None)
+
+    let has_delegate = yices_has_delegate |> ofString <.> toBool 
+
+    let export_formula_to_dimacs term ~filename ~simplify =
+      let x = allocate_n smt_status_t ~count:1 in
+      let<= b = (yices_export_formula_to_dimacs term ?>filename (Conv.bool.write simplify)) x in
+      return (!@x, Conv.bool.read b)
+
+    let export_formulas_to_dimacs terms ~filename ~simplify =
+      let x = allocate_n smt_status_t ~count:1 in
+      let<= b =
+        ((yices_export_formulas_to_dimacs |> swap |> ofList1 term_t)
+           terms ?>filename (Conv.bool.write simplify)) x
+      in
+      return (!@x, Conv.bool.read b)
+    
     let get_bool_value  = yices_get_bool_value  <..> alloc1 bool_t <++> (Conv.bool.read <.> return)
     let get_int32_value = yices_get_int32_value <..> alloc1 sint
     let get_int64_value = yices_get_int64_value <..> alloc1 long
@@ -686,7 +741,7 @@ module SafeMake
     let get_scalar_value = yices_get_scalar_value <..> alloc1 sint
     let get_value m t    =
       let x = allocate_n yval_t ~count:1 in
-      let<= _ = yices_get_value m t x in
+      let<= (_:unit_t) = yices_get_value m t x in
       return x
 
     let val_is_int32           = yices_val_is_int32      <..> toBool
@@ -712,7 +767,7 @@ module SafeMake
     let val_expand_tuple m t   =
       let+ arity = val_tuple_arity m t in
       let c = CArray.make yval_t arity in
-      let<= _ = yices_val_expand_tuple m t (CArray.start c) in
+      let<= (_:unit_t) = yices_val_expand_tuple m t (CArray.start c) in
       return(CArray.to_list c |> List.map addr)
     let val_expand_function m t =
       let x = allocate_n yval_t ~count:1 in
@@ -722,24 +777,28 @@ module SafeMake
       let+ arity = val_mapping_arity m t in
       let c = CArray.make yval_t arity in
       let x = allocate_n yval_t ~count:1 in
-      let<= _ = yices_val_expand_mapping m t (CArray.start c) x in
+      let<= (_:unit_t) = yices_val_expand_mapping m t (CArray.start c) x in
       return(CArray.to_list c |> List.map addr, x)
       
     let formula_true_in_model  = yices_formula_true_in_model <..> toBool
     let formulas_true_in_model = yices_formulas_true_in_model <.> ofList1 term_t <..> toBool
     let get_value_as_term      = yices_get_value_as_term     <..> return_sint
-    let term_array_value m l   =
+    let terms_value m l   =
       let n = List.length l in 
       let c = CArray.make term_t n in
-      let<= _ = (yices_term_array_value m |> ofList1 term_t) l (CArray.start c) in
+      let<= (_:unit_t) = (yices_term_array_value m |> ofList1 term_t) l (CArray.start c) in
       return(CArray.to_list c)
 
+    let model_term_support  = yices_model_term_support <..> TermVector.to_list
+    let model_terms_support =
+      yices_model_term_array_support <.> ofList1 term_t <..> TermVector.to_list
+    
     let implicant_for_formula  = yices_implicant_for_formula <..> TermVector.to_list
     let implicant_for_formulas = yices_implicant_for_formulas <.> ofList1 term_t <..> TermVector.to_list
     let generalize_model m t l gen =
       (yices_generalize_model m t |> ofList1 term_t) l (Conv.yices_gen_mode.write gen)
       |> TermVector.to_list
-    let generalize_model_array  m l1 l2 gen =
+    let generalize_model_list m l1 l2 gen =
       ((yices_generalize_model_array m |> ofList1 term_t) l1
        |> ofList1 term_t) l2 (Conv.yices_gen_mode.write gen)
       |> TermVector.to_list
@@ -774,37 +833,59 @@ module SafeMake
 
   module PP = struct
 
-    let type_file file t ~width ~height ~offset
-      = yices_pp_type file t !>width !>height !>offset |> toUnit
-    let term_file file t ~width ~height ~offset
-      = yices_pp_term file t !>width !>height !>offset |> toUnit
-    let term_array_file file l ~width ~height ~offset ~layout
-      = (yices_pp_term_array file |> ofList1 term_t) l !>width !>height !>offset (Conv.bool.write layout) |> toUnit
-    let model_file file ?width ?height ?offset t
-      = match width, height, offset with
-      | Some width, Some height, Some offset ->
+    let type_file file t ~display
+      = yices_pp_type file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let term_file file t ~display
+      = yices_pp_term file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let terms_file file l ~display ~layout
+      = (yices_pp_term_array file |>
+         ofList1 term_t) l !>(display.width) !>(display.height) !>(display.offset)
+        (Conv.bool.write layout) |> toUnit
+    let model_file file ?display t
+      = match display with
+      | Some {width; height; offset} ->
         yices_pp_model file t !>width !>height !>offset |> toUnit
       | _ ->  return(yices_print_model file t)
-
-    let type_fd fd t ~width ~height ~offset
-      = yices_pp_type_fd fd t !>width !>height !>offset |> toUnit
-    let term_fd fd t ~width ~height ~offset
-      = yices_pp_term_fd fd t !>width !>height !>offset |> toUnit
-    let term_array_fd fd t ~width ~height ~offset ~layout
-      = (yices_pp_term_array_fd fd |> ofList1 term_t) t !>width !>height !>offset
+    let term_values_file file ?display model terms =
+      match display with
+      | Some {width; height; offset} ->
+        (yices_pp_term_values file model |> ofList1 term_t) terms
+          !>width !>height !>offset |> toUnit
+      | None ->
+        (yices_print_term_values file model |> ofList1 term_t) terms
+        |> toUnit
+    
+    let type_fd fd t ~display
+      = yices_pp_type_fd fd t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let term_fd fd t ~display
+      = yices_pp_term_fd fd t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let terms_fd fd t ~display ~layout
+      = (yices_pp_term_array_fd fd |> ofList1 term_t) t
+        !>(display.width) !>(display.height) !>(display.offset)
         (Conv.bool.write layout) |> toUnit
-    let model_fd fd ?width ?height ?offset t
-      = match width, height, offset with
-      | Some width, Some height, Some offset ->
+    let model_fd fd ?display t
+      = match display with
+      | Some {width; height; offset} ->
         yices_pp_model_fd fd t !>width !>height !>offset |> toUnit
       | _ ->  yices_print_model_fd fd t |> toUnit
+    let term_values_fd fd ?display model terms =
+      match display with
+      | Some {width; height; offset} ->
+        (yices_pp_term_values_fd fd model |> ofList1 term_t) terms
+          !>width !>height !>offset |> toUnit
+      | None ->
+        (yices_print_term_values_fd fd model |> ofList1 term_t) terms
+        |> toUnit
 
-    let type_string t ~width ~height ~offset
-      = yices_type_to_string t !>width !>height !>offset |> toString
-    let term_string t ~width ~height ~offset
-      = yices_term_to_string t !>width !>height !>offset |> toString
-    let model_string t ~width ~height ~offset
-      = yices_model_to_string t !>width !>height !>offset |> toString
+    let type_string t ~display
+      = yices_type_to_string t !>(display.width) !>(display.height) !>(display.offset)
+        |> toString
+    let term_string t ~display
+      = yices_term_to_string t !>(display.width) !>(display.height) !>(display.offset)
+        |> toString
+    let model_string t ~display
+      = yices_model_to_string t !>(display.width) !>(display.height) !>(display.offset)
+        |> toString
 
   end
 end
