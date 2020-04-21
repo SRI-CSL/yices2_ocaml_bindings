@@ -8,26 +8,29 @@ module Types = struct
 
   include Yices2_low_types.Common
 
+  let equal_sint = SInt.equal
+  let equal_uint = UInt.equal
+
   (* Type of things that yices implements as a signed int, that can be checked for error *)
-  type _ sintbase = sint
+  type 'a sintbase = sint [@@deriving eq]
 
   (* Type of things that yices implements as an unsigned int, that can be checked for error *)
-  type _ uintbase = uint
+  type 'a uintbase = uint [@@deriving eq]
 
   (* Opaque C types, only accessible through the API functions *)
-  type uint_t = [`uint_t] uintbase
-  type sint_t = [`sint_t] sintbase
-  type unit_t = [`unit_t] sintbase
-  type bool_t = [`bool_t] sintbase
-  type term_t = [`term_t] sintbase
-  type type_t = [`type_t] sintbase
+  type uint_t = [`uint_t] uintbase [@@deriving eq]
+  type sint_t = [`sint_t] sintbase [@@deriving eq]
+  type unit_t = [`unit_t] sintbase [@@deriving eq]
+  type bool_t = [`bool_t] sintbase [@@deriving eq]
+  type term_t = [`term_t] sintbase [@@deriving eq]
+  type type_t = [`type_t] sintbase [@@deriving eq]
 
   (* C's enums *)
-  type smt_status_t       = uint
-  type term_constructor_t = [`term_constructor_t] sintbase
-  type yval_tag_t         = uint
-  type yices_gen_mode_t   = uint
-  type error_code_t       = uint
+  type smt_status_t       = uint [@@deriving eq]
+  type term_constructor_t = [`term_constructor_t] sintbase [@@deriving eq]
+  type yval_tag_t         = uint [@@deriving eq]
+  type yices_gen_mode_t   = uint [@@deriving eq]
+  type error_code_t       = uint [@@deriving eq]
 
 end
 

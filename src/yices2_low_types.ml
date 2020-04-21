@@ -220,12 +220,12 @@ module type Common = sig
   type _ uintbase
 
   (* Opaque C types, only accessible through the API functions *)
-  type uint_t = [`uint_t] uintbase
-  type sint_t = [`sint_t] sintbase
-  type unit_t = [`unit_t] sintbase
-  type bool_t = [`bool_t] sintbase
-  type term_t = [`term_t] sintbase
-  type type_t = [`type_t] sintbase
+  type uint_t = [`uint_t] uintbase [@@deriving eq]
+  type sint_t = [`sint_t] sintbase [@@deriving eq]
+  type unit_t = [`unit_t] sintbase [@@deriving eq]
+  type bool_t = [`bool_t] sintbase [@@deriving eq]
+  type term_t = [`term_t] sintbase [@@deriving eq]
+  type type_t = [`type_t] sintbase [@@deriving eq]
 
 end
 
@@ -236,11 +236,11 @@ module type Low = sig
     include Common
 
     (* C's enums *)
-    type smt_status_t
-    type term_constructor_t = [`term_constructor_t] sintbase
-    type yval_tag_t
-    type yices_gen_mode_t
-    type error_code_t
+    type smt_status_t [@@deriving eq]
+    type term_constructor_t = [`term_constructor_t] sintbase [@@deriving eq]
+    type yval_tag_t [@@deriving eq]
+    type yices_gen_mode_t [@@deriving eq]
+    type error_code_t [@@deriving eq]
   end
 
   open Types
