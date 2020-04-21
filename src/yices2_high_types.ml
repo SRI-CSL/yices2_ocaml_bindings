@@ -192,9 +192,9 @@ module Types = struct
 
   type error_report = {
     badval : int;
-    code : int;
+    code   : error_code;
     column : int;
-    line : int;
+    line  : int;
     term1 : term_t;
     term2 : term_t;
     type1 : type_t;

@@ -321,7 +321,7 @@ module type Low = sig
   val error_report_s :
     < ctype : error_report_t typ;
       members : < badval : (Signed.long, error_report_t) field;
-                  code : (Unsigned.uint, error_report_t) field;
+                  code : (error_code_t, error_report_t) field;
                   column : (Unsigned.uint, error_report_t)
                       field;
                   line : (Unsigned.uint, error_report_t) field;

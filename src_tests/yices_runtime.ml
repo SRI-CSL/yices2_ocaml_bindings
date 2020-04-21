@@ -19,11 +19,11 @@ let () =
   print_endline "New param done";
   Param.default context param;
   print_endline "Set param done";
-  let status = Context.check context param in
+  let status = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   print_endline "Adding assertion \"false\"";
   let () = Context.assert_formula context (Term.yfalse()) in
-  let status = Context.check context param in
+  let status = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   Param.free param;
   Context.free context;
@@ -52,12 +52,12 @@ let _ =
   print_endline "New param done";
   Param.default context param;
   print_endline "Set param done";
-  let status   = Context.check context param in
+  let status   = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   print_endline "Adding assertion \"false\"";
   let+ formula = Term.yfalse() in
   let+ ()      = Context.assert_formula context formula in
-  let status   = Context.check context param in
+  let status   = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   Param.free param;
   Context.free context;
@@ -65,3 +65,7 @@ let _ =
   exit();
   print_endline "Exited gracefully";
   SumErrorHandling.return()
+
+let () = Context_test.test_config()
+let () = Context_test.test_context()
+let () = Error_test.test()
