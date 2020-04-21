@@ -299,14 +299,14 @@ module SafeMake
 
   module Type = struct
 
-    let bool_type = yices_bool_type <.> return_sint
-    let int_type  = yices_int_type  <.> return_sint
-    let real_type = yices_real_type <.> return_sint
-    let bv_type i = yices_bv_type !>i |> return_sint
-    let new_scalar_type ~card  = yices_new_scalar_type !>card |> return_sint
-    let new_uninterpreted_type = yices_new_uninterpreted_type <.> return_sint
-    let tuple_type    = ofList1 type_t yices_tuple_type     <.> return_sint
-    let function_type = ofList1 type_t yices_function_type <..> return_sint
+    let bool = yices_bool_type <.> return_sint
+    let int  = yices_int_type  <.> return_sint
+    let real = yices_real_type <.> return_sint
+    let bv i = yices_bv_type !>i |> return_sint
+    let new_scalar ~card  = yices_new_scalar_type !>card |> return_sint
+    let new_uninterpreted = yices_new_uninterpreted_type <.> return_sint
+    let tuple = ofList1 type_t yices_tuple_type     <.> return_sint
+    let func  = ofList1 type_t yices_function_type <..> return_sint
 
     let is_bool       = yices_type_is_bool <.> toBool
     let is_int        = yices_type_is_int  <.> toBool
@@ -346,14 +346,14 @@ module SafeMake
                            | codom::dom -> let dom = List.rev dom in return(Fun{dom; codom}))]
 
     let build = function
-      | Bool -> bool_type()
-      | Int  -> int_type()
-      | Real -> real_type()
-      | BV n -> bv_type n
+      | Bool -> bool()
+      | Int  -> int()
+      | Real -> real()
+      | BV n -> bv n
       | Scalar self -> return self
       | Uninterpreted self -> return self
-      | Tuple l -> tuple_type l
-      | Fun{dom; codom} -> function_type dom codom
+      | Tuple l -> tuple l
+      | Fun{dom; codom} -> func dom codom
 
     module Names = struct
       let set x     = ofString(yices_set_type_name x) <.> toUnit

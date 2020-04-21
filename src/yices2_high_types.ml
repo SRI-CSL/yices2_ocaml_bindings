@@ -393,9 +393,9 @@ module type High = sig
 
     (** Built-in types bool, int, real.  *)
 
-    val bool_type : unit -> type_t eh
-    val int_type  : unit -> type_t eh
-    val real_type : unit -> type_t eh
+    val bool : unit -> type_t eh
+    val int  : unit -> type_t eh
+    val real : unit -> type_t eh
 
     (** Bitvectors of given size (number of bits)
         Requires size > 0
@@ -406,7 +406,7 @@ module type High = sig
         If size > YICES_MAX_BVSIZE
          code = MAX_BVSIZE_EXCEEDED
          badval = size  *)
-    val bv_type : int -> type_t eh
+    val bv : int -> type_t eh
 
     (** New scalar type of given cardinality.
         Requires card > 0
@@ -414,10 +414,10 @@ module type High = sig
         If card = 0, set error report to
          code = POS_INT_REQUIRED
          badval = size  *)
-    val new_scalar_type : card:int -> type_t eh
+    val new_scalar : card:int -> type_t eh
 
     (** New uninterpreted type. No error report.  *)
-    val new_uninterpreted_type : unit -> type_t eh
+    val new_uninterpreted : unit -> type_t eh
 
     (** Tuple type tau[0] x ... x tau[n-1].
         Requires n>0 and tau[0] ... tau[n-1] to be well defined types.
@@ -432,7 +432,7 @@ module type High = sig
         if tau[i] is not well defined (and tau[0] .. tau[i-1] are)
          code = INVALID_TYPE
          type1 = tau[i]  *)
-    val tuple_type : type_t list -> type_t eh
+    val tuple : type_t list -> type_t eh
 
 
     (** Function type: dom[0] ... dom[n-1] -> range
@@ -451,7 +451,7 @@ module type High = sig
         if dom[i] is undefined (and dom[0] ... dom[i-1] are)
          code = INVALID_TYPE
          type1 = dom[i]  *)
-    val function_type : type_t list -> type_t -> type_t eh
+    val func : type_t list -> type_t -> type_t eh
 
     (** **********************
          TYPE EXPLORATION    *

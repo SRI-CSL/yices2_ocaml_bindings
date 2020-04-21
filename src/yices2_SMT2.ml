@@ -139,9 +139,9 @@ module ParseType = struct
   let atom types s = return(
       if VarMap.mem types s then VarMap.find types s
       else match s with
-        | "Bool"    -> Type.bool_type()
-        | "Int"     -> Type.int_type()
-        | "Real"    -> Type.real_type()
+        | "Bool"    -> Type.bool()
+        | "Int"     -> Type.int()
+        | "Real"    -> Type.real()
         | _ -> raise(Yices_SMT2_exception("ParseType.atom does not understand: "^s)))
 
   let rec parse types : Sexp.t -> (type_t,type_t) Cont.t = function
@@ -150,9 +150,9 @@ module ParseType = struct
       | [Atom "Array"; a; b]         ->
         let* a = parse types a in
         let* b = parse types b in
-        return(Type.function_type [a] b)
+        return(Type.func [a] b)
       | [_;Atom "BitVec"; Atom size] ->
-        return(Type.bv_type (int_of_string size))
+        return(Type.bv (int_of_string size))
       | _ -> raise(Yices_SMT2_exception("ParseType.parse does not understand: "^Sexp.to_string sexp))
 
 end
@@ -395,14 +395,14 @@ module ParseInstruction = struct
       | "declare-sort", [Atom var; Atom n], _ ->
         let n = int_of_string n in
         if n <> 0 then raise (Yices_SMT2_exception "Yices only treats uninterpreted types of arity 0");
-        let ytype = Type.new_uninterpreted_type () in
+        let ytype = Type.new_uninterpreted () in
         VarMap.add session.types var ytype
       | "declare-fun", [Atom var; List domain; codomain], _ ->
         let domain = List.map (fun x -> ParseType.parse session.types x |> get) domain in
         let codomain = ParseType.parse session.types codomain |> get in
         let ytype = match domain with
           | []   -> codomain
-          | _::_ -> Type.function_type domain codomain
+          | _::_ -> Type.func domain codomain
         in
         let yvar = Term.new_uninterpreted_term ytype in 
         Variables.permanently_add session.variables var yvar
