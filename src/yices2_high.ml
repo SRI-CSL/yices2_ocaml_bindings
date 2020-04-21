@@ -681,6 +681,7 @@ module SafeMake
   end
 
   module Config = struct
+    type t = ctx_config_t ptr
     let malloc = yices_new_config <.> return_ptr
     let free   = yices_free_config
     let set     c ~name ~value = yices_set_config c ?>name ?>value |> toUnit
@@ -688,49 +689,13 @@ module SafeMake
   end
 
   module Model = struct
+    type t = model_t ptr
 
     let free     = yices_free_model
     let from_map = yices_model_from_map |> ofList2 term_t term_t <.> return_ptr
     let collect_defined_terms m =
       yices_model_collect_defined_terms m |> TermVector.to_list_unit
 
-    let (??>) = function
-      | Some logic -> ?>logic
-      | None -> null |> from_voidp char
-      
-    let check_formula ?logic ?(model=false) ?delegate term =
-      let model_ptr =
-        if model then allocate (ptr model_t) (null |> from_voidp model_t)
-        else null |> from_voidp (ptr model_t)
-      in
-      let status = yices_check_formula term ??>logic model_ptr ??>delegate in
-      (status, if model then Some !@model_ptr else None)
-
-    let check_formulas ?logic ?(model=false) ?delegate terms =
-      let model_ptr =
-        if model then allocate (ptr model_t) (null |> from_voidp model_t)
-        else null |> from_voidp (ptr model_t)
-      in
-      let status =
-        (yices_check_formulas |> swap |> ofList1 term_t) terms ??>logic model_ptr ??>delegate
-      in
-      (status, if model then Some !@model_ptr else None)
-
-    let has_delegate = yices_has_delegate |> ofString <.> toBool 
-
-    let export_formula_to_dimacs term ~filename ~simplify =
-      let x = allocate_n smt_status_t ~count:1 in
-      let<= b = (yices_export_formula_to_dimacs term ?>filename (Conv.bool.write simplify)) x in
-      return (!@x, Conv.bool.read b)
-
-    let export_formulas_to_dimacs terms ~filename ~simplify =
-      let x = allocate_n smt_status_t ~count:1 in
-      let<= b =
-        ((yices_export_formulas_to_dimacs |> swap |> ofList1 term_t)
-           terms ?>filename (Conv.bool.write simplify)) x
-      in
-      return (!@x, Conv.bool.read b)
-    
     let get_bool_value  = yices_get_bool_value  <..> alloc1 bool_t <++> (Conv.bool.read <.> return)
     let get_int32_value = yices_get_int32_value <..> alloc1 sint
     let get_int64_value = yices_get_int64_value <..> alloc1 long
@@ -805,7 +770,47 @@ module SafeMake
 
   end
 
+  let opt_ptr t f = function
+    | Some logic -> f logic
+    | None -> null |> from_voidp t
+
+  let (??>) = opt_ptr char (?>)
+    
+  let check_formula ?logic ?(model=false) ?delegate term =
+    let model_ptr =
+      if model then allocate (ptr model_t) (null |> from_voidp model_t)
+      else null |> from_voidp (ptr model_t)
+    in
+    let status = yices_check_formula term ??>logic model_ptr ??>delegate in
+    (status, if model then Some !@model_ptr else None)
+
+  let check_formulas ?logic ?(model=false) ?delegate terms =
+    let model_ptr =
+      if model then allocate (ptr model_t) (null |> from_voidp model_t)
+      else null |> from_voidp (ptr model_t)
+    in
+    let status =
+      (yices_check_formulas |> swap |> ofList1 term_t) terms ??>logic model_ptr ??>delegate
+    in
+    (status, if model then Some !@model_ptr else None)
+
+  let has_delegate = yices_has_delegate |> ofString <.> toBool 
+
+  let export_formula_to_dimacs term ~filename ~simplify =
+    let x = allocate_n smt_status_t ~count:1 in
+    let<= b = (yices_export_formula_to_dimacs term ?>filename (Conv.bool.write simplify)) x in
+    return (!@x, Conv.bool.read b)
+
+  let export_formulas_to_dimacs terms ~filename ~simplify =
+    let x = allocate_n smt_status_t ~count:1 in
+    let<= b =
+      ((yices_export_formulas_to_dimacs |> swap |> ofList1 term_t)
+         terms ?>filename (Conv.bool.write simplify)) x
+    in
+    return (!@x, Conv.bool.read b)
+
   module Context = struct
+    type t = context_t ptr
     let malloc = yices_new_context <.> return_ptr
     let free   = yices_free_context
     let status = yices_context_status <.> Conv.smt_status.read
@@ -817,14 +822,19 @@ module SafeMake
     let assert_formula           = yices_assert_formula <..> toUnit
     let assert_formulas          = yices_assert_formulas <.> ofList1 term_t <..> toUnit
     let assert_blocking_clause   = yices_assert_blocking_clause <.> toUnit
-    let check = yices_check_context <..> Conv.smt_status.read
-    let check_with_assumptions   = yices_check_context_with_assumptions <..> ofList1 term_t <...> Conv.smt_status.read
+    let check ?param ctx =
+      let param = opt_ptr param_t (fun x->x) param in
+      yices_check_context ctx param |> Conv.smt_status.read
+    let check_with_assumptions ?param ctx =
+      let param = opt_ptr param_t (fun x->x) param in
+      yices_check_context_with_assumptions ctx param |> ofList1 term_t <.> Conv.smt_status.read
     let stop                     = yices_stop_search
     let get_model m ~keep_subst  = yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
     let get_unsat_core context   = yices_get_unsat_core context |> TermVector.to_list
   end
 
   module Param = struct
+    type t = param_t ptr
     let malloc  = yices_new_param_record <.> return_ptr
     let free    = yices_free_param_record
     let default = yices_default_params_for_context

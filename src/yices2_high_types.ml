@@ -2046,6 +2046,9 @@ module type High = sig
   end
 
   module Config : sig
+
+    type t = ctx_config_t ptr
+
     (** *************************
         CONTEXT CONFIGURATION   *
      ************************ *)
@@ -2132,10 +2135,10 @@ module type High = sig
 
     (** Allocate a configuration descriptor:
         - the descriptor is set to the default configuration  *)
-    val malloc : unit -> ctx_config_t ptr eh
+    val malloc : unit -> t eh
 
     (** Deletion  *)
-    val free   : ctx_config_t ptr -> unit
+    val free   : t -> unit
 
     (** Set a configuration parameter:
         - name = the parameter name
@@ -2197,7 +2200,7 @@ module type High = sig
         Error codes:
         CTX_UNKNOWN_PARAMETER if name is not a known parameter name
         CTX_INVALID_PARAMETER_VALUE if name is known but value does not match the parameter type  *)
-    val set : ctx_config_t ptr -> name:string -> value:string -> unit eh
+    val set : t -> name:string -> value:string -> unit eh
 
     (** Set config to a default solver type or solver combination for the given logic
         - return -1 if there's an error
@@ -2274,17 +2277,19 @@ module type High = sig
 
         CTX_UNKNOWN_LOGIC if logic is not a valid name
         CTX_LOGIC_NOT_SUPPORTED if logic is known but not supported  *)
-    val default : ctx_config_t ptr -> logic:string -> unit eh
+    val default : t -> logic:string -> unit eh
   end
+
 
   module Model : sig
 
+    type t = model_t ptr
     (** ***********
          MODELS   *
      ********** *)
 
     (** Delete model mdl  *)
-    val free : model_t ptr -> unit
+    val free : t -> unit
 
     (** Build a model from a term-to-term mapping:
         - the mapping is defined by two arrays var[] and map[]
@@ -2305,7 +2310,7 @@ module type High = sig
         - code = MDL_DUPLICATE_VAR if var contains duplicate elements
         - code = MDL_FTYPE_NOT_ALLOWED if one of var[i] has a function type
         - code = MDL_CONSTRUCTION_FAILED: something else went wrong  *)
-    val from_map : (term_t * term_t) list -> model_t ptr eh
+    val from_map : (term_t * term_t) list -> t eh
 
     (** Collect all the uninterpreted terms that have a value in model mdl.
         - these terms are returned in vector v
@@ -2326,160 +2331,8 @@ module type High = sig
 
         then variable 'x' does not occur in the simplified assertions and will
         not be included in vector 'v'.  *)
-    val collect_defined_terms : model_t ptr -> term_t list eh
+    val collect_defined_terms : t -> term_t list eh
 
-    (** ********************
-     *  CHECK FORMULA(S)  *
-     *********************)
-
-    (** Check whether a formula is satisfiable
-      - f = formula
-      - logic = SMT name for a logic (or NULL)
-      - model = resulting model (or NULL if no model is needed)
-      - delegate = external solver to use or NULL
-     
-      This function first checks whether f is trivially sat or trivially unsat.
-      If not, it constructs a context configured for the specified logic, then
-      asserts f in this context and checks whether the context is satisfiable.
-     
-      The return value is
-        STATUS_SAT if f is satisfiable,
-        STATUS_UNSAT if f is not satisifiable
-        STATUS_ERROR if something goes wrong
-     
-      If the formula is satisfiable and model != NULL, then a model of f is returned in *model.
-      That model must be deleted when no-longer needed by calling yices_free_model.
-     
-      The logic must be either NULL or the name of an SMT logic supported by Yices.
-      If the logic is NULL, the function uses a default context configuration.
-      Ohterwise, the function uses a context specialized for the logic.
-     
-      The delegate is an optional argument used only when logic is "QF_BV".
-      If is ignored otherwise. It must either be NULL or be the name of an
-      external SAT solver to use after bit-blasting. Valid delegates
-      are "cadical", "cryptominisat", and "y2sat".
-      If delegate is NULL, the default SAT solver is used.
-     
-      Support for "cadical" and "cryptominisat" must be enabled at compilation
-      time. The "y2sat" solver is always available. The function will return STATUS_ERROR
-      and store an error code if the requested delegate is not available.
-     
-      Error codes:
-     
-      if f is invalid
-        code = INVALID_TERM
-        term1 = f
-     
-      if f is not Boolean
-        code = TYPE_MISMATCH
-        term1 = t
-        type1 = bool
-     
-      if logic is not a known logic name
-        code = CTX_UNKNOWN_LOGIC
-     
-      if the logic is known but not supported by Yices
-        code = CTX_LOGIC_NOT_SUPPORTED
-     
-      if delegate is not one of "cadical", "cryptominisat", "y2sat"
-        code = CTX_UNKNOWN_DELEGATE
-     
-      if delegate is "cadical" or "cryptominisat" but support for these SAT solvers
-      was not implemented at compile time,
-        code = CTX_DELEGATE_NOT_AVAILABLE
-     
-      other error codes are possible if the formula is not in the specified logic (cf. yices_assert_formula)
-     
-      Since 2.6.2. *)
-    val check_formula :
-      ?logic:string -> ?model:bool -> ?delegate:string -> term_t
-      -> smt_status_t * model_t ptr option
-
-    (** Check whether n formulas are satisfiable.
-      - f = array of n Boolean terms
-      - n = number of elements in f
-     
-      This is similar to yices_check_formula except that it checks whether
-      the conjunction of f[0] ... f[n-1] is satisfiable.
-     
-      Since 2.6.2.  *)
-    val check_formulas :
-      ?logic:string -> ?model:bool -> ?delegate:string -> term_t list
-      -> smt_status_t * model_t ptr option
-
-    (** Check whether the given delegate is supported
-      - return 0 if it's not supported.
-      - return 1 if delegate is NULL or it's the name of a supported delegate
-     
-      Which delegate is supported depends on how this version of Yices was compiled.
-     
-      Since 2.6.2. *)
-    val has_delegate : string -> bool eh
-
-    (** **********************************
-     *  BIT-BLAST AND EXPORT TO DIMACS  *
-     ***********************************)
-
-    (** Bit-blast then export the CNF to a file
-      - f = a Boolean formula (in the QF_BV theory)
-      - filename = name of the ouput file
-      - simplify_cnf = boolean flag
-      - status = pointer to a variable that stores the formula's status
-     
-      The function bitblasts formula f and exports the resulting CNF to a file in DIMACS format.
-      - filename = name of this file
-      - simplify_cnf is a flag to enable CNF simplification using the y2sat SAT solver.
-        If simplify_cnf is 0, no CNF simplifcation is applied
-        If simplify_cnf is not 0, CNF simplification is applied
-     
-      The bit-vector solver applies various simplifications and preprocessing that may detect
-      that f is SAT or UNSAT without generating a CNF. In this case, the function does not
-      produce a DIMACS file and the formula status (either STATUS_SAT or STATUS_UNSAT) is
-      returned in variable *status.
-     
-      If simplify_cnf is non-zero, it is also possible for CNF simplification to detect
-      that the CNF is sat or unsat. In this case, no DIMACS file is produced and the status
-      is returne in variable *status.
-     
-      Return code:
-        1 if the DIMACS file was constructed
-        0 if the formula is solved without CNF or after simplifying
-       -1 if there's an error
-     
-      Error reports:
-      if f is not a valid term:
-        code = INVALID_TERM
-        term1 = f
-      if f is not a Boolean term
-        code = TYPE_MISMATCH
-        term1 = f
-        type1 = bool (expected type)
-      if there's an error when opening or writing to filename
-        code = OUTPUT_ERROR
-     
-      Other errors are possible if f can't be processed by the bitvector solver.
-     
-      Since 2.6.2. *)
-
-    val export_formula_to_dimacs :
-      term_t -> filename:string -> simplify:bool -> (smt_status_t * bool) eh
-    (** Bit-blast n formulas then export the CNF to a file
-      - f = array of n Boolean formula (in the QF_BV theory)
-      - n = number of formulas in f
-      - filename = name of the ouput file
-      - simplify_cnf = boolean flag
-      - stat = pointer to a variable that stores the formula's status
-     
-      Return code:
-        1 if the DIMACS file was constructed
-        0 if the formula is solved without CNF or after simplifying
-       -1 if there's an error
-     
-      Error reports: same as for yices_export_formula_to_dimacs.
-     
-      Since 2.6.2. *)
-    val export_formulas_to_dimacs :
-      term_t list -> filename:string -> simplify:bool -> (smt_status_t * bool) eh
 
 
     (** ********************
@@ -2522,7 +2375,7 @@ module type High = sig
          term1 = t
          type1 = bool (expected type)
         + the other evaluation error codes above.  *)
-    val get_bool_value : model_t ptr -> term_t -> bool eh
+    val get_bool_value : t -> term_t -> bool eh
 
     (** Value of arithmetic term t. The value can be returned as an integer, a
         rational (pair num/den), converted to a double, or using the GMP
@@ -2535,11 +2388,11 @@ module type High = sig
         If t's value does not fit in the *val object
          code = EVAL_OVERFLOW  *)
 
-    val get_int32_value      : model_t ptr -> term_t -> sint eh
-    val get_int64_value      : model_t ptr -> term_t -> long eh
-    val get_rational32_value : model_t ptr -> term_t -> (sint*uint) eh
-    val get_rational64_value : model_t ptr -> term_t -> (long*ulong) eh
-    val get_double_value     : model_t ptr -> term_t -> float eh
+    val get_int32_value      : t -> term_t -> sint eh
+    val get_int64_value      : t -> term_t -> long eh
+    val get_rational32_value : t -> term_t -> (sint*uint) eh
+    val get_rational64_value : t -> term_t -> (long*ulong) eh
+    val get_double_value     : t -> term_t -> float eh
 
     (** #ifdef __GMP_H__
         __YICES_DLLSPEC__ extern int32_t yices_get_mpz_value(model_t *mdl, term_t t, mpz_t val);
@@ -2573,7 +2426,7 @@ module type High = sig
         If t is not a bitvector term
          code = BITVECTOR_REQUIRED
          term1 = t  *)
-    val get_bv_value : model_t ptr -> term_t -> sint eh
+    val get_bv_value : t -> term_t -> sint eh
 
     (** Value of term t of uninterpreted or scalar type
         - the value is returned as a constant index in *val
@@ -2590,7 +2443,7 @@ module type High = sig
         - if t does not have a scalar or uninterpreted type:
           code = SCALAR_TERM_REQUIRED
           term1 = t  *)
-    val get_scalar_value : model_t ptr -> term_t -> sint eh
+    val get_scalar_value : t -> term_t -> sint eh
 
 
     (** GENERIC FORM: VALUE DESCRIPTORS AND NODES  *)
@@ -2677,7 +2530,7 @@ module type High = sig
          code = EVAL_LAMBDA
         If the evaluation fails for other reasons:
          code = EVAL_FAILED  *)
-    val get_value : model_t ptr -> term_t -> yval_t ptr eh
+    val get_value : t -> term_t -> yval_t ptr eh
 
     (** Queries on the value of a rational node:
         - if v->node_tag is YVAL_RATIONAL, the functions below check whether v's value
@@ -2696,38 +2549,38 @@ module type High = sig
 
         yices_val_is_integer: check whether v's value is an integer  *)
 
-    val val_is_int32      : model_t ptr -> yval_t ptr -> bool eh
-    val val_is_int64      : model_t ptr -> yval_t ptr -> bool eh
-    val val_is_rational32 : model_t ptr -> yval_t ptr -> bool eh
-    val val_is_rational64 : model_t ptr -> yval_t ptr -> bool eh
-    val val_is_integer    : model_t ptr -> yval_t ptr -> bool eh
+    val val_is_int32      : t -> yval_t ptr -> bool eh
+    val val_is_int64      : t -> yval_t ptr -> bool eh
+    val val_is_rational32 : t -> yval_t ptr -> bool eh
+    val val_is_rational64 : t -> yval_t ptr -> bool eh
+    val val_is_integer    : t -> yval_t ptr -> bool eh
 
 
     (** Get the number of bits in a bv constant, the number of components in a tuple,
         or the arity of a mapping. These function return 0 if v has the wrong tag (i.e.,
         not a bitvector constant, or not a tuple, or not a mapping).  *)
 
-    val val_bitsize       : model_t ptr -> yval_t ptr -> int eh
-    val val_tuple_arity   : model_t ptr -> yval_t ptr -> int eh
-    val val_mapping_arity : model_t ptr -> yval_t ptr -> int eh
+    val val_bitsize       : t -> yval_t ptr -> int eh
+    val val_tuple_arity   : t -> yval_t ptr -> int eh
+    val val_mapping_arity : t -> yval_t ptr -> int eh
 
     (** Arity of a function node. This function returns 0 if v has tag
         other than YVAL_FUNCTION, otherwise it returns the function's
         arity (i.e., the number of parameters that the function takes).  *)
-    val val_function_arity : model_t ptr -> yval_t ptr -> int eh
+    val val_function_arity : t -> yval_t ptr -> int eh
 
     (** Type of a function node. This function returns -1 if v has tag
         other than YVAL_FUNCTION. Otherwise, it returns the type of the
         object v.
         Since 2.6.2.  *)
-    val val_function_type : model_t ptr -> yval_t ptr -> type_t eh
+    val val_function_type : t -> yval_t ptr -> type_t eh
 
     (** Get the value of a Boolean node v.
         - returns 0 if there's no error and store v's value in *val:
          *val is either 0 (for false) or 1 (for true).
         - returns -1 if v does not have tag YVAL_BOOL and sets the error code
           to YVAL_INVALID_OP.  *)
-    val val_get_bool : model_t ptr -> yval_t ptr -> bool eh
+    val val_get_bool : t -> yval_t ptr -> bool eh
 
     (** Get the value of a rational node v
         - the functions return 0 if there's no error and store v's value in *val
@@ -2737,13 +2590,13 @@ module type High = sig
         The error code is set to YVAL_INVALID_OP if v's tag is not YVAL_RATIONAL.
         The error code is set to YVAL_OVERFLOW if v's value does not fit in
         ( *val ) or in ( *num )/( *den ).  *)
-    val val_get_int32      : model_t ptr -> yval_t ptr -> sint eh
-    val val_get_int64      : model_t ptr -> yval_t ptr -> long eh
-    val val_get_rational32 : model_t ptr -> yval_t ptr -> (sint*uint) eh
-    val val_get_rational64 : model_t ptr -> yval_t ptr -> (long*ulong) eh
+    val val_get_int32      : t -> yval_t ptr -> sint eh
+    val val_get_int64      : t -> yval_t ptr -> long eh
+    val val_get_rational32 : t -> yval_t ptr -> (sint*uint) eh
+    val val_get_rational64 : t -> yval_t ptr -> (long*ulong) eh
 
     (** Value converted to a floating point number  *)
-    val val_get_double : model_t ptr -> yval_t ptr -> float eh
+    val val_get_double : t -> yval_t ptr -> float eh
 
     (** (**  * Export an algebraic number
         * - v->tag must be YVAL_ALGEBRAIC
@@ -2765,13 +2618,13 @@ module type High = sig
           every val[i] is either 0 or 1.
         - the function returns 0 if v has tag YVAL_BV
         - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP.  *)
-    val val_get_bv : model_t ptr -> yval_t ptr -> sint eh
+    val val_get_bv : t -> yval_t ptr -> sint eh
 
     (** Get the value of a scalar node:
         - the function returns 0 if v's tag is YVAL_SCALAR
           the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
         - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP.  *)
-    val val_get_scalar : model_t ptr -> yval_t ptr -> (sint*type_t) eh
+    val val_get_scalar : t -> yval_t ptr -> (sint*type_t) eh
 
     (** Expand a tuple node:
         - child must be an array large enough to store all children of v (i.e.,
@@ -2780,7 +2633,7 @@ module type High = sig
 
         Return code = 0 if v's tag is YVAL_TUPLE.
         Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
-    val val_expand_tuple : model_t ptr -> yval_t ptr -> yval_t ptr list eh
+    val val_expand_tuple : t -> yval_t ptr -> yval_t ptr list eh
 
     (** Expand a function node f
         - the default value for f is stored in *def
@@ -2791,7 +2644,7 @@ module type High = sig
 
         Return code = 0 if v's tag is YVAL_FUNCTION.
         Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
-    val val_expand_function : model_t ptr -> yval_t ptr -> ((yval_t ptr) * (yval_t ptr list)) eh
+    val val_expand_function : t -> yval_t ptr -> ((yval_t ptr) * (yval_t ptr list)) eh
 
     (** Expand a mapping node m
         - the mapping is of the form [x_1 ... x_k -> v] where k = yices_val_mapping_arity(mdl, m)
@@ -2801,7 +2654,7 @@ module type High = sig
 
         Return code = 0 if v's tag is YVAL_MAPPING.
         Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
-    val val_expand_mapping : model_t ptr -> yval_t ptr -> ((yval_t ptr list) * (yval_t ptr)) eh
+    val val_expand_mapping : t -> yval_t ptr -> ((yval_t ptr list) * (yval_t ptr)) eh
 
     (** CHECK THE VALUE OF BOOLEAN FORMULAS  *)
 
@@ -2813,7 +2666,7 @@ module type High = sig
 
         Error codes:
         - same as yices_get_bool_value  *)
-    val formula_true_in_model : model_t ptr -> term_t -> bool eh
+    val formula_true_in_model : t -> term_t -> bool eh
 
     (** Check whether f[0 ... n-1] are all true in mdl
         - the returned value is as in the previous function:
@@ -2826,7 +2679,7 @@ module type High = sig
 
         NOTE: if n>1, it's more efficient to call this function once than to
         call the previous function n times.  *)
-    val formulas_true_in_model : model_t ptr -> term_t list -> bool eh
+    val formulas_true_in_model : t -> term_t list -> bool eh
 
     (** CONVERSION OF VALUES TO CONSTANT TERMS  *)
 
@@ -2856,7 +2709,7 @@ module type High = sig
          if the conversion to term fails (because it would require
          converting a function to a term).
         *)   
-    val get_value_as_term : model_t ptr -> term_t -> term_t eh
+    val get_value_as_term : t -> term_t -> term_t eh
 
     (** Get the values of terms a[0 .. n-1] in mdl and convert the values to terms.
         - a must be an array of n terms
@@ -2868,7 +2721,7 @@ module type High = sig
 
         Otherwise, the function returns -1 and sets the error report.
         The error codes are the same as for yices_get_value_as_term.  *)
-    val terms_value : model_t ptr -> term_t list -> term_t list eh
+    val terms_value : t -> term_t list -> term_t list eh
 
     (** SUPPORTS *)
 
@@ -2893,7 +2746,7 @@ module type High = sig
          term1 = t
      
       Since 2.6.2. *)
-    val model_term_support : model_t ptr -> term_t -> term_t list eh
+    val model_term_support : t -> term_t -> term_t list eh
 
     (** Get the support of terms a[0...n-1] in mdl
       - the support is returned in vector *v;
@@ -2910,7 +2763,7 @@ module type High = sig
      
       Since 2.6.2. *)
     val model_terms_support :
-      model_t ptr -> term_t list -> term_t list eh
+      t -> term_t list -> term_t list eh
 
     (** IMPLICANTS  *)
 
@@ -2947,7 +2800,7 @@ module type High = sig
          EVAL_QUANTIFIER
          EVAL_LAMBDA
          EVAL_FAILED  *)
-    val implicant_for_formula : model_t ptr -> term_t -> term_t list eh
+    val implicant_for_formula : t -> term_t -> term_t list eh
 
     (** Variant: compute an implicant for an array of formulas in mdl.
         - n = size of the array
@@ -2963,7 +2816,7 @@ module type High = sig
           v->size = number of literals
           v->data contains the array of literals.
         Otherwise, v->size is set to 0.  *)
-    val implicant_for_formulas : model_t ptr -> term_t list -> term_t list eh
+    val implicant_for_formulas : t -> term_t list -> term_t list eh
 
     (** MODEL GENERALIZATION  *)
 
@@ -3017,14 +2870,168 @@ module type High = sig
         Returned code:
          0 means success
         -1 means that the generalization failed.  *)
-    val generalize_model : model_t ptr -> term_t -> term_t list -> yices_gen_mode -> term_t list eh
+    val generalize_model : t -> term_t -> term_t list -> yices_gen_mode -> term_t list eh
 
     (** Compute a generalization of mdl for the conjunct (a[0] /\ ... /\ a[n-1])  *)
-    val generalize_model_list : model_t ptr -> term_t list -> term_t list -> yices_gen_mode -> term_t list eh
+    val generalize_model_list : t -> term_t list -> term_t list -> yices_gen_mode -> term_t list eh
 
   end
 
+    (** ********************
+   *  CHECK FORMULA(S)  *
+   *********************)
+
+    (** Check whether a formula is satisfiable
+      - f = formula
+      - logic = SMT name for a logic (or NULL)
+      - model = resulting model (or NULL if no model is needed)
+      - delegate = external solver to use or NULL
+     
+      This function first checks whether f is trivially sat or trivially unsat.
+      If not, it constructs a context configured for the specified logic, then
+      asserts f in this context and checks whether the context is satisfiable.
+     
+      The return value is
+        STATUS_SAT if f is satisfiable,
+        STATUS_UNSAT if f is not satisifiable
+        STATUS_ERROR if something goes wrong
+     
+      If the formula is satisfiable and model != NULL, then a model of f is returned in *model.
+      That model must be deleted when no-longer needed by calling yices_free_model.
+     
+      The logic must be either NULL or the name of an SMT logic supported by Yices.
+      If the logic is NULL, the function uses a default context configuration.
+      Ohterwise, the function uses a context specialized for the logic.
+     
+      The delegate is an optional argument used only when logic is "QF_BV".
+      If is ignored otherwise. It must either be NULL or be the name of an
+      external SAT solver to use after bit-blasting. Valid delegates
+      are "cadical", "cryptominisat", and "y2sat".
+      If delegate is NULL, the default SAT solver is used.
+     
+      Support for "cadical" and "cryptominisat" must be enabled at compilation
+      time. The "y2sat" solver is always available. The function will return STATUS_ERROR
+      and store an error code if the requested delegate is not available.
+     
+      Error codes:
+     
+      if f is invalid
+        code = INVALID_TERM
+        term1 = f
+     
+      if f is not Boolean
+        code = TYPE_MISMATCH
+        term1 = t
+        type1 = bool
+     
+      if logic is not a known logic name
+        code = CTX_UNKNOWN_LOGIC
+     
+      if the logic is known but not supported by Yices
+        code = CTX_LOGIC_NOT_SUPPORTED
+     
+      if delegate is not one of "cadical", "cryptominisat", "y2sat"
+        code = CTX_UNKNOWN_DELEGATE
+     
+      if delegate is "cadical" or "cryptominisat" but support for these SAT solvers
+      was not implemented at compile time,
+        code = CTX_DELEGATE_NOT_AVAILABLE
+     
+      other error codes are possible if the formula is not in the specified logic (cf. yices_assert_formula)
+     
+      Since 2.6.2. *)
+  val check_formula :
+    ?logic:string -> ?model:bool -> ?delegate:string -> term_t -> smt_status_t * Model.t option
+
+    (** Check whether n formulas are satisfiable.
+      - f = array of n Boolean terms
+      - n = number of elements in f
+     
+      This is similar to yices_check_formula except that it checks whether
+      the conjunction of f[0] ... f[n-1] is satisfiable.
+     
+      Since 2.6.2.  *)
+    val check_formulas :
+      ?logic:string -> ?model:bool -> ?delegate:string -> term_t list
+      -> smt_status_t * Model.t option
+
+    (** Check whether the given delegate is supported
+      - return 0 if it's not supported.
+      - return 1 if delegate is NULL or it's the name of a supported delegate
+     
+      Which delegate is supported depends on how this version of Yices was compiled.
+     
+      Since 2.6.2. *)
+    val has_delegate : string -> bool eh
+
+    (** **********************************
+     *  BIT-BLAST AND EXPORT TO DIMACS  *
+     ***********************************)
+
+    (** Bit-blast then export the CNF to a file
+      - f = a Boolean formula (in the QF_BV theory)
+      - filename = name of the ouput file
+      - simplify_cnf = boolean flag
+      - status = pointer to a variable that stores the formula's status
+     
+      The function bitblasts formula f and exports the resulting CNF to a file in DIMACS format.
+      - filename = name of this file
+      - simplify_cnf is a flag to enable CNF simplification using the y2sat SAT solver.
+        If simplify_cnf is 0, no CNF simplifcation is applied
+        If simplify_cnf is not 0, CNF simplification is applied
+     
+      The bit-vector solver applies various simplifications and preprocessing that may detect
+      that f is SAT or UNSAT without generating a CNF. In this case, the function does not
+      produce a DIMACS file and the formula status (either STATUS_SAT or STATUS_UNSAT) is
+      returned in variable *status.
+     
+      If simplify_cnf is non-zero, it is also possible for CNF simplification to detect
+      that the CNF is sat or unsat. In this case, no DIMACS file is produced and the status
+      is returne in variable *status.
+     
+      Return code:
+        1 if the DIMACS file was constructed
+        0 if the formula is solved without CNF or after simplifying
+       -1 if there's an error
+     
+      Error reports:
+      if f is not a valid term:
+        code = INVALID_TERM
+        term1 = f
+      if f is not a Boolean term
+        code = TYPE_MISMATCH
+        term1 = f
+        type1 = bool (expected type)
+      if there's an error when opening or writing to filename
+        code = OUTPUT_ERROR
+     
+      Other errors are possible if f can't be processed by the bitvector solver.
+     
+      Since 2.6.2. *)
+
+    val export_formula_to_dimacs :
+      term_t -> filename:string -> simplify:bool -> (smt_status_t * bool) eh
+    (** Bit-blast n formulas then export the CNF to a file
+      - f = array of n Boolean formula (in the QF_BV theory)
+      - n = number of formulas in f
+      - filename = name of the ouput file
+      - simplify_cnf = boolean flag
+      - stat = pointer to a variable that stores the formula's status
+     
+      Return code:
+        1 if the DIMACS file was constructed
+        0 if the formula is solved without CNF or after simplifying
+       -1 if there's an error
+     
+      Error reports: same as for yices_export_formula_to_dimacs.
+     
+      Since 2.6.2. *)
+    val export_formulas_to_dimacs :
+      term_t list -> filename:string -> simplify:bool -> (smt_status_t * bool) eh
+
   module Context : sig
+
+    type t = context_t ptr
 
     (** ************
         CONTEXTS   *
@@ -3087,10 +3094,10 @@ module type High = sig
 
         If there's an error (i.e., the configuration is not supported), the
         function returns NULL and set an error code: CTX_INVALID_CONFIG.  *)
-    val malloc : ctx_config_t ptr -> context_t ptr eh
+    val malloc : Config.t -> t eh
 
     (** Deletion  *)
-    val free : context_t ptr -> unit
+    val free : t -> unit
 
     (** Get status: return the context's status flag
         - return one of the codes defined in yices_types.h,
@@ -3103,11 +3110,11 @@ module type High = sig
           STATUS_UNSAT
           STATUS_INTERRUPTED
         *)
-    val status : context_t ptr -> smt_status
+    val status : t -> smt_status
 
     (** Reset: remove all assertions and restore ctx's
         status to STATUS_IDLE.  *)
-    val reset : context_t ptr -> unit
+    val reset : t -> unit
 
     (** Push: mark a backtrack point
         - return 0 if this operation is supported by the context
@@ -3118,7 +3125,7 @@ module type High = sig
           code = CTX_OPERATION_NOT_SUPPORTED
         - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
           code = CTX_INVALID_OPERATION  *)
-    val push : context_t ptr -> unit eh
+    val push : t -> unit eh
 
     (** Pop: backtrack to the previous backtrack point (i.e., the matching
         call to yices_push).
@@ -3130,7 +3137,7 @@ module type High = sig
         - if there's no matching push (i.e., the context stack is empty)
           or if the context's status is STATUS_SEARCHING
           code = CTX_INVALID_OPERATION  *)
-    val pop  : context_t ptr -> unit eh
+    val pop  : t -> unit eh
 
     (** Several options determine how much simplification is performed
         when formulas are asserted. It's best to leave them untouched
@@ -3174,8 +3181,8 @@ module type High = sig
         Error codes:
         CTX_UNKNOWN_PARAMETER if the option name is not one of the above.  *)
 
-    val enable_option  : context_t ptr -> option:string -> unit eh
-    val disable_option : context_t ptr -> option:string -> unit eh
+    val enable_option  : t -> option:string -> unit eh
+    val disable_option : t -> option:string -> unit eh
 
     (** Assert formula t in ctx
         - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
@@ -3206,7 +3213,7 @@ module type High = sig
 
         Other error codes are defined in yices_types.h to report that t is
         outside the logic supported by ctx.  *)
-    val assert_formula : context_t ptr -> term_t -> unit eh
+    val assert_formula : t -> term_t -> unit eh
 
     (** Assert an array of n formulas t[0 ... n-1]
         - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
@@ -3215,7 +3222,7 @@ module type High = sig
         The function returns -1 on error, 0 otherwise.
 
         The error report is set as in the previous function.  *)
-    val assert_formulas : context_t ptr -> term_t list -> unit eh
+    val assert_formulas : t -> term_t list -> unit eh
 
     (** Add a blocking clause: this is intended to help enumerate different models
         for a set of assertions.
@@ -3234,7 +3241,7 @@ module type High = sig
           code = CTX_INVALID_OPERATION
         if ctx is not configured to support multiple checks
           code = CTX_OPERATION_NOT_SUPPORTED  *)
-    val assert_blocking_clause : context_t ptr -> unit eh
+    val assert_blocking_clause : t -> unit eh
 
     (** Check satisfiability: check whether the assertions stored in ctx
         are satisfiable.
@@ -3269,7 +3276,7 @@ module type High = sig
 
         3) Otherwise, the function does nothing and returns 'STATUS_ERROR',
           it also sets the yices error report (code = CTX_INVALID_OPERATION).  *)
-    val check : context_t ptr -> param_t ptr -> smt_status
+    val check : ?param:param_t ptr -> t -> smt_status
 
     (** Check satisfiability under assumptions: check whether the
         assertions stored in ctx conjoined with n assumptions is
@@ -3285,7 +3292,7 @@ module type High = sig
         If this function returns STATUS_UNSAT, then one can construct an unsat core by
         calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
         that's inconsistent with ctx.  *)
-    val check_with_assumptions : context_t ptr -> param_t ptr -> term_t list -> smt_status
+    val check_with_assumptions : ?param:param_t ptr -> t -> term_t list -> smt_status
 
     (** Interrupt the search:
         - this can be called from a signal handler to stop the search,
@@ -3293,7 +3300,7 @@ module type High = sig
 
         If ctx's status is STATUS_SEARCHING, then the current search is
         interrupted. Otherwise, the function does nothing.  *)
-    val stop : context_t ptr -> unit
+    val stop : t -> unit
 
     (** Build a model from ctx
         - keep_subst indicates whether the model should include
@@ -3326,7 +3333,7 @@ module type High = sig
         are some of the large SMT_LIB benchmarks where millions of variables
         are eliminated.  In such cases, it saves memory to set 'keep_subst'
         false, and model construction is faster too.  *)
-    val get_model : context_t ptr -> keep_subst:bool -> model_t ptr eh
+    val get_model : t -> keep_subst:bool -> Model.t eh
 
     (** *************
         UNSAT CORE  *
@@ -3346,11 +3353,13 @@ module type High = sig
 
         Error code:
         - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.  *)
-    val get_unsat_core : context_t ptr -> term_t list eh
+    val get_unsat_core : t -> term_t list eh
 
   end
 
   module Param : sig
+
+    type t = param_t ptr
 
     (** SEARCH PARAMETERS  *)
 
@@ -3374,13 +3383,13 @@ module type High = sig
         calling yices_free_param_structure(param).  *)
 
     (** Return a parameter record initialized with default settings.  *)
-    val malloc : unit -> param_t ptr eh
+    val malloc : unit -> t eh
 
     (** Delete the record param  *)
-    val free : param_t ptr -> unit
+    val free : t -> unit
 
     (** Set default search parameters for ctx.  *)
-    val default : context_t ptr -> param_t ptr -> unit
+    val default : Context.t -> t -> unit
 
     (** Set a parameter in record p
         - pname = parameter name
@@ -3394,7 +3403,7 @@ module type High = sig
         Error codes:
         - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
         - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter  *)
-    val set : param_t ptr -> name:string -> value:string -> unit eh
+    val set : t -> name:string -> value:string -> unit eh
 
   end
 

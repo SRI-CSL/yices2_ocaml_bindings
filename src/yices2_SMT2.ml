@@ -423,10 +423,10 @@ module ParseInstruction = struct
          | None -> ());
         session.env := Some { real_env with assertions = formula::real_env.assertions;
                                             model = None};
-      | "check-sat", [], Some env          -> Context.check env.context env.param |> status_print
+      | "check-sat", [], Some env          -> Context.check env.context ~param:env.param |> status_print
       | "check-sat-assuming", l, Some env  ->
         let assumptions = List.map (fun x -> get(ParseTerm.parse session x)) l in
-        Context.check_with_assumptions env.context env.param assumptions |> status_print
+        Context.check_with_assumptions env.context ~param:env.param assumptions |> status_print
       | "get-value", l, Some env ->
         let model = get_model env in
         let terms = List.map (fun x -> get(ParseTerm.parse session x)) l in
