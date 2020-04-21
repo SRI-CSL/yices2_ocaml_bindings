@@ -66,6 +66,9 @@ let _ =
   print_endline "Exited gracefully";
   SumErrorHandling.return()
 
+let () = print_endline ""
 let () = Context_test.test_config()
+let () = print_endline ""
 let () = Context_test.test_context()
+let () = print_endline ""
 let () = Error_test.test()
