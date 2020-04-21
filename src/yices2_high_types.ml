@@ -546,7 +546,7 @@ module type High = sig
          code = INVALID_CONSTANT_INDEX
          type1 = tau
          badval = index  *)
-    val constant : type_t -> id:sint -> term_t eh
+    val constant : type_t -> id:int -> term_t eh
 
     (** Uninterpreted term of type tau
 

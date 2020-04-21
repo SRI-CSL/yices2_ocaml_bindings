@@ -386,7 +386,7 @@ module SafeMake
 
     let ytrue  = yices_true  <.> return_sint
     let yfalse = yices_false <.> return_sint
-    let constant t ~id = yices_constant t id |> return_sint
+    let constant t ~id = yices_constant t (SInt.of_int id) |> return_sint
     let new_uninterpreted_term = yices_new_uninterpreted_term <.> return_sint
     let new_variable = yices_new_variable <.> return_sint
     let application a = ofList1 term_t (yices_application a) <.> return_sint
