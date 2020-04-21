@@ -310,6 +310,8 @@ module SafeMake
 
   module Type = struct
 
+    type t = type_t [@@deriving eq]
+
     let bool = yices_bool_type <.> return_sint
     let int  = yices_int_type  <.> return_sint
     let real = yices_real_type <.> return_sint
@@ -379,6 +381,8 @@ module SafeMake
   end
 
   module Term = struct
+
+    type t = term_t [@@deriving eq]
 
     let ytrue  = yices_true  <.> return_sint
     let yfalse = yices_false <.> return_sint
