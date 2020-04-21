@@ -6,10 +6,10 @@ module Types = struct
 
   include Yices2_low.Types
 
-  type scalar = type_t
-  type uninterpreted = type_t
+  type scalar = type_t [@@deriving eq]
+  type uninterpreted = type_t [@@deriving eq]
 
-  type nonrec ytype =
+  type ytype =
     | Bool
     | Int
     | Real
@@ -17,7 +17,7 @@ module Types = struct
     | Scalar of scalar
     | Uninterpreted of uninterpreted
     | Tuple of type_t list
-    | Fun of { dom : type_t list; codom : type_t }
+    | Fun of { dom : type_t list; codom : type_t } [@@deriving eq]
 
   type 'a composite = private Composite
 
