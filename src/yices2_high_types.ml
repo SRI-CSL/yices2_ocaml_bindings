@@ -395,6 +395,8 @@ module type High = sig
 
   module Type : sig
 
+    type t = type_t [@@deriving eq]
+
     (** ********************
         TYPE CONSTRUCTORS  *
      ******************* *)
@@ -501,6 +503,8 @@ module type High = sig
 
 
   module Term : sig
+
+    type t = term_t [@@deriving eq]
 
     (** ********************
         TERM CONSTRUCTORS  *
