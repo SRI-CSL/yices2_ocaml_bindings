@@ -72,7 +72,18 @@ let swap f a b = f b a
     
 module Error = struct
   let code     = yices_error_code <.> Conv.error_code.read
-  let report   = yices_error_report
+  let report () =
+    let r = yices_error_report () in
+    let badval = getf !@r (error_report_s#members#badval) |> Long.to_int in
+    let code   = getf !@r (error_report_s#members#code) |> UInt.to_int in
+    let column = getf !@r (error_report_s#members#column) |> UInt.to_int in
+    let line   = getf !@r (error_report_s#members#line) |> UInt.to_int in
+    let term1  = getf !@r (error_report_s#members#term1) in
+    let term2  = getf !@r (error_report_s#members#term2) in
+    let type1  = getf !@r (error_report_s#members#type1) in
+    let type2  = getf !@r (error_report_s#members#type2) in
+    { badval; code; column; line; term1; term2; type1; type2 }
+    
   let clear    = yices_clear_error
 end
 
@@ -91,7 +102,7 @@ module type ErrorHandling = SafeErrorHandling with type 'a checkable := 'a
 
 module ExceptionsErrorHandling = struct
   type 'a t = 'a
-  exception YicesException of error_code*(error_report_t ptr)
+  exception YicesException of error_code * error_report
   exception YicesBindingsException of string
   let raise_error s = raise(YicesBindingsException s)
   let aux check t =
@@ -105,7 +116,7 @@ module ExceptionsErrorHandling = struct
 end
 
 module SumErrorHandling = struct
-  type error = Yices of error_code*(error_report_t ptr) | Bindings of string [@@ show]
+  type error = Yices of error_code * error_report | Bindings of string [@@ show]
   open Stdlib
   type 'a t = ('a, error) Result.t
   let raise_error s = Error(Bindings s)

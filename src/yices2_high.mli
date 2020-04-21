@@ -4,6 +4,7 @@ open Ctypes_static
 open Yices2_high_types
 
 module Types : module type of Types with type display = Types.display
+                                     and type error_report = Types.error_report
 
 open Types
 
@@ -25,7 +26,7 @@ module Error : sig
   (** Get the last error code  *)
   val code   : unit -> error_code
   (** Get the last error report  *)
-  val report : unit -> error_report_t ptr
+  val report : unit -> error_report
   (** Clear the error report  *)
   val clear  : unit -> unit
 end
@@ -53,13 +54,13 @@ module type ErrorHandling = sig
 end
 
 module ExceptionsErrorHandling : sig
-  exception YicesException of error_code*(error_report_t ptr)
+  exception YicesException of error_code * error_report
   exception YicesBindingsException of string
   include ErrorHandling with type 'a t = 'a
 end
 
 module SumErrorHandling : sig
-  type error = Yices of error_code*(error_report_t ptr) | Bindings of string
+  type error = Yices of error_code * error_report | Bindings of string
   include ErrorHandling with type 'a t = ('a, error) Stdlib.Result.t
 end
 

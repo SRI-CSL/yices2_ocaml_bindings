@@ -189,7 +189,17 @@ module Types = struct
     height:int;
     offset:int
   }  
-  
+
+  type error_report = {
+    badval : int;
+    code : int;
+    column : int;
+    line : int;
+    term1 : term_t;
+    term2 : term_t;
+    type1 : type_t;
+    type2 : type_t;
+  }
 end
 
 module type High = sig

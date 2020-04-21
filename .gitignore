@@ -24,3 +24,6 @@ setup.log
 
 *.docdir
 *.log
+
+# MacOS
+.DS_Store
