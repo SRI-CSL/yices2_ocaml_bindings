@@ -1077,6 +1077,12 @@ module type Low = sig
   val yices_rational32 : sint -> uint -> term_t checkable
   val yices_rational64 : long -> ulong -> term_t checkable
 
+
+  (* Constant initialized via GMP integers or rationals.
+   * - q must be canonicalized *)
+  (* val yices_mpz : Gmp.mpz_t -> term_t
+   * val yices_mpq : Gmp.mpq_t -> term_t *)
+
   (* Convert a string to a rational or integer term.
    * The string format is
    *     <optional_sign> <numerator>/<denominator>

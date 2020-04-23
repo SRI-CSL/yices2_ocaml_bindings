@@ -1,5 +1,5 @@
 module TMP = struct
-  [%ccode "#include <yices.h>"]
+  [%ccode "#include \"yices2_include/yices.h\""]
 end
 include TMP
 

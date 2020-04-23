@@ -3,6 +3,12 @@ open Signed
 open Unsigned
 open Yices2_low
 
+let x () =
+  let x = allocate_n Gmp.__mpz_struct ~count:1 in
+  Zbindings.ml_z_mpz_init_set_z_ml x Z.zero;
+  let y = Zbindings.ml_z_from_mpz_ml x in
+  assert(Z.equal y Z.zero)
+
 module List = struct
   include List
   let map f l = rev(rev_map f l) (* Tail-recursive version of map to avoid stack overflows *)
