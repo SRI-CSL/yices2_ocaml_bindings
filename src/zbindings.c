@@ -31,9 +31,3 @@ CAMLprim value ml_z_from_mpz_ml(value rop) {
   /* value ml_z_from_mpz(mpz_t op); */
   CAMLreturn(ml_z_from_mpz(z));
 }
-
-int main(){
-
-  return 0;
-  
-}
