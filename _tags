@@ -26,6 +26,7 @@ true: debug, optimize(3), unbox_closures
 
 <src_tests/*> : package(ctypes),\
                 package(ctypes.foreign),\
+                package(ctypes-zarith),\
                 package(yices2_bindings),\
                 package(sexplib),\
                 package(zarith),\
