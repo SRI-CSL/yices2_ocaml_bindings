@@ -3,8 +3,6 @@ open Ctypes_static
 
 open Yices2_high_types
 
-val x : unit -> unit
-
 module Types : module type of Types with type display = Types.display
                                      and type error_report = Types.error_report
 

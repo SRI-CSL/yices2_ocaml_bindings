@@ -1,4 +1,5 @@
 open Ctypes
+open Ctypes_zarith
 open Unsigned
 open Signed
 
@@ -1080,8 +1081,8 @@ module type Low = sig
 
   (* Constant initialized via GMP integers or rationals.
    * - q must be canonicalized *)
-  (* val yices_mpz : Gmp.mpz_t -> term_t
-   * val yices_mpq : Gmp.mpq_t -> term_t *)
+  val yices_mpz : MPZ.t abstract ptr -> term_t checkable
+  val yices_mpq : MPQ.t abstract ptr -> term_t checkable
 
   (* Convert a string to a rational or integer term.
    * The string format is
@@ -1302,6 +1303,12 @@ module type Low = sig
   val yices_poly_rational32 : uint -> sint ptr -> uint ptr -> term_t ptr -> term_t checkable
   val yices_poly_rational64 : uint -> long ptr -> ulong ptr -> term_t ptr -> term_t checkable
 
+  (* Coefficients are GMP integers or rationals.
+     - the rationals q[0 ... n-1] must all be canonicalized *)
+
+ val yices_poly_mpz : uint -> MPZ.t abstract ptr -> term_t ptr -> term_t checkable
+ val yices_poly_mpq : uint -> MPQ.t abstract ptr -> term_t ptr -> term_t checkable
+  
   (* ARITHMETIC ATOMS *)
 
   (* All operations return NULL_TERM if there's an error (NULL_TERM = -1)
@@ -1397,6 +1404,7 @@ module type Low = sig
   val yices_bvconst_uint64 : uint -> ulong -> term_t checkable
   val yices_bvconst_int32 : uint -> sint -> term_t checkable
   val yices_bvconst_int64 : uint -> long -> term_t checkable
+  val yices_bvconst_mpz   : uint -> MPZ.t abstract ptr -> term_t checkable
 
   (* bvconst_zero: set all bits to 0
    * bvconst_one: set low-order bit to 1, all the other bits to 0
@@ -2290,6 +2298,7 @@ module type Low = sig
   val yices_bool_const_value   : term_t -> bool_t ptr -> unit_t checkable
   val yices_bv_const_value     : term_t -> sint ptr -> unit_t checkable
   val yices_scalar_const_value : term_t -> sint ptr -> unit_t checkable
+  val yices_rational_const_value : term_t -> MPQ.t abstract ptr -> unit_t checkable
 
   (* Components of a sum t
    * - i = index (must be between 0 and t's number of children - 1)
@@ -2307,6 +2316,7 @@ module type Low = sig
    *    term1 = t
    * if t is not of the right kind of the index is invalid
    *    code = INVALID_TERM_OP *)
+  val yices_sum_component : term_t -> sint -> MPQ.t abstract ptr -> term_t ptr -> unit_t checkable
   val yices_bvsum_component : term_t -> sint -> sint ptr -> term_t ptr -> unit_t checkable
 
   (* Component of power product t
@@ -3272,7 +3282,9 @@ module type Low = sig
 
   (* Value of arithmetic term t. The value can be returned as an integer, a
    * rational (pair num/den), converted to a double, or using the GMP
-   * mpz_t and mpq_t representations, or as a libpoly algebraic number.
+   * mpz_t and mpq_t representations.
+   * Returning the value as a libpoly algebraic number,
+   * as performed by yices_get_algebraic_number_value, is not supported in these bindings.
    *
    * Error codes:
    * If t is not an arithmetic term:
@@ -3286,12 +3298,12 @@ module type Low = sig
   val yices_get_rational64_value : model_t ptr -> term_t -> long ptr -> ulong ptr -> unit_t checkable
   val yices_get_double_value : model_t ptr -> term_t -> float ptr -> unit_t checkable
 
-  (* #ifdef __GMP_H__
-   * __YICES_DLLSPEC__ extern int32_t yices_get_mpz_value(model_t *mdl, term_t t, mpz_t val);
-   * __YICES_DLLSPEC__ extern int32_t yices_get_mpq_value(model_t *mdl, term_t t, mpq_t val);
-   * #endif
-   * 
-   * (*  * Conversion to an algebraic number.
+  val yices_get_mpz_value : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
+  val yices_get_mpq_value : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
+
+  (* UNSUPPORTED (extract from Yices's API)
+   *
+   * (\*  * Conversion to an algebraic number.
    *  *
    *  * t must be an arithmetic term.
    *  *
@@ -3300,7 +3312,7 @@ module type Low = sig
    *  *    code = EVAL_CONVERSION_FAILED
    *  * - if yices is compiled without support for MCSAT
    *  *    code = EVAL_NOT_SUPPORTED
-   *  *)
+   *  *\)
    * #ifdef LIBPOLY_VERSION
    * __YICES_DLLSPEC__ extern int32_t yices_get_algebraic_number_value(model_t *mdl, term_t t, lp_algebraic_number_t *a);
    * #endif *)
@@ -3496,6 +3508,10 @@ module type Low = sig
   (* Value converted to a floating point number *)
   val yices_val_get_double : model_t ptr -> yval_t ptr -> float ptr -> unit_t checkable
 
+  (* GMP values *)
+  val yices_val_get_mpz : model_t ptr -> yval_t ptr -> MPZ.t abstract ptr -> unit_t checkable
+  val yices_val_get_mpq : model_t ptr -> yval_t ptr -> MPQ.t abstract ptr -> unit_t checkable
+  
   (* (*  * Export an algebraic number
    *  * - v->tag must be YVAL_ALGEBRAIC
    *  * - return a copy of the algebraic number in *a

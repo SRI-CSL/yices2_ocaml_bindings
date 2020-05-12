@@ -18,10 +18,10 @@ true: debug, optimize(3), unbox_closures
 
 <src/*> : package(ctypes),\
           package(ctypes.foreign),\
-          package(ctypes.stubs),\
           package(zarith),\
           package(sexplib),\
           package(containers),\
+          package(ctypes-zarith),\
           package(ppx_deriving.std)
 
 <src_tests/*> : package(ctypes),\
@@ -31,16 +31,5 @@ true: debug, optimize(3), unbox_closures
                 package(zarith),\
                 package(containers),\
                 package(ppx_deriving.std),\
-                cclib(-lyices),\
-                ccopt(-L/Users/e29546/.opam/4.10.0+flambda/lib/zarith/),\
-                ccopt(-I/Users/e29546/.opam/4.10.0+flambda/lib/zarith/),\
-                ccopt(-L/Users/e29546/.opam/4.10.0+flambda/lib/yices2_bindings),\
-                ccopt(-I/Users/e29546/.opam/4.10.0+flambda/lib/yices2_bindings),\
-                ccopt(-L/Users/e29546/git/yices/yices2_ocaml_bindings/_build/src/),\
-                ccopt(-I/Users/e29546/git/yices/yices2_ocaml_bindings/_build/src/),\
-                cclib(-lyices2_bindings),\
-                cclib(-lunix),\
-                cclib(-lasmrun),\
-                cclib(-lcamlrun)
-
+                cclib(-lyices)
 

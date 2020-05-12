@@ -24,8 +24,6 @@ build: [
 ]
 install: [
   "ocamlfind" "install" "yices2_bindings" "src/META"
-  "_build/src/gmp.cmx"  "_build/src/gmp.cmo" "_build/src/gmp.cmi" "_build/src/gmp.o"
-  "_build/src/zbindings.cmx"  "_build/src/zbindings.cmo" "_build/src/zbindings.cmi" "_build/src/zbindings.o"
   "_build/src/yices2_header.cmx" "_build/src/yices2_low_types.cmx" "_build/src/yices2_high_types.cmx" "_build/src/yices2_low.cmx" "_build/src/yices2_high.cmx" "_build/src/yices2_SMT2.cmx"
   "_build/src/yices2_header.cmo" "_build/src/yices2_low_types.cmo" "_build/src/yices2_high_types.cmo" "_build/src/yices2_low.cmo" "_build/src/yices2_high.cmo" "_build/src/yices2_SMT2.cmo"
   "_build/src/yices2_header.cmi" "_build/src/yices2_low_types.cmi" "_build/src/yices2_high_types.cmi" "_build/src/yices2_low.cmi" "_build/src/yices2_high.cmi" "_build/src/yices2_SMT2.cmi"

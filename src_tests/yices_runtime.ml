@@ -2,8 +2,6 @@ open Yices2_high
 
 module EH1 = Make(ExceptionsErrorHandling)
 
-let () = x()
-  
 let () =
   print_endline "First test, using exceptions for error handling";
   let open EH1 in
