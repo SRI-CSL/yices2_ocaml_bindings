@@ -1,4 +1,5 @@
 open Ctypes
+open Ctypes_zarith
 open Signed
 open Unsigned
 open Yices2_low
@@ -69,7 +70,16 @@ let ofList3 t1 t2 t3 f l =
   in f !>(List.length l) b1 b2 b3
 
 let swap f a b = f b a
-    
+
+(* Importing the canonization function for mpq *)
+let mpq_canonicalize = Foreign.foreign "mpq_canonicalize" (MPQ.t_ptr @-> returning void)
+
+let ofZ f = MPZ.of_z <.> f 
+let ofQ f q =
+  let q = MPQ.of_q q in
+  mpq_canonicalize q;
+  f q
+
 module Error = struct
   let code     = yices_error_code <.> Conv.error_code.read
   let report () =
@@ -179,6 +189,18 @@ module SafeMake
   (* Conversions to int *)
   let toInts x = let<= x = x in return(Conv.sint.read x)
   let toIntu x = let/= x = x in return(Conv.uint.read x)
+
+  (* Conversion to Z.t *)
+  let toZ1 f =
+    let x = MPZ.make() in
+    let<= (_ : unit_t) = f x in
+    return (MPZ.to_z x)
+
+  (* Conversion to Q.t *)
+  let toQ1 f =
+    let x = MPQ.make() in
+    let<= (_ : unit_t) = f x in
+    return (MPQ.to_q x)
 
   (* Turn list into pointer+size; t specifies the type of elelments *)
   let carray t l = CArray.(let c = of_list t l in !>(length c), start c)
@@ -391,13 +413,13 @@ module SafeMake
     let new_variable = yices_new_variable <.> return_sint
     let application a = ofList1 term_t (yices_application a) <.> return_sint
 
-    let ite = yices_ite  <...> return_sint
-    let (===) = yices_eq  <..> return_sint
-    let (=/=) = yices_neq <..> return_sint
-    let (!!) = yices_not   <.> return_sint
-    let (!|) = ofList1 term_t yices_or  <.> return_sint
-    let (!&) = ofList1 term_t yices_and <.> return_sint
-    let (!*) = ofList1 term_t yices_xor <.> return_sint
+    let ite   = yices_ite <...> return_sint
+    let (===) = yices_eq   <..> return_sint
+    let (=/=) = yices_neq  <..> return_sint
+    let (!!)  = yices_not   <.> return_sint
+    let (!|)  = ofList1 term_t yices_or  <.> return_sint
+    let (!&)  = ofList1 term_t yices_and <.> return_sint
+    let (!*)  = ofList1 term_t yices_xor <.> return_sint
     let (<=>) = yices_iff     <..> return_sint
     let (=>)  = yices_implies <..> return_sint
     let tuple = ofList1 term_t yices_tuple <.> return_sint
@@ -410,22 +432,24 @@ module SafeMake
     let lambda = ofList1 term_t yices_lambda <..> return_sint
 
     module Arith = struct
-      let zero = yices_zero <.> return_sint
-      let int32 = yices_int32 <.> return_sint
-      let int64 = yices_int64 <.> return_sint
+      let zero       = yices_zero <.> return_sint
+      let int32      = yices_int32 <.> return_sint
+      let int64      = yices_int64 <.> return_sint
       let rational32 = yices_rational32 <..> return_sint
       let rational64 = yices_rational64 <..> return_sint
+      let mpz        = yices_mpz |> ofZ <.> return_sint
+      let mpq        = yices_mpq |> ofQ <.> return_sint
       let parse_rational = ofString yices_parse_rational <.> return_sint
       let parse_float = ofString yices_parse_float <.> return_sint
-      let (+) = yices_add <..> return_sint
-      let (-) = yices_sub <..> return_sint
-      let (!-) = yices_neg <.> return_sint
+      let (+)   = yices_add <..> return_sint
+      let (-)   = yices_sub <..> return_sint
+      let (!-)  = yices_neg <.> return_sint
       let ( * ) = yices_mul <..> return_sint
       let square = yices_square <.> return_sint
-      let (^) = yices_power <..> return_sint
+      let (^)  = yices_power <..> return_sint
       let (!+) = ofList1 term_t yices_sum <.> return_sint
       let (!*) = ofList1 term_t yices_product <.> return_sint
-      let (/) = yices_division <..> return_sint
+      let (/)  = yices_division <..> return_sint
       let (/.) = yices_idiv <..> return_sint
       let (%.) = yices_imod <..> return_sint
       let divides_atom = yices_divides_atom <..> return_sint
@@ -439,27 +463,34 @@ module SafeMake
       let poly_int64 = ofList2 long term_t yices_poly_int64 <.> return_sint
       let poly_rational32 = ofList3 sint uint term_t yices_poly_rational32 <.> return_sint
       let poly_rational64 = ofList3 long ulong term_t yices_poly_rational64 <.> return_sint
-      let eq = yices_arith_eq_atom <..> return_sint
-      let neq = yices_arith_neq_atom <..> return_sint
-      let geq = yices_arith_geq_atom <..> return_sint
-      let leq = yices_arith_leq_atom <..> return_sint
-      let gt = yices_arith_gt_atom <..> return_sint
-      let lt = yices_arith_lt_atom <..> return_sint
-      let eq0 = yices_arith_eq0_atom <.> return_sint
+      let poly_mpz = List.map (fun (z,t) -> MPZ.of_z z,t)
+                     <.> (ofList2 MPZ.t_ptr term_t) yices_poly_mpz
+                     <.> return_sint
+      let poly_mpq = List.map (fun (q,t) -> MPQ.of_q q,t)
+                     <.> (ofList2 MPQ.t_ptr term_t) yices_poly_mpq
+                     <.> return_sint
+      let eq   = yices_arith_eq_atom <..> return_sint
+      let neq  = yices_arith_neq_atom <..> return_sint
+      let geq  = yices_arith_geq_atom <..> return_sint
+      let leq  = yices_arith_leq_atom <..> return_sint
+      let gt   = yices_arith_gt_atom <..> return_sint
+      let lt   = yices_arith_lt_atom <..> return_sint
+      let eq0  = yices_arith_eq0_atom <.> return_sint
       let neq0 = yices_arith_neq0_atom <.> return_sint
       let geq0 = yices_arith_geq0_atom <.> return_sint
       let leq0 = yices_arith_leq0_atom <.> return_sint
-      let gt0 = yices_arith_gt0_atom <.> return_sint
-      let lt0 = yices_arith_lt0_atom <.> return_sint
+      let gt0  = yices_arith_gt0_atom <.> return_sint
+      let lt0  = yices_arith_lt0_atom <.> return_sint
     end
 
     module BV = struct
       let bvconst_uint32 ~width = yices_bvconst_uint32 !> width <.> return_sint
       let bvconst_uint64 ~width = yices_bvconst_uint64 !> width <.> return_sint
-      let bvconst_int32 ~width = yices_bvconst_int32 !> width <.> return_sint
-      let bvconst_int64 ~width = yices_bvconst_int64 !> width <.> return_sint
-      let bvconst_zero ~width = yices_bvconst_zero !> width |> return_sint
-      let bvconst_one ~width = yices_bvconst_one !> width |> return_sint
+      let bvconst_int32  ~width = yices_bvconst_int32  !> width <.> return_sint
+      let bvconst_int64  ~width = yices_bvconst_int64  !> width <.> return_sint
+      let bvconst_mpz    ~width = yices_bvconst_mpz    !> width |> ofZ <.> return_sint
+      let bvconst_zero   ~width = yices_bvconst_zero   !> width |> return_sint
+      let bvconst_one    ~width = yices_bvconst_one    !> width |> return_sint
       let bvconst_minus_one ~width = yices_bvconst_minus_one !> width |> return_sint
       let bvconst_from_array l =
         let l = List.map (fun b -> if b then Signed.SInt.one else Signed.SInt.zero) l in
@@ -553,10 +584,17 @@ module SafeMake
     let child t       = SInt.of_int <.> yices_term_child t <.> return_sint
     let children      = yices_term_children <.> TermVector.to_list
 
+    let sum_component t i =
+      let coeff_ptr = MPQ.make() in
+      let term_ptr = allocate_n term_t ~count:1 in
+      let<= (_ :unit_t) = (SInt.of_int <.> yices_sum_component t) i coeff_ptr term_ptr in
+      let t = !@ term_ptr in
+      let t = if t = null_term then None else Some t in
+      return(MPQ.to_q coeff_ptr, t)
     let bvsum_component t i =
       let coeff_ptr = allocate_n sint ~count:1 in
       let term_ptr = allocate_n term_t ~count:1 in
-      let<= _ = (SInt.of_int <.> yices_bvsum_component t) i coeff_ptr term_ptr in
+      let<= (_ :unit_t) = (SInt.of_int <.> yices_bvsum_component t) i coeff_ptr term_ptr in
       let t = !@ term_ptr in
       let t = if t = null_term then None else Some t in
       return(!@ coeff_ptr, t)
@@ -667,9 +705,12 @@ module SafeMake
           | [] -> raise_error("Term.reveal expected at least 2 arguments for `YICES_UPDATE_TERM, got empty list instead")
         end
 
-    let bool_const_value   = yices_bool_const_value   <.> alloc1 bool_t <+> (Conv.bool.read <.> return)
-    let bv_const_value     = yices_bv_const_value     <.> alloc1 sint
-    let scalar_const_value = yices_scalar_const_value <.> alloc1 sint
+    let bool_const_value     = yices_bool_const_value
+                               <.> alloc1 bool_t
+                               <+> (Conv.bool.read <.> return)
+    let bv_const_value       = yices_bv_const_value       <.> alloc1 sint
+    let scalar_const_value   = yices_scalar_const_value   <.> alloc1 sint
+    let rational_const_value = yices_rational_const_value <.> toQ1
 
     module Names = struct
       let set     = yices_set_term_name <.> ofString <..> toUnit
@@ -716,6 +757,8 @@ module SafeMake
     let get_int64_value = yices_get_int64_value <..> alloc1 long
     let get_rational32_value = yices_get_rational32_value <..> alloc2 sint uint
     let get_rational64_value = yices_get_rational64_value <..> alloc2 long ulong
+    let get_mpz_value    = yices_get_mpz_value <..> toZ1
+    let get_mpq_value    = yices_get_mpq_value <..> toQ1
     let get_double_value = yices_get_double_value <..> alloc1 float
     let get_bv_value     = yices_get_bv_value     <..> alloc1 sint
     let get_scalar_value = yices_get_scalar_value <..> alloc1 sint
@@ -742,6 +785,8 @@ module SafeMake
     let val_get_rational32     = yices_val_get_rational32 <..> alloc2 sint uint
     let val_get_rational64     = yices_val_get_rational64 <..> alloc2 long ulong
     let val_get_double         = yices_val_get_double <..> alloc1 float
+    let val_get_mpz            = yices_val_get_mpz    <..> toZ1
+    let val_get_mpq            = yices_val_get_mpq    <..> toQ1
     let val_get_bv             = yices_val_get_bv     <..> alloc1 sint
     let val_get_scalar         = yices_val_get_scalar <..> alloc2 sint type_t
     let val_expand_tuple m t   =

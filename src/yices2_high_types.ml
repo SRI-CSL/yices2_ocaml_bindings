@@ -867,6 +867,9 @@ module type High = sig
       val rational32 : sint -> uint -> term_t eh
       val rational64 : long -> ulong -> term_t eh
 
+      val mpz : Z.t -> term_t eh
+      val mpq : Q.t -> term_t eh
+      
       (** Convert a string to a rational or integer term.
        * The string format is
        *     <optional_sign> <numerator>/<denominator>
@@ -1091,6 +1094,11 @@ module type High = sig
       val poly_rational32 : (sint*uint*term_t) list -> term_t eh
       val poly_rational64 : (long*ulong*term_t) list -> term_t eh
 
+      (** Coefficients are GMP integers or rationals. *)
+
+      val poly_mpz : (Z.t * term_t) list -> term_t eh
+      val poly_mpq : (Q.t * term_t) list -> term_t eh
+
       (** ARITHMETIC ATOMS  *)
 
       (** All operations return NULL_TERM if there's an error (NULL_TERM = -1)
@@ -1189,7 +1197,7 @@ module type High = sig
       val bvconst_uint32 : width:int -> uint -> term_t eh
       val bvconst_uint64 : width:int -> ulong -> term_t eh
       val bvconst_int32  : width:int -> sint -> term_t eh
-      val bvconst_int64  : width:int -> long -> term_t eh
+      val bvconst_mpz    : width:int -> Z.t -> term_t eh
 
       (** bvconst_zero: set all bits to 0
        * bvconst_one: set low-order bit to 1, all the other bits to 0
@@ -1899,9 +1907,10 @@ module type High = sig
         if t is not of the right kind
           code = INVALID_TERM_OP  *)
 
-    val bool_const_value   : term_t -> bool eh
-    val bv_const_value     : term_t -> sint eh
-    val scalar_const_value : term_t -> sint eh
+    val bool_const_value     : term_t -> bool eh
+    val bv_const_value       : term_t -> sint eh
+    val scalar_const_value   : term_t -> sint eh
+    val rational_const_value : term_t -> Q.t eh
 
     (** Components of a sum t
         - i = index (must be between 0 and t's number of children - 1)
@@ -1919,6 +1928,7 @@ module type High = sig
           term1 = t
         if t is not of the right kind of the index is invalid
           code = INVALID_TERM_OP  *)
+    val sum_component   : term_t -> int -> (Q.t  * (term_t option)) eh
     val bvsum_component : term_t -> int -> (sint * (term_t option)) eh
 
     (** Component of power product t
@@ -2407,25 +2417,24 @@ module type High = sig
     val get_rational32_value : t -> term_t -> (sint*uint) eh
     val get_rational64_value : t -> term_t -> (long*ulong) eh
     val get_double_value     : t -> term_t -> float eh
+    val get_mpz_value        : t -> term_t -> Z.t eh
+    val get_mpq_value        : t -> term_t -> Q.t eh
 
-    (** #ifdef __GMP_H__
-        __YICES_DLLSPEC__ extern int32_t yices_get_mpz_value(model_t *mdl, term_t t, mpz_t val);
-        __YICES_DLLSPEC__ extern int32_t yices_get_mpq_value(model_t *mdl, term_t t, mpq_t val);
-        #endif
-
-        (**  * Conversion to an algebraic number.
-        
-        * t must be an arithmetic term.
-        *
-        * Error codes:
-        * - if t's value is rational:
-        *    code = EVAL_CONVERSION_FAILED
-        * - if yices is compiled without support for MCSAT
-        *    code = EVAL_NOT_SUPPORTED
-         *)
-        #ifdef LIBPOLY_VERSION
-        __YICES_DLLSPEC__ extern int32_t yices_get_algebraic_number_value(model_t *mdl, term_t t, lp_algebraic_number_t *a);
-        #endif  *)
+    (** UNSUPPORTED (extract from Yices's API)
+     *
+     * (\*  * Conversion to an algebraic number.
+     *  *
+     *  * t must be an arithmetic term.
+     *  *
+     *  * Error codes:
+     *  * - if t's value is rational:
+     *  *    code = EVAL_CONVERSION_FAILED
+     *  * - if yices is compiled without support for MCSAT
+     *  *    code = EVAL_NOT_SUPPORTED
+     *  *\)
+     * #ifdef LIBPOLY_VERSION
+     * __YICES_DLLSPEC__ extern int32_t yices_get_algebraic_number_value(model_t *mdl, term_t t, lp_algebraic_number_t *a);
+     * #endif *)
 
     (** Value of bitvector term t in mdl
         - the value is returned in array val
@@ -2612,7 +2621,14 @@ module type High = sig
     (** Value converted to a floating point number  *)
     val val_get_double : t -> yval_t ptr -> float eh
 
-    (** (**  * Export an algebraic number
+    (** GMP values *)
+
+    val val_get_mpz : model_t ptr -> yval_t ptr -> Z.t eh
+    val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
+
+    (** NOT SUPPORTED in yices bindings
+
+       (**  * Export an algebraic number
         * - v->tag must be YVAL_ALGEBRAIC
         * - return a copy of the algebraic number in *a
         *
