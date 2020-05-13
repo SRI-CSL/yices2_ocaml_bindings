@@ -4,9 +4,7 @@ open Type
 open Ctypes
 
 open Yices2_high
-open BaseTypes
-open LowTypes
-open HighTypes
+open Types
 
 module Bindings : API with type 'a eh := 'a
   

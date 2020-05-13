@@ -1,18 +1,17 @@
 open Ctypes
 open Ctypes_static
 
-(* Abbreviations *)
-    
 module type API = Yices2_high_types.API
 
-module BaseTypes = Yices2_low.BaseTypes
-open BaseTypes
+module LowTypes  := Yices2_low.Types
+module HighTypes := Yices2_high_types.Types
 
-module LowTypes = Yices2_low.Types
-open LowTypes
+module Types : sig
+  include module type of LowTypes
+  include module type of HighTypes
+end
 
-module HighTypes = Yices2_high_types.Types
-open HighTypes
+open Types
 
 module Error : sig
   (** ********************

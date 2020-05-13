@@ -4,18 +4,15 @@ open Signed
 open Unsigned
 open Yices2_low
 
-(* Abbreviations *)
-    
+(* Abbreviation *)
 module type API = Yices2_high_types.API
 
-module BaseTypes = BaseTypes
-open BaseTypes
+module Types = struct
+  include Yices2_low.Types
+  include Yices2_high_types.Types
+end
 
-module LowTypes = Types
-open LowTypes
-
-module HighTypes = Yices2_high_types.Types
-open HighTypes
+open Types
 
 module List = struct
   include List

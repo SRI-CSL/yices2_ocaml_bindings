@@ -214,10 +214,12 @@ end
 
 module type API = sig
 
-  open BaseTypes
-      
   module Types : sig
 
+    module BaseTypes := BaseTypes
+
+    include module type of BaseTypes
+    
     (* Type of things that yices implements as a signed int, that can be checked for error *)
     type _ sintbase
     (* Type of things that yices implements as an unsigned int, that can be checked for error *)
