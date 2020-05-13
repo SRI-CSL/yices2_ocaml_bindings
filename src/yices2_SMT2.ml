@@ -6,7 +6,9 @@ open Std
 open Type
     
 open Yices2_high
-open Types
+open BaseTypes
+open LowTypes
+open HighTypes
 
 open Containers
 

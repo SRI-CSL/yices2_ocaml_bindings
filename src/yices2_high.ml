@@ -4,13 +4,23 @@ open Signed
 open Unsigned
 open Yices2_low
 
+(* Abbreviations *)
+    
+module type API = Yices2_high_types.API
+
+module BaseTypes = BaseTypes
+open BaseTypes
+
+module LowTypes = Types
+open LowTypes
+
+module HighTypes = Yices2_high_types.Types
+open HighTypes
+
 module List = struct
   include List
   let map f l = rev(rev_map f l) (* Tail-recursive version of map to avoid stack overflows *)
 end
-
-module Types = Yices2_high_types.Types
-open Types
 
 (* Mnemotechnic: ! represents OCaml's int.
    No possibility of error checking in unsigned int conversion *)
@@ -19,6 +29,7 @@ let (!<)  = UInt.to_int
 let (!>>) = ULong.of_int
 let (!<<) = ULong.to_int
 
+let (<.>) f g x = g(f x)
 let (<..>) f g x1 x2 = g (f x1 x2)
 let (<...>) f g x1 x2 x3 = g (f x1 x2 x3)
 
@@ -141,7 +152,7 @@ module SumErrorHandling = struct
 end
 
 module SafeMake
-    (L : Yices2_low_types.Low with type 'a Types.sintbase = 'a sintbase
+    (L : Yices2_low_types.API with type 'a Types.sintbase = 'a sintbase
                                and type 'a Types.uintbase = 'a uintbase)
     (EH: SafeErrorHandling with type 'a checkable := 'a L.checkable) = struct
 

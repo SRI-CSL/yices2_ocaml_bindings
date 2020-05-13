@@ -3,7 +3,7 @@ open Ctypes_zarith
 open Unsigned
 open Signed
 
-module Common = struct
+module BaseTypes = struct
 
   module FILE = struct
     type t = [ `__IO_FILE ] structure
@@ -211,30 +211,25 @@ module Common = struct
 
 end
 
-module type Common = sig
 
-  include module type of Common
+module type API = sig
 
-  (* Type of things that yices implements as a signed int, that can be checked for error *)
-  type _ sintbase
-  (* Type of things that yices implements as an unsigned int, that can be checked for error *)
-  type _ uintbase
-
-  (* Opaque C types, only accessible through the API functions *)
-  type uint_t = [`uint_t] uintbase [@@deriving eq]
-  type sint_t = [`sint_t] sintbase [@@deriving eq]
-  type unit_t = [`unit_t] sintbase [@@deriving eq]
-  type bool_t = [`bool_t] sintbase [@@deriving eq]
-  type term_t = [`term_t] sintbase [@@deriving eq]
-  type type_t = [`type_t] sintbase [@@deriving eq]
-
-end
-
-module type Low = sig
-
+  open BaseTypes
+      
   module Types : sig
 
-    include Common
+    (* Type of things that yices implements as a signed int, that can be checked for error *)
+    type _ sintbase
+    (* Type of things that yices implements as an unsigned int, that can be checked for error *)
+    type _ uintbase
+
+    (* Opaque C types, only accessible through the API functions *)
+    type uint_t = [`uint_t] uintbase [@@deriving eq]
+    type sint_t = [`sint_t] sintbase [@@deriving eq]
+    type unit_t = [`unit_t] sintbase [@@deriving eq]
+    type bool_t = [`bool_t] sintbase [@@deriving eq]
+    type term_t = [`term_t] sintbase [@@deriving eq]
+    type type_t = [`type_t] sintbase [@@deriving eq]
 
     (* C's enums *)
     type smt_status_t [@@deriving eq]
@@ -4014,5 +4009,3 @@ module type Low = sig
   val yices_model_to_string : model_t ptr -> uint -> uint -> uint -> char ptr checkable
 
 end
-
-module type LowId = Low with type 'a checkable = 'a

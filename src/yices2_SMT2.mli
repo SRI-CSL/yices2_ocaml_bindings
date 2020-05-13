@@ -4,9 +4,11 @@ open Type
 open Ctypes
 
 open Yices2_high
-open Types
+open BaseTypes
+open LowTypes
+open HighTypes
 
-module Bindings : Yices2_high_types.High with type 'a eh := 'a
+module Bindings : API with type 'a eh := 'a
   
 module VarMap : Hashtbl.S with type key = string
 

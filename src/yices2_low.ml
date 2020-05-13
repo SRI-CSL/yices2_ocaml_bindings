@@ -2,11 +2,15 @@ open Ctypes
 open Signed
 open Unsigned
 
+(* Abbreviations *)
+module type API = Yices2_low_types.API
+
+module BaseTypes = Yices2_low_types.BaseTypes
+open BaseTypes
+
 let (<.>) f g x = g(f x)
 
 module Types = struct
-
-  include Yices2_low_types.Common
 
   let equal_sint = SInt.equal
   let equal_uint = UInt.equal

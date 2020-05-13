@@ -1,12 +1,18 @@
 open Ctypes
 open Ctypes_static
 
-open Yices2_high_types
+(* Abbreviations *)
+    
+module type API = Yices2_high_types.API
 
-module Types : module type of Types with type display = Types.display
-                                     and type error_report = Types.error_report
+module BaseTypes = Yices2_low.BaseTypes
+open BaseTypes
 
-open Types
+module LowTypes = Yices2_low.Types
+open LowTypes
+
+module HighTypes = Yices2_high_types.Types
+open HighTypes
 
 module Error : sig
   (** ********************
@@ -64,4 +70,4 @@ module SumErrorHandling : sig
   include ErrorHandling with type 'a t = ('a, error) Stdlib.Result.t
 end
 
-module Make(EH: ErrorHandling) : High with type 'a eh := 'a EH.t
+module Make(EH: ErrorHandling) : API with type 'a eh := 'a EH.t

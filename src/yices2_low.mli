@@ -1,5 +1,7 @@
-(* Abbreviation for composition *)
-val ( <.> ) : ('a -> 'b) -> ('b -> 'c) -> 'a -> 'c
+open Yices2_low_types
 
-include Yices2_low_types.LowId
+module type API  = API
+module BaseTypes = BaseTypes
+
+include API with type 'a checkable = 'a
 
