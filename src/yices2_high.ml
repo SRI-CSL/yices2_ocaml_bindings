@@ -366,7 +366,7 @@ module SafeMake
     let bvsize       = yices_bvtype_size       <.> toIntu
     let scalar_card  = yices_scalar_type_card  <.> toIntu
     let num_children = yices_type_num_children <.> toInts
-    (* let child     = yices_type_child *)
+    let child t      = SInt.of_int <.> yices_type_child t <.> return_sint
     let children     = yices_type_children <.> TypeVector.to_list
 
     let rec ifseries t = function

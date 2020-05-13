@@ -503,6 +503,74 @@ module type API = sig
          type1 = tau or sigma  *)
     val compatible_types : type_t -> type_t -> bool eh
 
+    (** Number of bits for type tau
+     * - returns 0 if there's an error
+     *
+     * Error report:
+     * if tau is not a valid type
+     *    code = INVALID_TYPE
+     *    type1 = tau
+     * if tau is not a bitvector type
+     *    code = BVTYPE_REQUIRED
+     *    type1 = tau *)
+    val bvsize : type_t -> int eh
+
+    (** Cardinality of a scalar type
+     * - returns 0 if there's an error
+     *
+     * Error report:
+     * if tau is not a valid type
+     *   code = INVALID_TYPE
+     *   type1 = tau
+     * if tau is not a scalar type
+     *   code = INVALID_TYPE_OP *)
+    val scalar_card : type_t -> int eh
+
+    (** Number of children of type tau
+     * - if tau is a tuple type (tuple tau_1 ... tau_n), returns n
+     * - if tau is a function type (-> tau_1 ... tau_n sigma), returns n+1
+     * - if tau is any other type, returns 0
+     *
+     * - returns -1 if tau is not a valid type
+     *
+     * Error report:
+     * if tau is not a valid type
+     *   code = INVALID_TYPE
+     *   type1 = tau *)
+    val num_children : type_t -> int eh
+
+    (** i-th child of type tau.
+     * - i must be in 0 and n-1 where n = yices_type_num_children(tau)
+     * - returns NULL_TYPE if there's an error
+     *
+     * For a function type (-> tau_1 ... tau_n sigma), the first n
+     * children are tau_1 ... tau_n (indexed from 0 to n-1) and the last
+     * child is sigma (with index i=n).
+     *
+     * Error report:
+     * if tau is not a valid type
+     *   code = INVALID_TYPE
+     *   type1 = tau
+     * if is is negative or larger than n
+     *   code = INVALID_TYPE_OP *)
+    val child : type_t -> int -> type_t eh
+
+    (** Collect all the children of type tau in vector *v
+     * - v must be initialized by calling yices_init_type_vector
+     * - if tau is not valid, the function returns -1 and leaves *v unchanged
+     * - otherwise, the children are stored in *v:
+     *    v->size = number of children
+     *    v->data[0 ... v->size-1] = the children
+     *
+     * The children are stored in the same order as given by yices_type_child:
+     *    v->data[i] = child of index i.
+     *
+     * Error report:
+     * if tau is not a valid type
+     *   code = INVALID_TYPE
+     *   type1 = tau *)
+    val children : type_t -> type_t list eh
+    
     module Names : Names with type t := type_t
 
     val reveal : type_t -> ytype eh
