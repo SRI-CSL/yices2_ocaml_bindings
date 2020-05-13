@@ -337,8 +337,8 @@ module type API = sig
         function should not return. If it does, yices will call exit as
         previously.
 
-        In other words, the code that handles out-of-memory is as follows: *)
-     (*
+        In other words, the code that handles out-of-memory is as follows:
+     
          if (callback != NULL) {
            callback();
          } else {
@@ -467,6 +467,25 @@ module type API = sig
     (** **********************
          TYPE EXPLORATION    *
      ********************* *)
+
+    (** Checks on a type tau:
+     *
+     * yices_type_is_arithmetic(tau) returns true if tau is either int or real.
+     *
+     * if tau not a valid type, the functions return false
+     * and set the error report:
+     *   code = INVALID_TYPE
+     *   type1 = tau *)
+
+    val is_bool       : type_t -> bool eh
+    val is_int        : type_t -> bool eh
+    val is_real       : type_t -> bool eh
+    val is_arithmetic : type_t -> bool eh
+    val is_bitvector  : type_t -> bool eh
+    val is_tuple      : type_t -> bool eh
+    val is_function   : type_t -> bool eh
+    val is_scalar     : type_t -> bool eh
+    val is_uninterpreted : type_t -> bool eh
 
     (** Check whether tau is a subtype of sigma
 
