@@ -268,25 +268,25 @@ module ParseTerm = struct
           | "!", _::_       -> raise (Yices_SMT2_exception "! not supported")
             
           (* Core theory *)
-          | "not", [x]      -> unary session (!!) x
-          | "=>", _::_::_   -> right_assoc session (==>) l
-          | "and", l        -> list session (!&) l
-          | "or",  l        -> list session (!|) l
-          | "xor", l        -> list session (!*) l
-          | "=", _::_::_    -> let* l = chainable session (===) l in return !&l
+          | "not", [x]      -> unary session not1 x
+          | "=>", _::_::_   -> right_assoc session implies l
+          | "and", l        -> list session andN l
+          | "or",  l        -> list session orN l
+          | "xor", l        -> list session xorN l
+          | "=", _::_::_    -> let* l = chainable session eq l in return !&l
           | "distinct", _   -> list session Term.distinct l
           | "ite", [a;b;c]  -> ternary session ite a b c
           (* Arithmetic theor(ies) *)
-          | "-", [a]        -> let* a = parse_rec session a in return Arith.(!-a)
-          | "-", _::_::_    -> left_assoc session Arith.(-) l
-          | "+", _::_::_    -> left_assoc session Arith.(+) l
-          | "*", _::_::_    -> left_assoc session Arith.( * ) l
+          | "-", [a]        -> let* a = parse_rec session a in return (Arith.neg a)
+          | "-", _::_::_    -> left_assoc session Arith.sub l
+          | "+", _::_::_    -> left_assoc session Arith.add l
+          | "*", _::_::_    -> left_assoc session Arith.mul l
           | "div", a::_::_  ->
             let* ya = parse_rec session a in
             begin
               match Term.type_of_term ya |> Type.reveal with
-              | Int  -> left_assoc_aux session ya Arith.(/.) l
-              | Real -> left_assoc_aux session ya Arith.(/) l
+              | Int  -> left_assoc_aux session ya Arith.idiv l
+              | Real -> left_assoc_aux session ya Arith.division l
               | _ -> raise (Yices_SMT2_exception "div should apply to Int or Real")
             end
           | "mod", [a;b]  -> binary session Arith.(%.) a b

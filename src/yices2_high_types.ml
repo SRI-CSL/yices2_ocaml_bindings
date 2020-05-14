@@ -1008,10 +1008,14 @@ module type API = sig
        * code = INVALID_FLOAT_FORMAT  *)
       val parse_float : string -> term_t eh
 
-      (** ARITHMETIC OPERATIONS  *)
+      (** ARITHMETIC OPERATIONS
+       * and their infix and prefix operations:
 
-      (** All operations return NULL_TERM if there's an error (NULL_TERM = -1)
-       *
+       * Mnemotechnic:
+          infix operations returning Bool are 3-symbol long;
+          those returning an arithmetic type are 2-symbol long;
+          prefix operations are 2-symbol long starting with !
+
        * Error reports:
        * if t1 or t2 is not valid
        *   code = INVALID_TERM
@@ -1026,12 +1030,17 @@ module type API = sig
        *   code = DEGREE_OVERFLOW
        *   badval = product degree  *)
 
-      val (+) : term_t -> term_t -> term_t eh
-      val (-) : term_t -> term_t -> term_t eh
-      val (!-) : term_t -> term_t eh
-      val ( * ) : term_t -> term_t -> term_t eh
+      val add : term_t -> term_t -> term_t eh
+      val sub : term_t -> term_t -> term_t eh
+      val neg : term_t -> term_t eh
+      val mul : term_t -> term_t -> term_t eh
+      val power : term_t -> uint -> term_t eh
+      val ( ++ ) : term_t -> term_t -> term_t eh
+      val ( -- ) : term_t -> term_t -> term_t eh
+      val ( !- ) : term_t -> term_t eh
+      val ( ** ) : term_t -> term_t -> term_t eh
+      val ( ^^ ) : term_t -> uint -> term_t eh
       val square : term_t -> term_t eh
-      val (^) : term_t -> uint -> term_t eh
 
       (** Sum of n arithmetic terms t[0] ... t[n-1]
        *
@@ -1044,7 +1053,9 @@ module type API = sig
        * if t[i] is not an arithmetic term
        *   code = ARITHTERM_REQUIRED
        *   term1 = t[i]  *)
-      val (!+) : term_t list -> term_t eh
+
+      val sum : term_t list -> term_t eh
+      val (!+ ) : term_t list -> term_t eh
 
       (** Product of n arithmetic terms t[0] ... t[n-1]
        *
@@ -1060,6 +1071,8 @@ module type API = sig
        * if the result has degree > YICES_MAX_DEGREE
        *   code = DEGREE OVERFLOW
        *   badval = degree  *)
+
+      val product : term_t list -> term_t eh
       val (!* ) : term_t list -> term_t eh
 
       (** Division:  t1/t2
@@ -1078,7 +1091,9 @@ module type API = sig
        * if t1 or t2 is not an arithmetic term
        *    code = ARITHTERM_REQUIRED
        *    term1 = t1 or t2  *)
-      val (/) : term_t -> term_t -> term_t eh
+
+      val division : term_t -> term_t -> term_t eh
+      val (//) : term_t -> term_t -> term_t eh
 
       (** Integer division and modulo
        *
@@ -1106,6 +1121,8 @@ module type API = sig
        *    code = ARITHTERM_REQUIRED
        *    term1 = t1 or t2  *)
 
+      val idiv : term_t -> term_t -> term_t eh
+      val imod : term_t -> term_t -> term_t eh
       val ( /. ) : term_t -> term_t -> term_t eh
       val ( %. ) : term_t -> term_t -> term_t eh
 
@@ -1130,7 +1147,9 @@ module type API = sig
        * if t2 is not an arithmetic constant
        *    code = ARITHCONSTANT_REQUIRED
        *    term1 = t2  *)
+
       val divides_atom : term_t -> term_t -> term_t eh
+      val ( ||. ) : term_t -> term_t -> term_t eh
 
       (** Integrality test:
        *
