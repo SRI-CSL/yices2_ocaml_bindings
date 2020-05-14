@@ -476,7 +476,7 @@ module SafeMake
       let square = yices_square <.> return_sint
       let power32 = yices_power <..> return_sint
       let power t = UInt.of_int <.> power32 t
-      let sum    = ofList1 term_t yices_sum <.> return_sint
+      let sum     = ofList1 term_t yices_sum <.> return_sint
       let product  = ofList1 term_t yices_product <.> return_sint
       let division = yices_division <..> return_sint
       let idiv  = yices_idiv <..> return_sint
@@ -508,8 +508,8 @@ module SafeMake
       let poly_mpq = List.map (fun (q,t) -> MPQ.of_q q,t)
                      <.> (ofList2 MPQ.t_ptr term_t) yices_poly_mpq
                      <.> return_sint
-      let eq   = yices_arith_eq_atom <..> return_sint
-      let neq  = yices_arith_neq_atom <..> return_sint
+      let arith_eq  = yices_arith_eq_atom <..> return_sint
+      let arith_neq = yices_arith_neq_atom <..> return_sint
       let geq  = yices_arith_geq_atom <..> return_sint
       let leq  = yices_arith_leq_atom <..> return_sint
       let gt   = yices_arith_gt_atom <..> return_sint

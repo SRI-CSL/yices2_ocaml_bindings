@@ -1244,8 +1244,8 @@ module type API = sig
        *   code = ARITHTERM_REQUIRED
        *   term1 = t1 or t2  *)
 
-      val eq  : term_t -> term_t -> term_t eh
-      val neq : term_t -> term_t -> term_t eh
+      val arith_eq  : term_t -> term_t -> term_t eh
+      val arith_neq : term_t -> term_t -> term_t eh
       val geq : term_t -> term_t -> term_t eh
       val leq : term_t -> term_t -> term_t eh
       val gt  : term_t -> term_t -> term_t eh
