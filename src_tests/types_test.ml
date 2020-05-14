@@ -49,4 +49,5 @@ let test () =
   assert(List.nth type_v 1 = tup1_t);
   assert(List.nth type_v 2 = tup2_t);
   assert(List.nth type_v 3 = tup3_t);
-  print_endline "Done with Types tests"
+  print_endline "Done with Types tests";
+  exit()

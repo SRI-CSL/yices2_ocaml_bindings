@@ -443,6 +443,7 @@ module SafeMake
       let zero       = yices_zero <.> return_sint
       let int32      = yices_int32 <.> return_sint
       let int64      = yices_int64 <.> return_sint
+      let int        = Long.of_int <.> int64
       let rational32 = yices_rational32 <..> return_sint
       let rational64 = yices_rational64 <..> return_sint
       let mpz        = yices_mpz |> ofZ <.> return_sint

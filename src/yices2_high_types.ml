@@ -939,6 +939,7 @@ module type API = sig
 
       (** Integer constants  *)
 
+      val int   : int  -> term_t eh
       val int32 : sint -> term_t eh
       val int64 : long -> term_t eh
 
