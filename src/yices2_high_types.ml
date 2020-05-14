@@ -1361,7 +1361,7 @@ module type API = sig
        * if n > YICES_MAX_BVSIZE
        *    code = MAX_BVSIZE_EXCEEDED
        *    badval = n  *)
-      val bvconst_from_array : bool list -> term_t eh
+      val bvconst_from_list : bool list -> term_t eh
 
       (** Parsing from a string of characters '0' and '1'
        * First character = high-order bit

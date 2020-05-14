@@ -532,7 +532,7 @@ module SafeMake
       let bvconst_zero   ~width = yices_bvconst_zero   !> width |> return_sint
       let bvconst_one    ~width = yices_bvconst_one    !> width |> return_sint
       let bvconst_minus_one ~width = yices_bvconst_minus_one !> width |> return_sint
-      let bvconst_from_array l =
+      let bvconst_from_list l =
         let l = List.map (fun b -> if b then Signed.SInt.one else Signed.SInt.zero) l in
         ofList1 sint yices_bvconst_from_array l |> return_sint
       let parse_bvbin = ofString yices_parse_bvbin <.> return_sint
