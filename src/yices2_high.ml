@@ -414,22 +414,36 @@ module SafeMake
 
     type t = term_t [@@deriving eq]
 
-    let ytrue  = yices_true  <.> return_sint
-    let yfalse = yices_false <.> return_sint
+    let true0  = yices_true  <.> return_sint
+    let false0 = yices_false <.> return_sint
     let constant t ~id = yices_constant t (SInt.of_int id) |> return_sint
     let new_uninterpreted_term = yices_new_uninterpreted_term <.> return_sint
     let new_variable = yices_new_variable <.> return_sint
     let application a = ofList1 term_t (yices_application a) <.> return_sint
 
     let ite   = yices_ite <...> return_sint
-    let (===) = yices_eq   <..> return_sint
-    let (=/=) = yices_neq  <..> return_sint
-    let (!!)  = yices_not   <.> return_sint
-    let (!|)  = ofList1 term_t yices_or  <.> return_sint
-    let (!&)  = ofList1 term_t yices_and <.> return_sint
-    let (!*)  = ofList1 term_t yices_xor <.> return_sint
-    let (<=>) = yices_iff     <..> return_sint
-    let (=>)  = yices_implies <..> return_sint
+    let eq    = yices_eq   <..> return_sint
+    let neq   = yices_neq  <..> return_sint
+    let not1  = yices_not   <.> return_sint
+    let or2   = yices_or2  <..> return_sint
+    let and2  = yices_and2 <..> return_sint
+    let xor2  = yices_xor2 <..> return_sint
+    let orN   = ofList1 term_t yices_or  <.> return_sint
+    let andN  = ofList1 term_t yices_and <.> return_sint
+    let xorN  = ofList1 term_t yices_xor <.> return_sint
+    let iff   = yices_iff     <..> return_sint
+    let implies = yices_implies <..> return_sint
+    let (===) = eq
+    let (=/=) = neq
+    let (!!)  = not1
+    let (|||) = or2
+    let (&&&) = and2
+    let ( *** ) = xor2
+    let (!|)  = orN
+    let (!&)  = andN
+    let (!*)  = xorN
+    let (<=>) = iff
+    let (==>) = implies
     let tuple = ofList1 term_t yices_tuple <.> return_sint
     let select i = yices_select !>i        <.> return_sint
     let tuple_update v i = yices_tuple_update v !>i <.> return_sint

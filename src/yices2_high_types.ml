@@ -596,10 +596,7 @@ module type API = sig
         TERM CONSTRUCTORS  *
      ******************* *)
 
-    (** Constructors do type checking and simplification.
-        They return NULL_TERM (< 0) if there's a type error.
-
-        Type checking rules for function applications:
+    (** Type checking rules for function applications:
         - if f has type [tau_1 ... tau_n -> u]
           x_1 has type sigma_1, ..., x_n has type sigma_n
         - then (f x1 ... xn) is type correct if sigma_i
@@ -608,10 +605,11 @@ module type API = sig
         - x_i has type int and tau_i is real: OK
         - x_i has type real and tau_i is int: type error  *)
 
-    (** Boolean constants: no error report  *)
+    (** Boolean constants: no error report;
+        adding the arity 0 at the end of names to distinguish from ocaml's true and false *)
 
-    val ytrue  : unit -> term_t eh
-    val yfalse : unit -> term_t eh
+    val true0  : unit -> term_t eh
+    val false0 : unit -> term_t eh
 
     (** Constant of type tau and id = index
         - tau must be a scalar type or an uninterpreted type
@@ -701,7 +699,10 @@ module type API = sig
     val ite : term_t -> term_t -> term_t -> term_t eh
 
     (** Equality (= left right)
-        Disequality (/= left right)
+        Disequality (/= left right),
+        and their infix abbreviations.
+
+        Mnemotechnic: infix operators that produce Boolean terms are 3-symbol long.
 
         Error report:
         if left or right is not a valid term
@@ -714,10 +715,15 @@ module type API = sig
          term2 = right
          type2 = term2's type  *)
 
+    val eq  : term_t -> term_t -> term_t eh
+    val neq : term_t -> term_t -> term_t eh
     val (===) : term_t -> term_t -> term_t eh
     val (=/=) : term_t -> term_t -> term_t eh
 
-    (** (not arg)
+    (** (not1 arg), adding the arity 1 at the end of name to distinguish from ocaml's not,
+        and its prefix abbreviation
+
+        Mnemotechnic: prefix operators are 2-symbol long starting with !.
 
         Error report:
         if arg is invalid
@@ -727,11 +733,14 @@ module type API = sig
           code = TYPE_MISMATCH
           term1 = arg
           type1 = bool (expected type)  *)
+
+    val not1 : term_t -> term_t eh
     val (!!) : term_t -> term_t eh
 
     (** (or  arg[0] ... arg[n-1])
         (and arg[0] ... arg[n-1])
         (xor arg[0] ... arg[n-1])
+        and their prefix abbreviations
 
         NOTE: ARRAY ARG MAY BE MODIFIED.
 
@@ -747,13 +756,25 @@ module type API = sig
          term1 = arg[i]
          type1 = bool (expected type)  *)
 
+    val orN  : term_t list -> term_t eh
+    val andN : term_t list -> term_t eh
+    val xorN : term_t list -> term_t eh
     val (!|) : term_t list -> term_t eh
     val (!&) : term_t list -> term_t eh
     val (!*) : term_t list -> term_t eh
 
+    (** Variants of or/and/xor with 2 arguments *)
+
+    val or2  : term_t -> term_t -> term_t eh
+    val and2 : term_t -> term_t -> term_t eh
+    val xor2 : term_t -> term_t -> term_t eh
+    val ( ||| ) : term_t -> term_t -> term_t eh
+    val ( &&& ) : term_t -> term_t -> term_t eh
+    val ( *** ) : term_t -> term_t -> term_t eh
 
     (** (iff left right)
         (implies left right)
+        and their infix abbreviations
 
         Error report:
         if left or right is invalid
@@ -764,8 +785,10 @@ module type API = sig
           term1 = left/right
           type1 = bool (expected type)  *)
 
+    val iff : term_t -> term_t -> term_t eh
+    val implies  : term_t -> term_t -> term_t eh
     val (<=>) : term_t -> term_t -> term_t eh
-    val (=>)  : term_t -> term_t -> term_t eh
+    val (==>) : term_t -> term_t -> term_t eh
 
     (** Tuple constructor
 

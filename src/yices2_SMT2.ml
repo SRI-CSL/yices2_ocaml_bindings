@@ -166,8 +166,8 @@ module ParseTerm = struct
   let atom session s = return
       (match s with
        | _ when Variables.mem session.variables s -> Variables.find session.variables s
-       | "true"  -> Term.ytrue()
-       | "false" -> Term.yfalse()
+       | "true"  -> Term.true0()
+       | "false" -> Term.false0()
        | _ -> 
          match String.sub s 0 2 with
          | "#b" -> Term.BV.parse_bvbin (String.sub s 2 (String.length s -2))
@@ -269,7 +269,7 @@ module ParseTerm = struct
             
           (* Core theory *)
           | "not", [x]      -> unary session (!!) x
-          | "=>", _::_::_   -> right_assoc session (=>) l
+          | "=>", _::_::_   -> right_assoc session (==>) l
           | "and", l        -> list session (!&) l
           | "or",  l        -> list session (!|) l
           | "xor", l        -> list session (!*) l
