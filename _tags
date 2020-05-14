@@ -32,5 +32,6 @@ true: debug, optimize(3), unbox_closures
                 package(zarith),\
                 package(containers),\
                 package(ppx_deriving.std),\
-                cclib(-lyices)
+                cclib(-lyices),\
+                cclib(-lgmp)
 

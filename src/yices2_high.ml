@@ -80,7 +80,7 @@ let ofList3 t1 t2 t3 f l =
 let swap f a b = f b a
 
 (* Importing the canonization function for mpq *)
-let mpq_canonicalize = Foreign.foreign "mpq_canonicalize" (MPQ.t_ptr @-> returning void)
+let mpq_canonicalize = Foreign.foreign "__gmpq_canonicalize" (MPQ.t_ptr @-> returning void)
 
 let ofZ f = MPZ.of_z <.> f 
 let ofQ f q =

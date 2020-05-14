@@ -72,3 +72,5 @@ let () = print_endline ""
 let () = Context_test.test_context()
 let () = print_endline ""
 let () = Error_test.test()
+let () = print_endline ""
+let () = Types_test.test()
