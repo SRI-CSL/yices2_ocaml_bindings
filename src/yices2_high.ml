@@ -497,8 +497,11 @@ module SafeMake
 
       let poly_int32 = ofList2 sint term_t yices_poly_int32 <.> return_sint
       let poly_int64 = ofList2 long term_t yices_poly_int64 <.> return_sint
+      let poly_int   = List.map (fun (i,t) -> Long.of_int i, t) <.> poly_int64
       let poly_rational32 = ofList3 sint uint term_t yices_poly_rational32 <.> return_sint
       let poly_rational64 = ofList3 long ulong term_t yices_poly_rational64 <.> return_sint
+      let poly_rational   = List.map (fun (n,d,t) -> Long.of_int n, ULong.of_int d, t)
+                            <.> poly_rational64
       let poly_mpz = List.map (fun (z,t) -> MPZ.of_z z,t)
                      <.> (ofList2 MPZ.t_ptr term_t) yices_poly_mpz
                      <.> return_sint

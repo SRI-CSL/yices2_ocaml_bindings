@@ -1211,6 +1211,7 @@ module type API = sig
       (** Polynomial with integer coefficients
        * - a and t must both be arrays of size n  *)
 
+      val poly_int   : (int*term_t)  list -> term_t eh
       val poly_int32 : (sint*term_t) list -> term_t eh
       val poly_int64 : (long*term_t) list -> term_t eh
 
@@ -1222,6 +1223,7 @@ module type API = sig
        * if den[i] is 0
        *   code = DIVISION_BY_ZERO  *)
 
+      val poly_rational   : (int*int*term_t) list -> term_t eh
       val poly_rational32 : (sint*uint*term_t) list -> term_t eh
       val poly_rational64 : (long*ulong*term_t) list -> term_t eh
 
