@@ -20,12 +20,12 @@ let test () =
   let tup1_t  = Type.tuple [bool_t] in
   let tup2_t  = Type.tuple [int_t; real_t] in
   let tup3_t  = Type.tuple [bv_t; scal_t; unint_t] in
-  let ta4     = Type.func [bool_t; tup1_t; tup2_t] tup3_t in
-  let tup4_t  = Type.tuple [ta4;ta4;ta4;ta4] in
+  let ta4     = [bool_t; tup1_t; tup2_t; tup3_t] in
+  let tup4_t  = Type.tuple ta4 in
   let fun1_t  = Type.func [int_t] bool_t in
   (* let fun2_t  = Type.func [real_t; bv_t] scal_t in *)
   let fun3_t  = Type.func [tup1_t; tup2_t; tup3_t] fun1_t in
-  let fun4_t  = Type.func [ta4;ta4;ta4;ta4] fun3_t in
+  let fun4_t  = Type.func ta4 fun3_t in
 
   assert(Type.is_bool bool_t);
   assert(not (Type.is_bool int_t));

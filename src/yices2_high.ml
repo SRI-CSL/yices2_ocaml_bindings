@@ -61,7 +61,7 @@ let multipack (ids: 'a TypList.t) (l: 'a AList.t list) =
     | Cons(a',a),Cons(b',b) -> aux2 a b (fun r -> cont(Cons(CArray.(start(of_list a' b')), r)))
   in
   let id x = x in
-  aux2 ids (List.fold_left (fun x y -> aux x y id) (init ids id) l) id
+  aux2 ids (List.fold_left (fun x y -> aux x y id) (init ids id) (List.rev l)) id
 
 let ofList1 t f l = 
   let PtrList.(Cons(b1,El)) = multipack (TypList.build1 t) (List.map AList.build1 l)
