@@ -1331,6 +1331,7 @@ module type API = sig
       val bvconst_uint32 : width:int -> uint -> term_t eh
       val bvconst_uint64 : width:int -> ulong -> term_t eh
       val bvconst_int32  : width:int -> sint -> term_t eh
+      val bvconst_int64  : width:int -> long -> term_t eh
       val bvconst_mpz    : width:int -> Z.t -> term_t eh
 
       (** bvconst_zero: set all bits to 0
