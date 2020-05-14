@@ -3,7 +3,7 @@ open Yices2_high
 module EH1 = Make(ExceptionsErrorHandling)
 
 let test () =
-  print_endline "Error tests";
+  print_endline "Types tests";
   let open EH1 in
   let open Global in
   init();
@@ -23,7 +23,7 @@ let test () =
   let ta4     = [bool_t; tup1_t; tup2_t; tup3_t] in
   let tup4_t  = Type.tuple ta4 in
   let fun1_t  = Type.func [int_t] bool_t in
-  (* let fun2_t  = Type.func [real_t; bv_t] scal_t in *)
+  let _fun2_t  = Type.func [real_t; bv_t] scal_t in
   let fun3_t  = Type.func [tup1_t; tup2_t; tup3_t] fun1_t in
   let fun4_t  = Type.func ta4 fun3_t in
 
@@ -48,4 +48,5 @@ let test () =
   assert(List.nth type_v 0 = bool_t);
   assert(List.nth type_v 1 = tup1_t);
   assert(List.nth type_v 2 = tup2_t);
-  assert(List.nth type_v 3 = tup3_t)
+  assert(List.nth type_v 3 = tup3_t);
+  print_endline "Done with Types tests"
