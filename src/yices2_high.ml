@@ -210,10 +210,11 @@ module SafeMake
     let<= (_ : unit_t) = f x in
     return (MPQ.to_q x)
 
-  (* Turn list into pointer+size; t specifies the type of elelments *)
+  (* Turn list into size+pointer; t specifies the type of elelments *)
   let carray t l = CArray.(let c = of_list t l in !>(length c), start c)
 
   (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
+
   let alloc1 t f =
     let x = allocate_n t ~count:1 in
     let<= (_ : unit_t) = f x in
@@ -224,6 +225,12 @@ module SafeMake
     let x2 = allocate_n t2 ~count:1 in
     let<= (_ : unit_t) = f x1 x2 in
     return(!@x1,!@x2)
+
+  let alloc ~n t f =
+    let x = allocate_n t ~count:n in
+    let<= (_ : unit_t) = f x in
+    let array = CArray.from_ptr x n in
+    return (CArray.to_list array)
 
   (* Yices High-level bindings *)
   
@@ -748,8 +755,14 @@ module SafeMake
     let bool_const_value     = yices_bool_const_value
                                <.> alloc1 bool_t
                                <+> (Conv.bool.read <.> return)
-    let bv_const_value       = yices_bv_const_value       <.> alloc1 sint
-    let scalar_const_value   = yices_scalar_const_value   <.> alloc1 sint
+    let bv_const_value t =
+      let+ n = bitsize t in
+      let+ l = t |> yices_bv_const_value |> alloc ~n sint in
+      return (List.map (fun x -> if SInt.(equal x one) then true else false) l)
+
+    let scalar_const_value   = yices_scalar_const_value
+                               <.> alloc1 sint
+                               <+> (SInt.to_int <.> return)
     let rational_const_value = yices_rational_const_value <.> toQ1
 
     module Names = struct

@@ -2043,8 +2043,8 @@ module type API = sig
           code = INVALID_TERM_OP  *)
 
     val bool_const_value     : term_t -> bool eh
-    val bv_const_value       : term_t -> sint eh
-    val scalar_const_value   : term_t -> sint eh
+    val bv_const_value       : term_t -> bool list eh
+    val scalar_const_value   : term_t -> int eh
     val rational_const_value : term_t -> Q.t eh
 
     (** Components of a sum t
