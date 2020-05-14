@@ -1035,7 +1035,7 @@ module type API = sig
       val neg : term_t -> term_t eh
       val mul : term_t -> term_t -> term_t eh
       val power : term_t -> int -> term_t eh
-      val power32 : term_t -> sint -> term_t eh
+      val power32 : term_t -> uint -> term_t eh
       val ( ++ ) : term_t -> term_t -> term_t eh
       val ( -- ) : term_t -> term_t -> term_t eh
       val ( !- ) : term_t -> term_t eh
