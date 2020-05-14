@@ -1327,6 +1327,7 @@ module type API = sig
        *    code = MAX_BVSIZE_EXCEEDED
        *    badval = n  *)
 
+      val bvconst_int    : width:int -> int -> term_t eh
       val bvconst_uint32 : width:int -> uint -> term_t eh
       val bvconst_uint64 : width:int -> ulong -> term_t eh
       val bvconst_int32  : width:int -> sint -> term_t eh

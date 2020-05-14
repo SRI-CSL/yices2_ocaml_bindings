@@ -527,6 +527,7 @@ module SafeMake
       let bvconst_uint64 ~width = yices_bvconst_uint64 !> width <.> return_sint
       let bvconst_int32  ~width = yices_bvconst_int32  !> width <.> return_sint
       let bvconst_int64  ~width = yices_bvconst_int64  !> width <.> return_sint
+      let bvconst_int    ~width = Long.of_int <.> bvconst_int64 ~width
       let bvconst_mpz    ~width = yices_bvconst_mpz    !> width |> ofZ <.> return_sint
       let bvconst_zero   ~width = yices_bvconst_zero   !> width |> return_sint
       let bvconst_one    ~width = yices_bvconst_one    !> width |> return_sint
