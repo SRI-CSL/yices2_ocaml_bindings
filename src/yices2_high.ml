@@ -460,6 +460,7 @@ module SafeMake
       let int        = Long.of_int <.> int64
       let rational32 = yices_rational32 <..> return_sint
       let rational64 = yices_rational64 <..> return_sint
+      let rational n d = rational64 (Long.of_int n) (ULong.of_int d)
       let mpz        = yices_mpz |> ofZ <.> return_sint
       let mpq        = yices_mpq |> ofQ <.> return_sint
       let parse_rational = ofString yices_parse_rational <.> return_sint

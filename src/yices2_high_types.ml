@@ -974,6 +974,7 @@ module type API = sig
        * if den is zero
        *   code = DIVISION_BY_ZERO  *)
 
+      val rational   : int -> int -> term_t eh
       val rational32 : sint -> uint -> term_t eh
       val rational64 : long -> ulong -> term_t eh
 

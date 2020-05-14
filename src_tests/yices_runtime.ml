@@ -22,7 +22,7 @@ let () =
   let status = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   print_endline "Adding assertion \"false\"";
-  let () = Context.assert_formula context (Term.yfalse()) in
+  let () = Context.assert_formula context (Term.false0()) in
   let status = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   Param.free param;
@@ -55,7 +55,7 @@ let _ =
   let status   = Context.check context ~param in
   print_endline(Types.show_smt_status status);
   print_endline "Adding assertion \"false\"";
-  let+ formula = Term.yfalse() in
+  let+ formula = Term.false0() in
   let+ ()      = Context.assert_formula context formula in
   let status   = Context.check context ~param in
   print_endline(Types.show_smt_status status);
