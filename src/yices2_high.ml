@@ -474,7 +474,8 @@ module SafeMake
       let (!-)   = neg
       let ( ** ) = mul
       let square = yices_square <.> return_sint
-      let power  = yices_power <..> return_sint
+      let power32 = yices_power <..> return_sint
+      let power t = UInt.of_int <.> power32 t
       let sum    = ofList1 term_t yices_sum <.> return_sint
       let product  = ofList1 term_t yices_product <.> return_sint
       let division = yices_division <..> return_sint

@@ -1034,12 +1034,13 @@ module type API = sig
       val sub : term_t -> term_t -> term_t eh
       val neg : term_t -> term_t eh
       val mul : term_t -> term_t -> term_t eh
-      val power : term_t -> uint -> term_t eh
+      val power : term_t -> int -> term_t eh
+      val power32 : term_t -> sint -> term_t eh
       val ( ++ ) : term_t -> term_t -> term_t eh
       val ( -- ) : term_t -> term_t -> term_t eh
       val ( !- ) : term_t -> term_t eh
       val ( ** ) : term_t -> term_t -> term_t eh
-      val ( ^^ ) : term_t -> uint -> term_t eh
+      val ( ^^ ) : term_t -> int -> term_t eh
       val square : term_t -> term_t eh
 
       (** Sum of n arithmetic terms t[0] ... t[n-1]
