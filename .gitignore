@@ -27,3 +27,6 @@ setup.log
 
 # MacOS
 .DS_Store
+
+# emacs
+*~
