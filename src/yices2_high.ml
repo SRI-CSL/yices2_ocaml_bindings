@@ -183,7 +183,7 @@ module SafeMake
   let toString x =
     let* x = x in
     let+ r = toStringR x in
-    yices_free_string x;
+    (* yices_free_string x; *)
     return r
 
   (* Conversion from string to char pointer;
