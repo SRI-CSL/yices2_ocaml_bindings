@@ -819,7 +819,10 @@ module SafeMake
     let decref_type = yices_decref_type <.> toUnit
     let num_posref_terms = yices_num_posref_terms <.> UInt.to_int
     let num_posref_types = yices_num_posref_types <.> UInt.to_int
-    let garbage_collect = yices_garbage_collect
+    let garbage_collect =
+      yices_garbage_collect |> swap |> ofList1 term_t
+                                       <.> swap <.> ofList1 type_t
+                                       <..> (fun f b -> if b then f SInt.one else f SInt.zero)
   end
 
   module Config = struct

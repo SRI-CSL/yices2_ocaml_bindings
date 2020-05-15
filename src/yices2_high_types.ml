@@ -2200,7 +2200,7 @@ module type API = sig
 
         The function silently ignores any term t[i] or any type tau[j] that's not valid.  *)
 
-    val garbage_collect : term_t ptr -> uint -> type_t ptr -> uint -> sint -> unit
+    val garbage_collect : term_t list -> type_t list -> bool -> unit
 
   end
 
