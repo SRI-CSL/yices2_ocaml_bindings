@@ -165,7 +165,7 @@ module Types = struct
     | App    : term_t * term_t list             -> [`app]      composite termstruct
     | Update : { array : term_t; index : term_t list; value : term_t}      -> [`update] composite termstruct
     | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
-    | BV_Sum    : (sint * (term_t option)) list -> [`bvsum] termstruct
+    | BV_Sum    : (bool list * (term_t option)) list -> [`bvsum] termstruct
     | Sum       : (sint * (term_t option)) list -> [`sum]   termstruct
     | Product   : (term_t * int) list           -> [`prod]  termstruct
 
@@ -2064,7 +2064,7 @@ module type API = sig
         if t is not of the right kind of the index is invalid
           code = INVALID_TERM_OP  *)
     val sum_component   : term_t -> int -> (Q.t  * (term_t option)) eh
-    val bvsum_component : term_t -> int -> (sint * (term_t option)) eh
+    val bvsum_component : term_t -> int -> (bool list * (term_t option)) eh
 
     (** Component of power product t
         - i = index (must be between 0 and t's arity - 1)

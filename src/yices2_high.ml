@@ -215,22 +215,49 @@ module SafeMake
 
   (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
 
-  let alloc1 t f =
-    let x = allocate_n t ~count:1 in
-    let<= (_ : unit_t) = f x in
-    return !@x
+  module Alloc  : sig
+    type ('a,'b) t
+    val load : 'b -> (unit,'b) t
+    val apply  : ('a, 'b -> 'c) t -> 'b -> ('a, 'c) t
+    val alloc  : 'b typ -> ('a, 'b ptr -> 'c) t -> ('a * 'b ptr, 'c) t
+    val allocQ : ('a, MPQ.t abstract ptr -> 'c) t -> ('a * MPQ.t abstract ptr, 'c) t
+    val allocN : int -> 'b typ -> ('a, 'b ptr -> 'c) t -> ('a * 'b CArray.t, 'c) t
+    val check  : ('a -> 'b) -> ('a, unit_t checkable) t -> 'b EH.t
+    val check1 : ('a -> 'b) -> (unit*'a, unit_t checkable) t -> 'b EH.t
+    val check2 : ('a1 -> 'a2 -> 'b) -> ((unit*'a1)*'a2, unit_t checkable) t -> 'b EH.t
+  end = struct
+    
+    type ('a,'b) t = 'a * 'b
 
-  let alloc2 t1 t2 f =
-    let x1 = allocate_n t1 ~count:1 in
-    let x2 = allocate_n t2 ~count:1 in
-    let<= (_ : unit_t) = f x1 x2 in
-    return(!@x1,!@x2)
+    let load f = (),f
+    let apply (y,f) x = y,f x
 
-  let alloc ~n t f =
-    let x = allocate_n t ~count:n in
-    let<= (_ : unit_t) = f x in
-    let array = CArray.from_ptr x n in
-    return (CArray.to_list array)
+    let aux alloc (y,f) =
+      let x = alloc () in
+      (y,x), f x
+    
+    let alloc hdl = aux (fun () -> allocate_n hdl ~count:1)
+
+    let allocQ a = aux MPQ.make a
+
+    let allocN n hdl (y,f) =
+      let x = CArray.make hdl n in
+      (y,x), f (CArray.start x)
+    
+    let check cont (y,f) = 
+      let<= (_ : unit_t) = f in
+      return (cont y)
+
+    let check1 cont = check (fun ((),x) -> cont x)
+    let check2 cont = check (fun (((),x1),x2) -> cont x1 x2)
+
+  end
+
+  let alloc1 t f = Alloc.(load f |> alloc t |> check1 (fun x -> !@x))
+
+  let alloc2 t1 t2 f = Alloc.(load f |> alloc t1 |> alloc t2 |> check2 (fun x1 x2 -> !@x1, !@x2))
+
+  let alloc ~n t f = Alloc.(load f |> allocN n t |> check1 CArray.to_list)
 
   (* Yices High-level bindings *)
   
@@ -631,25 +658,31 @@ module SafeMake
     let child t       = SInt.of_int <.> yices_term_child t <.> return_sint
     let children      = yices_term_children <.> TermVector.to_list
 
-    let sum_component t i =
-      let coeff_ptr = MPQ.make() in
-      let term_ptr = allocate_n term_t ~count:1 in
-      let<= (_ :unit_t) = (SInt.of_int <.> yices_sum_component t) i coeff_ptr term_ptr in
-      let t = !@ term_ptr in
-      let t = if t = null_term then None else Some t in
-      return(MPQ.to_q coeff_ptr, t)
-    let bvsum_component t i =
-      let coeff_ptr = allocate_n sint ~count:1 in
-      let term_ptr = allocate_n term_t ~count:1 in
-      let<= (_ :unit_t) = (SInt.of_int <.> yices_bvsum_component t) i coeff_ptr term_ptr in
-      let t = !@ term_ptr in
-      let t = if t = null_term then None else Some t in
-      return(!@ coeff_ptr, t)
+    let term_ptr2term_opt t = if t = null_term then None else Some t
+    
+    let sum_component term i =
+      let cont q t = MPQ.to_q q, term_ptr2term_opt (!@ t) in
+      Alloc.(load ((SInt.of_int <.> yices_sum_component term) i)
+             |> allocQ
+             |> alloc term_t
+             |> check2 cont)
+
+    let sint2bool = List.map (fun x -> if SInt.(equal x one) then true else false)
+
+    let bvsum_component term i =
+      let cont carray t = CArray.to_list carray |> sint2bool, term_ptr2term_opt (!@ t) in
+      let+ bitwidth = bitsize term in
+      Alloc.(load ((SInt.of_int <.> yices_bvsum_component term) i)
+             |> allocN bitwidth sint 
+             |> alloc term_t
+             |> check2 cont)
+
     let product_component t i =
-      let exp_ptr = allocate_n uint ~count:1 in
-      let term_ptr = allocate_n term_t ~count:1 in
-      let<= _ = (SInt.of_int <.> yices_product_component t) i term_ptr exp_ptr in
-      return(!@ term_ptr, !< !@ exp_ptr)
+      let cont t p = !@ t, !< !@ p in
+      Alloc.(load ((SInt.of_int <.> yices_product_component t) i)
+             |> alloc term_t
+             |> alloc uint
+             |> check2 cont)
 
     let args f t =
       let+ x = num_children t in
@@ -692,8 +725,8 @@ module SafeMake
         let+ index = proj_index t in
         let+ arg   = proj_arg t in
         return(Term(Projection(c, index, arg)))
-      | `YICES_BV_SUM        -> let+ x = bvsum_components t in return(Term(BV_Sum x))
-      | `YICES_ARITH_SUM     -> let+ x = sum_components t in return(Term(Sum x))
+      | `YICES_BV_SUM        -> let+ x = bvsum_components t   in return(Term(BV_Sum x))
+      | `YICES_ARITH_SUM     -> let+ x = sum_components t     in return(Term(Sum x))
       | `YICES_POWER_PRODUCT -> let+ x = product_components t in return(Term(Product x))
       | `YICES_NOT_TERM
       | `YICES_ABS
@@ -758,7 +791,7 @@ module SafeMake
     let bv_const_value t =
       let+ n = bitsize t in
       let+ l = t |> yices_bv_const_value |> alloc ~n sint in
-      return (List.map (fun x -> if SInt.(equal x one) then true else false) l)
+      return (sint2bool l)
 
     let scalar_const_value   = yices_scalar_const_value
                                <.> alloc1 sint
