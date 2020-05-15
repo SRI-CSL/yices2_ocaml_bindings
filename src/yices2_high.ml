@@ -163,6 +163,7 @@ module SafeMake
   let (let*) b f  = (let+) (return_ptr b) f
 
   (* Composition operators for error handling *)
+  let (|+>) x f            = let+ x = x in f x
   let (<+>) f g x1         = let+ x = f x1 in g x
   let (<++>) f g x1 x2     = let+ x = f x1 x2 in g x
   let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x
@@ -183,7 +184,7 @@ module SafeMake
   let toString x =
     let* x = x in
     let+ r = toStringR x in
-    (* yices_free_string x; *)
+    (* yices_free_string x; *) (* This failed when I tried *)
     return r
 
   (* Conversion from string to char pointer;
@@ -198,31 +199,24 @@ module SafeMake
   let toInts x = let<= x = x in return(Conv.sint.read x)
   let toIntu x = let/= x = x in return(Conv.uint.read x)
 
-  (* Conversion to Z.t *)
-  let toZ1 f =
-    let x = MPZ.make() in
-    let<= (_ : unit_t) = f x in
-    return (MPZ.to_z x)
-
-  (* Conversion to Q.t *)
-  let toQ1 f =
-    let x = MPQ.make() in
-    let<= (_ : unit_t) = f x in
-    return (MPQ.to_q x)
-
-  (* Turn list into size+pointer; t specifies the type of elelments *)
+  (* Turn list into size+pointer; t specifies the type of elements *)
   let carray t l = CArray.(let c = of_list t l in !>(length c), start c)
 
-  (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
+  (* Useful abbreviation *)
+  type 'a vector = ('a, [`Struct]) structured
 
+  (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
   module Alloc  : sig
     type ('a,'b) t
     val load : 'b -> (unit,'b) t
     val apply  : ('a, 'b -> 'c) t -> 'b -> ('a, 'c) t
     val alloc  : 'b typ -> ('a, 'b ptr -> 'c) t -> ('a * 'b ptr, 'c) t
+    val allocZ : ('a, MPZ.t abstract ptr -> 'c) t -> ('a * MPZ.t abstract ptr, 'c) t
     val allocQ : ('a, MPQ.t abstract ptr -> 'c) t -> ('a * MPQ.t abstract ptr, 'c) t
     val allocN : int -> 'b typ -> ('a, 'b ptr -> 'c) t -> ('a * 'b CArray.t, 'c) t
-    val check  : ('a -> 'b) -> ('a, unit_t checkable) t -> 'b EH.t
+    val allocV : (unit -> 'b vector) -> ('a, 'b vector ptr -> 'c) t -> ('a * 'b vector, 'c) t
+    val nocheck: ('c -> 'a -> 'b) -> ('a, 'c) t -> 'b
+    val check  : ('c sintbase -> 'a -> 'b) -> ('a, 'c sintbase checkable) t -> 'b EH.t
     val check1 : ('a -> 'b) -> (unit*'a, unit_t checkable) t -> 'b EH.t
     val check2 : ('a1 -> 'a2 -> 'b) -> ((unit*'a1)*'a2, unit_t checkable) t -> 'b EH.t
   end = struct
@@ -232,32 +226,103 @@ module SafeMake
     let load f = (),f
     let apply (y,f) x = y,f x
 
-    let aux alloc (y,f) =
+    let aux alloc preproc (y,f) =
       let x = alloc () in
-      (y,x), f x
+      (y,x), (x |> preproc |> f)
     
-    let alloc hdl = aux (fun () -> allocate_n hdl ~count:1)
-
-    let allocQ a = aux MPQ.make a
-
-    let allocN n hdl (y,f) =
-      let x = CArray.make hdl n in
-      (y,x), f (CArray.start x)
+    let alloc hdl    = aux (fun () -> allocate_n hdl ~count:1) (fun x -> x)
+    let allocZ a     = aux MPZ.make (fun x -> x) a
+    let allocQ a     = aux MPQ.make (fun x -> x) a
+    let allocN n hdl = aux (fun () -> CArray.make hdl n) CArray.start
+    let allocV make  = aux make addr
     
+    let nocheck cont (y,f) = cont f y 
     let check cont (y,f) = 
-      let<= (_ : unit_t) = f in
-      return (cont y)
+      let<= x = f in
+      return (cont x y)
 
-    let check1 cont = check (fun ((),x) -> cont x)
-    let check2 cont = check (fun (((),x1),x2) -> cont x1 x2)
+    let check1 cont = check (fun (_ : unit_t) ((),x) -> cont x)
+    let check2 cont = check (fun (_ : unit_t) (((),x1),x2) -> cont x1 x2)
 
   end
 
-  let alloc1 t f = Alloc.(load f |> alloc t |> check1 (fun x -> !@x))
-
+  let alloc1 t f     = Alloc.(load f |> alloc t |> check1 (fun x -> !@x))
   let alloc2 t1 t2 f = Alloc.(load f |> alloc t1 |> alloc t2 |> check2 (fun x1 x2 -> !@x1, !@x2))
+  let alloc ~n t f   = Alloc.(load f |> allocN n t |> check1 CArray.to_list)
 
-  let alloc ~n t f = Alloc.(load f |> allocN n t |> check1 CArray.to_list)
+  (* Conversion to Z.t *)
+  let toZ1 f = Alloc.(load f |> allocZ |> check1 MPZ.to_z)
+  (* Conversion to Q.t *)
+  let toQ1 f = Alloc.(load f |> allocQ |> check1 MPQ.to_q)
+  
+  module type Vector = sig
+    type t
+    type e
+    val make     : unit -> t
+    val reset    : t -> unit
+    val to_array : t -> e CArray.t
+    val to_list  : t -> e list
+    val toList   : (t ptr -> unit_t checkable) -> e list EH.t
+  end
+
+  module type VectorArg = sig
+    type a
+    type t := a vector
+    type e
+    val o: < ctype   : t typ;
+             members : < capacity : (uint, t) field;
+                         data : (e ptr, t) field;
+                         size : (uint, t) field > >
+    val init   : t ptr -> unit
+    val delete : t ptr -> unit
+    val reset  : t ptr -> unit
+  end
+
+  module Vector_Make(M : VectorArg) : Vector with type t := M.a vector
+                                              and type e := M.e
+  = struct
+    let finalise tv = M.delete (addr tv)
+    let make () =
+      let result = make ~finalise M.o#ctype in
+      M.init (addr result);
+      result
+    let reset tv = M.reset (addr tv)
+    let size tv  = getf tv (M.o#members#size)
+    let data tv  = getf tv (M.o#members#data)
+    let to_array tv = CArray.from_ptr (data tv) (UInt.to_int (size tv))
+    let to_list  = to_array <.> CArray.to_list
+    let toList f = Alloc.(load f |> allocV make |> check1 to_list)
+  end
+
+  module TypeVector : Vector with type t := type_vector_t and type e := type_t
+    = Vector_Make(struct
+      type a = [`type_vector_s]
+      type e = type_t
+      let init   = yices_init_type_vector
+      let delete = yices_delete_type_vector
+      let reset  = yices_reset_type_vector
+      let o      = type_vector_s
+    end)
+
+  module TermVector : Vector with type t := term_vector_t and type e := term_t
+    = Vector_Make(struct
+      type a = [`term_vector_s]
+      type e = term_t
+      let init   = yices_init_term_vector
+      let delete = yices_delete_term_vector
+      let reset  = yices_reset_term_vector
+      let o      = term_vector_s
+    end)
+
+  module YValVector : Vector with type t := yval_vector_t and type e := yval_t
+    = Vector_Make(struct
+      type a = [`yval_vector_s]
+      type e = yval_t
+      let init   = yices_init_yval_vector
+      let delete = yices_delete_yval_vector
+      let reset  = yices_reset_yval_vector
+      let o      = yval_vector_s
+    end)
 
   (* Yices High-level bindings *)
   
@@ -292,86 +357,6 @@ module SafeMake
     let string   = yices_error_string   <.> toString
   end
 
-  module type Vector = sig
-    type t
-    type e
-    val malloc   : unit -> t
-    val free     : t -> unit
-    val reset    : t -> unit
-    val to_array : t -> e CArray.t
-    val to_list  : (t ptr -> unit_t checkable) -> e list EH.t
-    val to_list_unit  : (t ptr -> unit) -> e list EH.t
-  end
-
-  module type VectorArg = sig
-    type a
-    type t := (a, [`Struct]) structured
-    type e
-    val o: < ctype   : t typ;
-             members : < capacity : (uint, t) field;
-                         data : (e ptr, t) field;
-                         size : (uint, t) field > >
-    val init   : t ptr -> unit
-    val delete : t ptr -> unit
-    val reset  : t ptr -> unit
-  end
-
-  module Vector_Make(M : VectorArg) : Vector with type t := (M.a, [`Struct]) structured
-                                              and type e := M.e
-  = struct
-    let malloc () =
-      let result = make M.o#ctype in
-      M.init (addr result);
-      result
-    let free tv = M.delete (addr tv)
-    let reset tv = M.reset (addr tv)
-    let size tv = getf tv (M.o#members#size)
-    let data tv = getf tv (M.o#members#data)
-    let to_array tv = CArray.from_ptr (data tv) (UInt.to_int (size tv))
-    let to_list f =
-      let arg = malloc() in
-      let<= _ = f (addr arg) in
-      let a = arg |> to_array |> CArray.to_list in
-      free arg;
-      return a
-    let to_list_unit f =
-      let arg = malloc() in
-      let () = f (addr arg) in
-      let a = arg |> to_array |> CArray.to_list in
-      free arg;
-      return a
-  end
-
-  module TypeVector : Vector with type t := type_vector_t and type e := type_t
-    = Vector_Make(struct
-      type a = [`type_vector_s]
-      type e = type_t
-      let init   = yices_init_type_vector
-      let delete = yices_delete_type_vector
-      let reset  = yices_reset_type_vector
-      let o      = type_vector_s
-    end)
-
-  module TermVector : Vector with type t := term_vector_t and type e := term_t
-    = Vector_Make(struct
-      type a = [`term_vector_s]
-      type e = term_t
-      let init   = yices_init_term_vector
-      let delete = yices_delete_term_vector
-      let reset  = yices_reset_term_vector
-      let o      = term_vector_s
-    end)
-
-  module YValVector : Vector with type t := yval_vector_t and type e := yval_t
-    = Vector_Make(struct
-      type a = [`yval_vector_s]
-      type e = yval_t
-      let init   = yices_init_yval_vector
-      let delete = yices_delete_yval_vector
-      let reset  = yices_reset_yval_vector
-      let o      = yval_vector_s
-    end)
-
   module Type = struct
 
     type t = type_t [@@deriving eq]
@@ -394,14 +379,14 @@ module SafeMake
     let is_function   = yices_type_is_function   <.> toBool
     let is_scalar     = yices_type_is_scalar <.> toBool
     let is_uninterpreted = yices_type_is_uninterpreted <.> toBool
-    let test_subtype       = yices_test_subtype     <..> toBool
-    let compatible_types   = yices_compatible_types <..> toBool
+    let test_subtype     = yices_test_subtype     <..> toBool
+    let compatible_types = yices_compatible_types <..> toBool
 
     let bvsize       = yices_bvtype_size       <.> toIntu
     let scalar_card  = yices_scalar_type_card  <.> toIntu
     let num_children = yices_type_num_children <.> toInts
     let child t      = SInt.of_int <.> yices_type_child t <.> return_sint
-    let children     = yices_type_children <.> TypeVector.to_list
+    let children     = yices_type_children <.> TypeVector.toList
 
     let rec ifseries t = function
       | [] -> assert false
@@ -488,7 +473,7 @@ module SafeMake
     let lambda = ofList1 term_t yices_lambda <..> return_sint
 
     module Arith = struct
-      let zero       = yices_zero <.> return_sint
+      let zero       = yices_zero  <.> return_sint
       let int32      = yices_int32 <.> return_sint
       let int64      = yices_int64 <.> return_sint
       let int        = Long.of_int <.> int64
@@ -510,7 +495,7 @@ module SafeMake
       let square = yices_square <.> return_sint
       let power32 = yices_power <..> return_sint
       let power t = UInt.of_int <.> power32 t
-      let sum     = ofList1 term_t yices_sum <.> return_sint
+      let sum      = ofList1 term_t yices_sum <.> return_sint
       let product  = ofList1 term_t yices_product <.> return_sint
       let division = yices_division <..> return_sint
       let idiv  = yices_idiv <..> return_sint
@@ -525,9 +510,9 @@ module SafeMake
       let (||.) = divides_atom
 
       let is_int_atom = yices_is_int_atom <.> return_sint
-      let abs = yices_abs <.> return_sint
+      let abs   = yices_abs   <.> return_sint
       let floor = yices_floor <.> return_sint
-      let ceil = yices_ceil <.> return_sint
+      let ceil  = yices_ceil  <.> return_sint
 
       let poly_int32 = ofList2 sint term_t yices_poly_int32 <.> return_sint
       let poly_int64 = ofList2 long term_t yices_poly_int64 <.> return_sint
@@ -537,10 +522,10 @@ module SafeMake
       let poly_rational   = List.map (fun (n,d,t) -> Long.of_int n, ULong.of_int d, t)
                             <.> poly_rational64
       let poly_mpz = List.map (fun (z,t) -> MPZ.of_z z,t)
-                     <.> (ofList2 MPZ.t_ptr term_t) yices_poly_mpz
+                     <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
                      <.> return_sint
       let poly_mpq = List.map (fun (q,t) -> MPQ.of_q q,t)
-                     <.> (ofList2 MPQ.t_ptr term_t) yices_poly_mpq
+                     <.> ofList2 MPQ.t_ptr term_t yices_poly_mpq
                      <.> return_sint
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint
@@ -576,7 +561,8 @@ module SafeMake
       let bvneg = yices_bvneg <.> return_sint
       let bvmul = yices_bvmul <..> return_sint
       let bvsquare = yices_bvsquare <.> return_sint
-      let bvpower a i = yices_bvpower a !>i |> return_sint
+      let bvpower32 = yices_bvpower <..> return_sint
+      let bvpower t = UInt.of_int <.> bvpower32 t
       let bvdiv = yices_bvdiv <..> return_sint
       let bvrem = yices_bvrem <..> return_sint
       let bvsdiv = yices_bvsdiv <..> return_sint
@@ -656,7 +642,7 @@ module SafeMake
     let num_children  = yices_term_num_children <.> toInts
 
     let child t       = SInt.of_int <.> yices_term_child t <.> return_sint
-    let children      = yices_term_children <.> TermVector.to_list
+    let children      = yices_term_children <.> TermVector.toList
 
     let term_ptr2term_opt t = if t = null_term then None else Some t
     
@@ -678,7 +664,7 @@ module SafeMake
              |> check2 cont)
 
     let product_component t i =
-      let cont t p = !@ t, !< !@ p in
+      let cont t p = !@ t, !@ p in
       Alloc.(load ((SInt.of_int <.> yices_product_component t) i)
              |> alloc term_t
              |> alloc uint
@@ -693,7 +679,7 @@ module SafeMake
       aux [] x
     let bvsum_components   = args bvsum_component
     let product_components = args product_component
-    let sum_components t   = assert false (* need GMP *)
+    let sum_components     = args sum_component
 
     let proj_index = yices_proj_index <.> toInts
     let proj_arg   = yices_proj_arg   <.> return_sint
@@ -711,12 +697,27 @@ module SafeMake
       let+ index, last = aux [] l in
       return(List.rev index, last)
 
+    let fold (aux : 'a -> 'b -> 'a EH.t) =
+      let aux sofar c =
+        let+ sofar = sofar in
+        aux sofar c
+      in
+      List.fold_left aux
+
+    let map f l =
+      let aux sofar c =
+        let+ c = f c in
+        return(c::sofar)
+      in
+      List.rev l |> fold aux (return [])
+    
     let reveal t = let+ c = constructor t in
       match c with
       | `YICES_CONSTRUCTOR_ERROR -> raise_error "`YICES_CONSTRUCTOR_ERROR"
       | `YICES_BOOL_CONSTANT
       | `YICES_ARITH_CONSTANT
       | `YICES_BV_CONSTANT
+      | `YICES_ARITH_ROOT_ATOM 
       | `YICES_SCALAR_CONSTANT
       | `YICES_VARIABLE
       | `YICES_UNINTERPRETED_TERM as c -> return(Term(A0(c,t)))
@@ -725,14 +726,17 @@ module SafeMake
         let+ index = proj_index t in
         let+ arg   = proj_arg t in
         return(Term(Projection(c, index, arg)))
-      | `YICES_BV_SUM        -> let+ x = bvsum_components t   in return(Term(BV_Sum x))
-      | `YICES_ARITH_SUM     -> let+ x = sum_components t     in return(Term(Sum x))
-      | `YICES_POWER_PRODUCT -> let+ x = product_components t in return(Term(Product x))
+      | `YICES_BV_SUM        -> let+ x = bvsum_components t in return(Term(BV_Sum x))
+      | `YICES_ARITH_SUM     -> let+ x = sum_components t   in return(Term(Sum x))
+      | `YICES_POWER_PRODUCT ->
+        let+ x = product_components t in
+        let+ typ = type_of_term t in
+        let+ b = Type.is_bitvector typ in
+        return(Term(Product(b, x)))
       | `YICES_NOT_TERM
       | `YICES_ABS
       | `YICES_CEIL 
       | `YICES_FLOOR 
-      | `YICES_ARITH_ROOT_ATOM 
       | `YICES_IS_INT_ATOM  as c -> let+ children = children t in
         begin match children with
           | [t] -> return(Term(A1(c,t)))
@@ -785,9 +789,144 @@ module SafeMake
           | [] -> raise_error("Term.reveal expected at least 2 arguments for `YICES_UPDATE_TERM, got empty list instead")
         end
 
-    let bool_const_value     = yices_bool_const_value
-                               <.> alloc1 bool_t
-                               <+> (Conv.bool.read <.> return)
+    let polymap f l =
+      let aux (coeff,term_o) =
+        let+ t = match term_o with
+          | Some t -> let+ t = f t in return(Some t)
+          | None -> return None
+        in
+        return(coeff, t)
+      in
+      map aux l
+
+    let build : type a. a termstruct -> term_t EH.t = function
+      | A0(_,t) -> return t
+      | A1(c,t) ->
+        begin
+          match c with
+          | `YICES_NOT_TERM    -> not1 t
+          | `YICES_ABS         -> Arith.abs t
+          | `YICES_CEIL        -> Arith.ceil t
+          | `YICES_FLOOR       -> Arith.floor t
+          | `YICES_IS_INT_ATOM -> Arith.is_int_atom t
+        end
+      | A2(c,t1,t2) ->
+        begin
+          match c with
+          | `YICES_EQ_TERM       -> eq t1 t2
+          | `YICES_ARITH_GE_ATOM -> Arith.geq t1 t2
+          | `YICES_BV_ASHR       -> BV.bvashr t1 t2
+          | `YICES_BV_DIV        -> BV.bvdiv t1 t2
+          | `YICES_BV_GE_ATOM    -> BV.bvge t1 t2
+          | `YICES_BV_LSHR       -> BV.bvlshr t1 t2
+          | `YICES_BV_REM        -> BV.bvrem t1 t2
+          | `YICES_BV_SDIV       -> BV.bvsdiv t1 t2
+          | `YICES_BV_SGE_ATOM   -> BV.bvsge t1 t2
+          | `YICES_BV_SHL        -> BV.bvge t1 t2
+          | `YICES_BV_SMOD       -> BV.bvge t1 t2
+          | `YICES_BV_SREM       -> BV.bvge t1 t2
+          | `YICES_DIVIDES_ATOM  -> BV.bvge t1 t2
+          | `YICES_IDIV          -> Arith.idiv t1 t2
+          | `YICES_IMOD          -> Arith.imod t1 t2
+          | `YICES_RDIV          -> Arith.division t1 t2
+        end
+      | ITE(c, tb, eb) -> ite c tb eb
+      | Astar(c,l) ->
+        begin
+          match c with
+          | `YICES_TUPLE_TERM    -> tuple l
+          | `YICES_DISTINCT_TERM -> distinct l
+          | `YICES_OR_TERM       -> orN l
+          | `YICES_XOR_TERM      -> xorN l
+          | `YICES_BV_ARRAY      -> BV.bvarray l
+        end
+      | Bindings{c;vars;body} ->
+        begin
+          match c with
+          | `YICES_FORALL_TERM -> forall vars body
+          | `YICES_LAMBDA_TERM -> lambda vars body
+        end
+      | App(f,l) -> application f l
+      | Update { array; index; value} -> update array index value
+      | Projection(c,i,t) ->
+        begin
+          match c with
+          | `YICES_SELECT_TERM -> select i t
+          | `YICES_BIT_TERM    -> BV.bitextract t i
+        end
+      | BV_Sum l ->
+        let aux sofar (coeff, term) =
+          let+ sofar = sofar in
+          let+ coeff_as_term = BV.bvconst_from_list coeff in
+          let+ summand = match term with
+            | Some term -> BV.bvmul coeff_as_term term
+            | None -> return coeff_as_term
+          in
+          return(summand::sofar)
+        in
+        let+ l = List.rev l |> List.fold_left aux (return []) in
+        Arith.product l
+      | Sum l ->
+        let+ one = Arith.int 1 in
+        let l = List.map (function coeff, Some t -> coeff, t | coeff, None -> coeff, one) l in
+        Arith.poly_mpq l
+      | Product(isBV, l) ->
+        let generic power32 product =
+          let aux sofar (t,p) =
+            let+ sofar = sofar in
+            let+ pp = power32 t p in
+            return(pp::sofar)
+          in
+          let+ l = List.rev l |> List.fold_left aux (return []) in
+          product l
+        in
+        if isBV then generic BV.bvpower32 BV.bvproduct else generic Arith.power32 Arith.product
+
+    let map : type a. (term_t -> term_t EH.t) -> a termstruct -> a termstruct EH.t = fun f -> function
+      | A0(c,t)     -> let+ t = f t in return (A0(c,t))
+      | A1(c,t)     -> let+ t = f t in return (A1(c,t))
+      | A2(c,t1,t2) ->
+        let+ t1 = f t1 in
+        let+ t2 = f t2 in
+        return (A2(c,t1,t2))
+      | ITE(c, tb, eb) -> 
+        let+ c  = f c in
+        let+ tb = f tb in
+        let+ eb = f eb in
+        return (ITE(c,tb,eb))
+      | Astar(c,l) ->
+        let+ l = map f l in
+        return (Astar(c,l))
+      | Bindings{c;vars;body} ->
+        let+ vars = map f vars in
+        let+ body = f body in
+        return(Bindings{c;vars;body})
+      | App(a,l) ->
+        let+ a = f a in
+        let+ l = map f l in
+        return(App(a,l))
+      | Update {array; index; value} ->
+        let+ array = f array in
+        let+ index = map f index in
+        let+ value = f value in
+        return(Update {array; index; value})
+      | Projection(c,i,t) ->
+        let+ t = f t in
+        return(Projection(c,i,t))
+      | BV_Sum l -> let+ l = polymap f l in return(BV_Sum l)
+      | Sum l    -> let+ l = polymap f l in return(Sum l)
+      | Product(isBV, l) ->
+        let aux (t,p) =
+          let+ t = f t in
+          return(t,p)
+        in
+        let+ l = map aux l in
+        return(Product(isBV, l))
+
+      
+    let bool_const_value = yices_bool_const_value
+                           <.> alloc1 bool_t
+                           <+> (Conv.bool.read <.> return)
     let bv_const_value t =
       let+ n = bitsize t in
       let+ l = t |> yices_bv_const_value |> alloc ~n sint in
@@ -839,9 +978,13 @@ module SafeMake
     let free     = yices_free_model
     let from_map = yices_model_from_map |> ofList2 term_t term_t <.> return_ptr
     let collect_defined_terms m =
-      yices_model_collect_defined_terms m |> TermVector.to_list_unit
+      Alloc.(load (yices_model_collect_defined_terms m)
+             |> allocV TermVector.make
+             |> nocheck (fun () ((),x) -> TermVector.to_list x))
 
-    let get_bool_value  = yices_get_bool_value  <..> alloc1 bool_t <++> (Conv.bool.read <.> return)
+    let get_bool_value  = yices_get_bool_value
+                          <..> alloc1 bool_t
+                          <++> (Conv.bool.read <.> return)
     let get_int32_value = yices_get_int32_value <..> alloc1 sint
     let get_int64_value = yices_get_int64_value <..> alloc1 long
     let get_rational32_value = yices_get_rational32_value <..> alloc2 sint uint
@@ -851,10 +994,9 @@ module SafeMake
     let get_double_value = yices_get_double_value <..> alloc1 float
     let get_bv_value     = yices_get_bv_value     <..> alloc1 sint
     let get_scalar_value = yices_get_scalar_value <..> alloc1 sint
-    let get_value m t    =
-      let x = allocate_n yval_t ~count:1 in
-      let<= (_:unit_t) = yices_get_value m t x in
-      return x
+    let get_value m t    = Alloc.(load (yices_get_value m t)
+                                  |> alloc yval_t
+                                  |> check1 (fun x -> x))
 
     let val_is_int32           = yices_val_is_int32      <..> toBool
     let val_is_int64           = yices_val_is_int64      <..> toBool
@@ -868,9 +1010,12 @@ module SafeMake
     let val_function_arity     = yices_val_function_arity <..> toIntu
     let val_function_type      = yices_val_function_type  <..> return_sint
 
-    let val_get_bool           = yices_val_get_bool  <..> alloc1 bool_t <++> (Conv.bool.read <.> return)
+    let val_get_bool           = yices_val_get_bool
+                                 <..> alloc1 bool_t
+                                 <++> (Conv.bool.read <.> return)
     let val_get_int32          = yices_val_get_int32 <..> alloc1 sint
     let val_get_int64          = yices_val_get_int64 <..> alloc1 long
+    let val_get_int            = val_get_int64 <++> (Long.to_int <.> return)
     let val_get_rational32     = yices_val_get_rational32 <..> alloc2 sint uint
     let val_get_rational64     = yices_val_get_rational64 <..> alloc2 long ulong
     let val_get_double         = yices_val_get_double <..> alloc1 float
@@ -880,42 +1025,46 @@ module SafeMake
     let val_get_scalar         = yices_val_get_scalar <..> alloc2 sint type_t
     let val_expand_tuple m t   =
       let+ arity = val_tuple_arity m t in
-      let c = CArray.make yval_t arity in
-      let<= (_:unit_t) = yices_val_expand_tuple m t (CArray.start c) in
-      return(CArray.to_list c |> List.map addr)
+      Alloc.(load (yices_val_expand_tuple m t)
+             |> allocN arity yval_t
+             |> check1 (CArray.to_list <.> List.map addr))
+      
     let val_expand_function m t =
-      let x = allocate_n yval_t ~count:1 in
-      let+ l = YValVector.to_list(yices_val_expand_function m t x) in
-      return(x,List.map addr l)
+      let cont default modifs = default, modifs |> YValVector.to_list |> List.map addr in
+      Alloc.(load (yices_val_expand_function m t)
+             |> alloc yval_t
+             |> allocV YValVector.make
+             |> check2 cont)
+
     let val_expand_mapping m t =
       let+ arity = val_mapping_arity m t in
-      let c = CArray.make yval_t arity in
-      let x = allocate_n yval_t ~count:1 in
-      let<= (_:unit_t) = yices_val_expand_mapping m t (CArray.start c) x in
-      return(CArray.to_list c |> List.map addr, x)
+      Alloc.(load (yices_val_expand_mapping m t)
+             |> allocN arity yval_t
+             |> alloc yval_t
+             |> check2 (fun x1 x2 -> x1 |> CArray.to_list |> List.map addr, x2))
       
     let formula_true_in_model  = yices_formula_true_in_model <..> toBool
     let formulas_true_in_model = yices_formulas_true_in_model <.> ofList1 term_t <..> toBool
     let get_value_as_term      = yices_get_value_as_term     <..> return_sint
-    let terms_value m l   =
+    let terms_value m l =
       let n = List.length l in 
-      let c = CArray.make term_t n in
-      let<= (_:unit_t) = (yices_term_array_value m |> ofList1 term_t) l (CArray.start c) in
-      return(CArray.to_list c)
+      Alloc.(load ((yices_term_array_value m |> ofList1 term_t) l)
+             |> allocN n term_t
+             |> check1 CArray.to_list)
 
-    let model_term_support  = yices_model_term_support <..> TermVector.to_list
+    let model_term_support  = yices_model_term_support <..> TermVector.toList
     let model_terms_support =
-      yices_model_term_array_support <.> ofList1 term_t <..> TermVector.to_list
+      yices_model_term_array_support <.> ofList1 term_t <..> TermVector.toList
     
-    let implicant_for_formula  = yices_implicant_for_formula <..> TermVector.to_list
-    let implicant_for_formulas = yices_implicant_for_formulas <.> ofList1 term_t <..> TermVector.to_list
+    let implicant_for_formula  = yices_implicant_for_formula <..> TermVector.toList
+    let implicant_for_formulas = yices_implicant_for_formulas <.> ofList1 term_t <..> TermVector.toList
     let generalize_model m t l gen =
       (yices_generalize_model m t |> ofList1 term_t) l (Conv.yices_gen_mode.write gen)
-      |> TermVector.to_list
+      |> TermVector.toList
     let generalize_model_list m l1 l2 gen =
       ((yices_generalize_model_array m |> ofList1 term_t) l1
        |> ofList1 term_t) l2 (Conv.yices_gen_mode.write gen)
-      |> TermVector.to_list
+      |> TermVector.toList
 
   end
 
@@ -946,17 +1095,16 @@ module SafeMake
   let has_delegate = yices_has_delegate |> ofString <.> toBool 
 
   let export_formula_to_dimacs term ~filename ~simplify =
-    let x = allocate_n smt_status_t ~count:1 in
-    let<= b = (yices_export_formula_to_dimacs term ?>filename (Conv.bool.write simplify)) x in
-    return (!@x, Conv.bool.read b)
+    Alloc.(load (yices_export_formula_to_dimacs term ?>filename (Conv.bool.write simplify))
+           |> alloc smt_status_t
+           |> check (fun b ((),x) -> !@x,Conv.bool.read b))
 
   let export_formulas_to_dimacs terms ~filename ~simplify =
-    let x = allocate_n smt_status_t ~count:1 in
-    let<= b =
-      ((yices_export_formulas_to_dimacs |> swap |> ofList1 term_t)
-         terms ?>filename (Conv.bool.write simplify)) x
-    in
-    return (!@x, Conv.bool.read b)
+    Alloc.(load
+             ((yices_export_formulas_to_dimacs |> swap |> ofList1 term_t)
+                terms ?>filename (Conv.bool.write simplify))
+           |> alloc smt_status_t
+           |> check (fun b ((),x) -> !@x,Conv.bool.read b))
 
   module Context = struct
     type t = context_t ptr
@@ -979,7 +1127,7 @@ module SafeMake
       yices_check_context_with_assumptions ctx param |> ofList1 term_t <.> Conv.smt_status.read
     let stop                     = yices_stop_search
     let get_model m ~keep_subst  = yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
-    let get_unsat_core context   = yices_get_unsat_core context |> TermVector.to_list
+    let get_unsat_core context   = yices_get_unsat_core context |> TermVector.toList
   end
 
   module Param = struct

@@ -126,6 +126,7 @@ module Types = struct
     | A0 : [ `YICES_BOOL_CONSTANT
            | `YICES_ARITH_CONSTANT
            | `YICES_BV_CONSTANT
+           | `YICES_ARITH_ROOT_ATOM 
            | `YICES_SCALAR_CONSTANT
            | `YICES_VARIABLE
            | `YICES_UNINTERPRETED_TERM ]
@@ -133,8 +134,7 @@ module Types = struct
     | A1 : [ `YICES_NOT_TERM
            | `YICES_ABS
            | `YICES_CEIL 
-           | `YICES_FLOOR 
-           | `YICES_ARITH_ROOT_ATOM 
+           | `YICES_FLOOR
            | `YICES_IS_INT_ATOM ] * term_t -> [`a1] composite termstruct
     | A2 : [ `YICES_EQ_TERM 
            | `YICES_BV_ASHR 
@@ -166,8 +166,10 @@ module Types = struct
     | Update : { array : term_t; index : term_t list; value : term_t}      -> [`update] composite termstruct
     | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
     | BV_Sum    : (bool list * (term_t option)) list -> [`bvsum] termstruct
-    | Sum       : (sint * (term_t option)) list -> [`sum]   termstruct
-    | Product   : (term_t * int) list           -> [`prod]  termstruct
+    | Sum       : (Q.t * (term_t option)) list   -> [`sum]   termstruct
+    | Product   : bool * (term_t * uint) list    -> [`prod]  termstruct
+    (** In Product(b,l), b is true if the power product is on bitvectors,
+        false if on arithmetic *)
 
   type yterm = Term : _ termstruct -> yterm [@@unboxed]
 
@@ -1902,8 +1904,9 @@ module type API = sig
     val is_product    : term_t -> bool eh
 
     val reveal : term_t -> yterm eh
-
-
+    val build  : 'a termstruct -> term_t eh
+    val map    : (term_t -> term_t eh) -> 'a termstruct -> 'a termstruct eh
+        
     (** Constructor of term t:
         - if t is a valid term, the function returns one of the following codes
           defined in yices_types.h:
@@ -2079,7 +2082,7 @@ module type API = sig
           term1 = t
         if t is not of the right kind or i is invalid
           code = INVALID_TERM_OP  *)
-    val product_component : term_t -> int -> (term_t * int) eh
+    val product_component : term_t -> int -> (term_t * uint) eh
 
     module Names : Names with type t := term_t
 
@@ -2490,7 +2493,7 @@ module type API = sig
 
         then variable 'x' does not occur in the simplified assertions and will
         not be included in vector 'v'.  *)
-    val collect_defined_terms : t -> term_t list eh
+    val collect_defined_terms : t -> term_t list
 
 
 
