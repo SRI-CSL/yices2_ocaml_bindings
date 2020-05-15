@@ -761,7 +761,7 @@ module type API = sig
     val xorN : term_t list -> term_t eh
     val (!|) : term_t list -> term_t eh
     val (!&) : term_t list -> term_t eh
-    val (!*) : term_t list -> term_t eh
+    val (!^) : term_t list -> term_t eh
 
     (** Variants of or/and/xor with 2 arguments *)
 

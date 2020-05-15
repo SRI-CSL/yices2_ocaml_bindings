@@ -475,7 +475,7 @@ module SafeMake
     let ( *** ) = xor2
     let (!|)  = orN
     let (!&)  = andN
-    let (!*)  = xorN
+    let (!^)  = xorN
     let (<=>) = iff
     let (==>) = implies
     let tuple = ofList1 term_t yices_tuple <.> return_sint
