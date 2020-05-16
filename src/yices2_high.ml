@@ -677,7 +677,7 @@ module SafeMake
            let+ call = f t i in
            aux (call::accu) (i-1))
       in
-      aux [] x
+      aux [] (x-1)
     let bvsum_components   = args bvsum_component
     let product_components = args product_component
     let sum_components     = args sum_component

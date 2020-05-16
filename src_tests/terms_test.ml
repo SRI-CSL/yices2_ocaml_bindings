@@ -116,6 +116,13 @@ let test () =
   let power1 = int1 ^^ 4 in
   let sum1  = !+ int4 in
 
+  let s = PP.term_string sum1 ~display:{
+      width=70;
+      height=10;
+      offset=0
+    }  
+  in
+  print_endline s;
   let product1 = !* int4 in
   let product2 = !* int4_2 in
   let div1  = int1 // int1 in
