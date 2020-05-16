@@ -14,18 +14,28 @@ let test () =
   let open Term in
   let open Arith in
 
+  let check t =
+    let Term tr = reveal t in
+    (* let t = build tr in
+     * let Term tr2 = reveal t in
+     * let tr3 = map (fun x -> x) tr2 in
+     * assert(Term.equal (build tr2) t);
+     * assert(Term.equal (build tr3) t); *)
+    ()
+  in
+  let check = List.iter check in
   let true_  = true0() in
   let false_ = false0() in
   let bool_t = Type.bool() in
   let int_t  = Type.int() in
   let unint_t = Type.new_uninterpreted() in
   assert(not (equal true_ false_));
-  let _const1 = constant unint_t 0 in
-  let _const2 = new_uninterpreted_term unint_t in
+  let const1 = constant unint_t 0 in
+  let const2 = new_uninterpreted_term unint_t in
   let bconst1 = new_uninterpreted_term bool_t in
   let iconst1 = new_uninterpreted_term int_t in
   let var1 = new_variable unint_t in
-  let _bvar1 = new_variable bool_t in
+  let bvar1 = new_variable bool_t in
   let ivar1 = new_variable int_t in
   let ivar2 = new_variable int_t in
   let ivar3 = new_variable int_t in
@@ -36,13 +46,13 @@ let test () =
   assert(equal zero (Arith.int 0));
   let fun1_t = Type.func [int_t] bool_t in
   let fun1 = new_variable fun1_t in
-  let _app1 = application fun1 [int1] in
+  let app1 = application fun1 [int1] in
   let fun2_t = Type.func [int_t; int_t] bool_t in
   let fun2 = new_variable fun2_t in
-  let _app2 = application fun2 [int1; int1] in
+  let app2 = application fun2 [int1; int1] in
   let fun3_t = Type.func [int_t; int_t; int_t] bool_t in
   let fun3 = new_variable fun3_t in
-  let _app3 = application fun3 [int1; int1; int1] in
+  let app3 = application fun3 [int1; int1; int1] in
   let tup3_t = Type.tuple [bool_t; int_t; unint_t] in
   let tupconst1 = new_variable(tup3_t) in
   let ta4  = [int_t; int_t; int_t; int_t] in
@@ -54,86 +64,107 @@ let test () =
   let ite1 = ite bconst1 int1 int2 in
   let eq1  = int1 === int1 in
   let neq1 = int1 =/= int1 in
-  let _not1 = !!false_ in
+  let not1 = !!false_ in
   let bool5 = [false_; eq1; neq1; app4; false_] in
   let or1  = !| bool5 in
   let and1 = !& bool5 in
-  let _xor1 = !^ bool5 in
+  let xor1 = !^ bool5 in
   let or2_  = or1 ||| and1 in
   let and2_ = or1 &&& and1 in
   let xor2_ = or1 *** and1 in
   let or3  = !|[or1; and1; or2_] in
-  let _and3 = !&[or1; and1; and2_] in
-  let _xor3 = !^[or1; and1; xor2_] in
-  let _iff1 = and1 <=> or1 in
-  let _implies1 = and1 ==> or1 in
+  let and3 = !&[or1; and1; and2_] in
+  let xor3 = !^[or1; and1; xor2_] in
+  let iff1 = and1 <=> or1 in
+  let implies1 = and1 ==> or1 in
   let tup1  = tuple int4 in
-  let _pair1 = tuple[eq1; xor2_] in
-  let _triple1 = tuple[ite1; fun4; or3] in
+  let pair1 = tuple[eq1; xor2_] in
+  let triple1 = tuple[ite1; fun4; or3] in
   let select1 = select 2 tup1 in
   let select2 = select 2 tupconst1 in
-  let _tupup1  = tuple_update tup1 2 int2 in
-  let _update1 = update fun1 [int1] false_ in
-  let _update2 = update fun2 [int1; int1] false_ in
-  let _update3 = update fun3 [int1; int1; int1] false_ in
-  let _update4 = update fun4 int4 false_ in
-  let _distinct1 = distinct int4 in
+  let tupup1  = tuple_update tup1 2 int2 in
+  let update1 = update fun1 [int1] false_ in
+  let update2 = update fun2 [int1; int1] false_ in
+  let update3 = update fun3 [int1; int1; int1] false_ in
+  let update4 = update fun4 int4 false_ in
+  let distinct1 = distinct int4 in
   let var2  = new_variable(unint_t) in
   let vareq = var1 === var2 in
   let vars2 = [var1; var2] in
-  let _forall1 = forall vars2 vareq in
-  let _exists1 = exists vars2 vareq in
-  let _lambda1 = lambda vars2 vareq in
+  let forall1 = forall vars2 vareq in
+  let exists1 = exists vars2 vareq in
+  let lambda1 = lambda vars2 vareq in
 
-  let _int64_1 = int64(Long.of_int 42) in
-  let _rat_1   = rational 13 7 in
+  let int64_1 = int64(Long.of_int 42) in
+  let rat_1   = rational 13 7 in
   let rat32_1 = rational32 (SInt.of_int 13) (UInt.of_int 7) in
-  let _rat64_1 = rational64 (Long.of_int (-47)) (ULong.of_int 111) in
+  let rat64_1 = rational64 (Long.of_int (-47)) (ULong.of_int 111) in
   let gmpz = Z.of_int 42 in
-  let _mpz1 = mpz gmpz in
+  let mpz1 = mpz gmpz in
   let gmpq = Q.of_ints 42 77 in
-  let _mpq1 = mpq gmpq in
+  let mpq1 = mpq gmpq in
   let rat1 = parse_rational "-3/117" in
-  let _float1 = parse_float "-3.117e-2" in
-  let _add1 = int1 ++ int1 in
-  let _sub1 = int1 -- zero in
+  let float1 = parse_float "-3.117e-2" in
+  let add1 = int1 ++ int1 in
+  let sub1 = int1 -- zero in
   let neg1 = !- int1 in
   assert(equal !-zero zero);
   assert(not (equal neg1 int1));
   let mul1 = int1 ** int1 in
   let square1 = square int1 in
   assert(equal mul1 square1);
-  let _power1 = int1 ^^ 4 in
+  let power1 = int1 ^^ 4 in
   let sum1  = !+ int4 in
+
   let product1 = !* int4 in
   let product2 = !* int4_2 in
-  let _div1  = int1 // int1 in
-  let _idiv1 = int1 /. int1 in
-  let _imod1 = int1 %. int1 in
-  let _divatom1 = int1 ||. int1 in
-  let _intatom1 = is_int_atom(int1) in
+  let div1  = int1 // int1 in
+  let idiv1 = int1 /. int1 in
+  let imod1 = int1 %. int1 in
+  let divatom1 = int1 ||. int1 in
+  let intatom1 = is_int_atom(int1) in
   let abs1 = abs(neg1) in
   assert(equal abs1 int1);
-  let _floor1 = floor rat1 in
-  let _ceil1  = ceil rat1 in
+  let floor1 = floor rat1 in
+  let ceil1  = ceil rat1 in
   let coeff4 = [2; 3; 4; 5] in
   let coeff4_32 = List.map SInt.of_int coeff4 in
   let coeff4_64 = List.map Long.of_int coeff4 in
   let combine2 a b = a,b in
-  let _poly   = poly_int(List.map2 combine2 coeff4 int4) in
-  let _poly32 = poly_int32 (List.map2 combine2 coeff4_32 int4) in
-  let _poly64 = poly_int64 (List.map2 combine2 coeff4_64 int4) in
+  let poly   = poly_int(List.map2 combine2 coeff4 int4) in
+  let poly32 = poly_int32 (List.map2 combine2 coeff4_32 int4) in
+  let poly64 = poly_int64 (List.map2 combine2 coeff4_64 int4) in
   let denum4 = [12; 13; 14; 15] in
   let denum4_32 = List.map UInt.of_int denum4 in
   let denum4_64 = List.map ULong.of_int denum4 in
   let combine3 (a,b) c = a,b,c in
-  let _polyrat = poly_rational (List.map2 combine3 (List.map2 combine2 coeff4 denum4) int4) in
-  let _polyrat32 = poly_rational32
+  let polyrat = poly_rational (List.map2 combine3 (List.map2 combine2 coeff4 denum4) int4) in
+  let polyrat32 = poly_rational32
       (List.map2 combine3 (List.map2 combine2 coeff4_32 denum4_32) int4)
   in
-  let _polyrat64 = poly_rational64
+  let polyrat64 = poly_rational64
       (List.map2 combine3 (List.map2 combine2 coeff4_64 denum4_64) int4)
   in
+
+
+  check [true_; false_; const1; const2; bconst1; iconst1; var1; bvar1; zero; int1; int2; fun1;
+         app1; fun2; app2; fun3; app3; tupconst1; fun4; app4; ite1; eq1; neq1; not1; or1; and1;
+         xor1; or2_; and2_; xor2_; or3; and3; xor3; iff1; implies1; tup1; pair1; triple1;
+         select1; select2; tupup1; update1; update2; update3; update4; distinct1; var2; vareq;
+         forall1;  exists1; lambda1; int64_1; rat_1; rat32_1; rat64_1; mpz1; mpq1; rat1; float1;
+         add1; sub1; neg1; mul1; square1; power1; sum1
+        ];
+  (* check [  
+            
+           product1; product2;div1; idiv1; imod1;
+   *        divatom1; intatom1; abs1; floor1; ceil1; poly; poly32; poly64; polyrat; polyrat32;
+   *        polyrat64
+   *       ]; *)
+
+
+
+
+
   let _areqatom1   = arith_eq int1 zero in
   let _arneqatom1  = arith_neq int1 zero in
   let _argeqatom1  = geq int1 zero in
@@ -316,7 +347,7 @@ let test () =
   assert(List.equal Bool.equal value [ true; false; false; false; false; false; false; false]);
   assert(Term.equal pterm bvvar2);
   let pterm, exp1 = product_component product2 1 in
-  assert(Int.equal exp1 1);
+  assert(UInt.equal exp1 UInt.one);
   assert(Term.equal pterm ivar2);
   
   let open GC in
