@@ -673,9 +673,9 @@ module SafeMake
     let args f t =
       let+ x = num_children t in
       let rec aux accu i = if i < 0 then return accu else
-          print_endline(string_of_int i);
-          let+ call = f t i in
-          aux (call::accu) (i-1)
+          (print_endline(string_of_int i);
+           let+ call = f t i in
+           aux (call::accu) (i-1))
       in
       aux [] x
     let bvsum_components   = args bvsum_component
