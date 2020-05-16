@@ -116,13 +116,13 @@ let test () =
   let power1 = int1 ^^ 4 in
   let sum1  = !+ int4 in
 
-  let s = PP.term_string sum1 ~display:{
-      width=70;
-      height=10;
-      offset=0
-    }  
-  in
-  print_endline s;
+  (* let s = PP.term_string sum1 ~display:{
+   *     width=70;
+   *     height=10;
+   *     offset=0
+   *   }  
+   * in
+   * print_endline s; *)
   let product1 = !* int4 in
   let product2 = !* int4_2 in
   let div1  = int1 // int1 in
@@ -153,117 +153,98 @@ let test () =
       (List.map2 combine3 (List.map2 combine2 coeff4_64 denum4_64) int4)
   in
 
-
-  check [true_; false_; const1; const2; bconst1; iconst1; var1; bvar1; zero; int1; int2; fun1;
-         app1; fun2; app2; fun3; app3; tupconst1; fun4; app4; ite1; eq1; neq1; not1; or1; and1;
-         xor1; or2_; and2_; xor2_; or3; and3; xor3; iff1; implies1; tup1; pair1; triple1;
-         select1; select2; tupup1; update1; update2; update3; update4; distinct1; var2; vareq;
-         forall1;  exists1; lambda1; int64_1; rat_1; rat32_1; rat64_1; mpz1; mpq1; rat1; float1;
-         add1; sub1; neg1; mul1; square1; power1; sum1
-        ];
-  (* check [  
-            
-           product1; product2;div1; idiv1; imod1;
-   *        divatom1; intatom1; abs1; floor1; ceil1; poly; poly32; poly64; polyrat; polyrat32;
-   *        polyrat64
-   *       ]; *)
-
-
-
-
-
-  let _areqatom1   = arith_eq int1 zero in
-  let _arneqatom1  = arith_neq int1 zero in
-  let _argeqatom1  = geq int1 zero in
-  let _arleqatom1  = leq int1 zero in
-  let _argtatom1   = gt int1 zero in
-  let _arltatom1   = lt int1 zero in
-  let _areq0atom1  = eq0 int1 in
-  let _arneq0atom1 = neq0 int1 in
-  let _argeq0atom1 = geq0 int1 in
-  let _arleq0atom1 = leq0 int1 in
-  let _argt0atom1  = gt0 int1 in
-  let _arlt0atom1  = lt0 int1 in
+  let areqatom1   = arith_eq int1 zero in
+  let arneqatom1  = arith_neq int1 zero in
+  let argeqatom1  = geq int1 zero in
+  let arleqatom1  = leq int1 zero in
+  let argtatom1   = gt int1 zero in
+  let arltatom1   = lt int1 zero in
+  let areq0atom1  = eq0 int1 in
+  let arneq0atom1 = neq0 int1 in
+  let argeq0atom1 = geq0 int1 in
+  let arleq0atom1 = leq0 int1 in
+  let argt0atom1  = gt0 int1 in
+  let arlt0atom1  = lt0 int1 in
   let bv_t = Type.bv 8 in
   let open BV in
-  let _bvconstu_1   = bvconst_int ~width:8 42 in
-  let _bvconstu32_1 = bvconst_uint32 ~width:8 (UInt.of_int 42) in
-  let _bvconstu64_1 = bvconst_uint64 ~width:8 (ULong.of_int 42) in
+  let bvconstu_1   = bvconst_int ~width:8 42 in
+  let bvconstu32_1 = bvconst_uint32 ~width:8 (UInt.of_int 42) in
+  let bvconstu64_1 = bvconst_uint64 ~width:8 (ULong.of_int 42) in
   let bvconst32_1 = bvconst_int32 ~width:8 (SInt.of_int 42) in
-  let _bvconst64_1 = bvconst_int64 ~width:8 (Long.of_int 42) in
-  let _bvconstzero_1 = bvconst_zero 16 in
-  let _bvconstone_1  = bvconst_one 16 in
-  let _bvconstminusone_1 = bvconst_minus_one 32 in
-  let _bvconstarray1 = bvconst_from_list [true; false; true; false] in
+  let bvconst64_1 = bvconst_int64 ~width:8 (Long.of_int 42) in
+  let bvconstzero_1 = bvconst_zero 16 in
+  let bvconstone_1  = bvconst_one 16 in
+  let bvconstminusone_1 = bvconst_minus_one 32 in
+  let bvconstarray1 = bvconst_from_list [true; false; true; false] in
   let bvvar1 = new_variable bv_t in
   let bvvar2 = new_variable bv_t in
   let bvvar3 = new_variable bv_t in
   let bvvar4 = new_variable bv_t in
   let bvbin1 = parse_bvbin "100101" in
-  let _bvhex1 = parse_bvhex "f0a1b3" in
-  let _bvadd1 = bvadd bvbin1 bvbin1 in
-  let _bvsub1 = bvsub bvbin1 bvbin1 in
-  let _bvneg1 = bvneg bvbin1 in
-  let _bvmul1 = bvmul bvbin1 bvbin1 in
-  let _bvsquare1 = bvsquare(bvbin1) in
-  let _bvpower1 = bvpower bvbin1 3 in
-  let _bvdiv1  = bvdiv bvbin1 bvbin1 in
-  let _bvrem1  = bvrem bvbin1 bvbin1 in
-  let _bvsdiv1 = bvsdiv bvbin1 bvbin1 in
-  let _bvsrem1 = bvsrem bvbin1 bvbin1 in
-  let _bvsmod1 = bvsmod bvbin1 bvbin1 in
-  let _bvnot1  = bvnot bvbin1 in
-  let _bvnand1 = bvnand bvbin1 bvbin1 in
-  let _bvnor1  = bvnor bvbin1 bvbin1 in
-  let _bvxnor1 = bvxnor bvbin1 bvbin1 in
-  let _bvshl1  = bvshl bvbin1 bvbin1 in
-  let _bvlshr1 = bvlshr bvbin1 bvbin1 in
-  let _bvashr1 = bvashr bvbin1 bvbin1 in
-  let _bvand1  = bvand [bvbin1; bvbin1; bvbin1; bvbin1] in
-  let _bvor1   = bvor  [bvbin1; bvbin1; bvbin1; bvbin1] in
-  let _bvand2_1 = bvand [bvbin1; bvbin1] in
-  let _bvor2_1  = bvor  [bvbin1; bvbin1] in
-  let _bvxor2_1 = bvxor [bvbin1; bvbin1] in
-  let _bvand3_1 = bvand [bvbin1; bvbin1; bvbin1] in
-  let _bvor3_1  = bvor  [bvbin1; bvbin1; bvbin1] in
-  let _bvxor3_1 = bvxor [bvbin1; bvbin1; bvbin1] in
+  let bvhex1 = parse_bvhex "f0a1b3" in
+  let bvadd1 = bvadd bvbin1 bvbin1 in
+  let bvsub1 = bvsub bvbin1 bvbin1 in
+  let bvneg1 = bvneg bvbin1 in
+  let bvmul1 = bvmul bvbin1 bvbin1 in
+  let bvsquare1 = bvsquare(bvbin1) in
+  let bvpower1 = bvpower bvbin1 3 in
+  let bvdiv1  = bvdiv bvbin1 bvbin1 in
+  let bvrem1  = bvrem bvbin1 bvbin1 in
+  let bvsdiv1 = bvsdiv bvbin1 bvbin1 in
+  let bvsrem1 = bvsrem bvbin1 bvbin1 in
+  let bvsmod1 = bvsmod bvbin1 bvbin1 in
+  let bvnot1  = bvnot bvbin1 in
+  let bvnand1 = bvnand bvbin1 bvbin1 in
+  let bvnor1  = bvnor bvbin1 bvbin1 in
+  let bvxnor1 = bvxnor bvbin1 bvbin1 in
+  let bvshl1  = bvshl bvbin1 bvbin1 in
+  let bvlshr1 = bvlshr bvbin1 bvbin1 in
+  let bvashr1 = bvashr bvbin1 bvbin1 in
+  let bvand1  = bvand [bvbin1; bvbin1; bvbin1; bvbin1] in
+  let bvor1   = bvor  [bvbin1; bvbin1; bvbin1; bvbin1] in
+  let bvand2_1 = bvand [bvbin1; bvbin1] in
+  let bvor2_1  = bvor  [bvbin1; bvbin1] in
+  let bvxor2_1 = bvxor [bvbin1; bvbin1] in
+  let bvand3_1 = bvand [bvbin1; bvbin1; bvbin1] in
+  let bvor3_1  = bvor  [bvbin1; bvbin1; bvbin1] in
+  let bvxor3_1 = bvxor [bvbin1; bvbin1; bvbin1] in
   let bvsum1 = bvsum   [bvbin1; bvbin1; bvbin1; bvbin1] in
   let bvsum2 = bvsum   [bvvar1; bvvar2; bvvar3; bvvar4] in
-  let _bvproduct1 = bvproduct [bvbin1; bvbin1; bvbin1; bvbin1] in
-  let _shleft0_1  = shift_left0 bvbin1 5 in
-  let _shleft1_1  = shift_left1 bvbin1 4 in
-  let _shright0_1 = shift_right0 bvbin1 3 in
-  let _shright1_1 = shift_right1 bvbin1 2 in
-  let _ashright_1 = ashift_right bvbin1 1 in
-  let _rotleft_1  = rotate_left bvbin1 6 in
-  let _rotright_1 = rotate_right bvbin1 5 in
-  let _bvextract1 = bvextract bvbin1 2 4 in
-  let _bvconcat2_1 = bvconcat2 bvbin1 bvbin1 in
-  let _bvconcat_1 = bvconcat [bvbin1; bvbin1; bvbin1; bvbin1] in
-  let _bvrepeat1 = bvrepeat bvbin1 8 in
-  let _signext1 = sign_extend bvbin1 3 in
-  let _zeroext1 = zero_extend bvbin1 4 in
-  let _redand1  = redand bvbin1 in
-  let _redor1   = redor bvbin1 in
-  let _redcomp1 = redcomp bvbin1 bvbin1 in
-  let _bvarray1 = bvarray [true_; false_; true_; false_] in
-  let _bitextract1 = bitextract bvbin1 3 in
-  let _bveqatom1 = bveq bvbin1 bvbin1 in
-  let _bvneqatom1 = bvneq bvbin1 bvbin1 in
-  let _bvgeatom1 = bvge bvbin1 bvbin1 in
-  let _bvgtatom1 = bvgt bvbin1 bvbin1 in
-  let _bvleatom1 = bvle bvbin1 bvbin1 in
-  let _bvltatom1 = bvlt bvbin1 bvbin1 in
-  let _bvsgeatom1 = bvsge bvbin1 bvbin1 in
-  let _bvsgtatom1 = bvsgt bvbin1 bvbin1 in
-  let _bvsleatom1 = bvsle bvbin1 bvbin1 in
-  let _bvsltatom1 = bvslt bvbin1 bvbin1 in
-  
+  let bvproduct1 = bvproduct [bvbin1; bvbin1; bvbin1; bvbin1] in
+  let shleft0_1  = shift_left0 bvbin1 5 in
+  let shleft1_1  = shift_left1 bvbin1 4 in
+  let shright0_1 = shift_right0 bvbin1 3 in
+  let shright1_1 = shift_right1 bvbin1 2 in
+  let ashright_1 = ashift_right bvbin1 1 in
+  let rotleft_1  = rotate_left bvbin1 6 in
+  let rotright_1 = rotate_right bvbin1 5 in
+  let bvextract1 = bvextract bvbin1 2 4 in
+  let bvconcat2_1 = bvconcat2 bvbin1 bvbin1 in
+  let bvconcat_1 = bvconcat [bvbin1; bvbin1; bvbin1; bvbin1] in
+  let bvrepeat1 = bvrepeat bvbin1 8 in
+  let signext1 = sign_extend bvbin1 3 in
+  let zeroext1 = zero_extend bvbin1 4 in
+  let redand1  = redand bvbin1 in
+  let redor1   = redor bvbin1 in
+  let redcomp1 = redcomp bvbin1 bvbin1 in
+  let bvarray1 = bvarray [true_; false_; true_; false_] in
+  let bitextract1 = bitextract bvbin1 3 in
+  let bveqatom1 = bveq bvbin1 bvbin1 in
+  let bvneqatom1 = bvneq bvbin1 bvbin1 in
+  let bvgeatom1 = bvge bvbin1 bvbin1 in
+  let bvgtatom1 = bvgt bvbin1 bvbin1 in
+  let bvleatom1 = bvle bvbin1 bvbin1 in
+  let bvltatom1 = bvlt bvbin1 bvbin1 in
+  let bvsgeatom1 = bvsge bvbin1 bvbin1 in
+  let bvsgtatom1 = bvsgt bvbin1 bvbin1 in
+  let bvsleatom1 = bvsle bvbin1 bvbin1 in
+  let bvsltatom1 = bvslt bvbin1 bvbin1 in
+
   let ptype1 = Type.parse "int" in
   assert(Type.equal ptype1 (Type.int()));
   let pterm1 = Term.parse "42" in
   assert(Term.equal pterm1 (int 42));
-  let _subst1 = Term.subst_term [new_variable ptype1, int 2; new_variable ptype1, int 3] (int 42)
+  let subst1 = Term.subst_term [new_variable ptype1, int 2; new_variable ptype1, int 3] (int 42)
   in
   let _substarr1 = subst_terms
       [new_variable ptype1, int 2;
@@ -331,7 +312,27 @@ let test () =
   assert(Int.equal (Term.num_children select2) 1);
   assert(Int.equal (Term.num_children tup1) 4);
   assert(Term.equal (Term.child tup1 2) iconst1);
-  let _projarg1 = proj_arg(select2) in
+
+  check [true_; false_; const1; const2; bconst1; iconst1; var1; bvar1; zero; int1; int2; fun1;
+         app1; fun2; app2; fun3; app3; tupconst1; fun4; app4; ite1; eq1; neq1; not1; or1; and1;
+         xor1; or2_; and2_; xor2_; or3; and3; xor3; iff1; implies1; tup1; pair1; triple1;
+         select1; select2; tupup1; update1; update2; update3; update4; distinct1; var2; vareq;
+         forall1;  exists1; lambda1; int64_1; rat_1; rat32_1; rat64_1; mpz1; mpq1; rat1; float1;
+         add1; sub1; neg1; mul1; square1; power1; sum1; product1; product2;div1; idiv1; imod1;
+         divatom1; intatom1; abs1; floor1; ceil1; poly; poly32; poly64; polyrat; polyrat32;
+         polyrat64; areqatom1; arneqatom1; argeqatom1; arleqatom1; argtatom1; arltatom1;
+         areq0atom1; arneq0atom1; argeq0atom1; arleq0atom1; argt0atom1; arlt0atom1;
+         bvconstu_1; bvconstu32_1; bvconstu64_1; bvconst32_1; bvconst64_1; bvconstzero_1;
+         bvconstone_1; bvconstminusone_1; bvconstarray1; bvvar1; bvbin1; bvhex1; bvadd1; bvsub1;
+         bvneg1; bvmul1; bvsquare1; bvpower1; bvdiv1; bvrem1; bvsdiv1; bvsrem1; bvsmod1; bvnot1;
+         bvnand1; bvnor1; bvxnor1; bvshl1; bvlshr1; bvashr1; bvand1; bvor1; bvand2_1; bvor2_1;
+         bvxor2_1; bvand3_1; bvor3_1; bvxor3_1; bvsum1; bvsum2; bvproduct1; shleft0_1; shleft1_1;
+         shright0_1; shright1_1; shleft1_1; ashright_1; rotleft_1; rotright_1; bvextract1;
+         bvconcat2_1; bvconcat_1; bvrepeat1; signext1; zeroext1; redand1; redor1; redcomp1;
+         bvarray1; bitextract1; bveqatom1; bvneqatom1; bvgeatom1; bvgtatom1; bvleatom1;
+         bvltatom1; bvsgeatom1; bvsgtatom1; bvsleatom1; bvsltatom1; pterm1; subst1 ];
+
+  let projarg1 = proj_arg(select2) in
   assert(Int.equal (proj_index select2) 2);
   assert(Term.equal (proj_arg select2) tupconst1);
   let val_p = bool_const_value true_ in
@@ -349,11 +350,13 @@ let test () =
     | Some x -> x
     | None -> assert false
   in
+  check [projarg1; scalar_c; pterm];
   assert(Bool.equal (Term.is_bitvector pterm) true);
   assert(Bool.equal (Term.is_bitvector bvvar2) true);
   assert(List.equal Bool.equal value [ true; false; false; false; false; false; false; false]);
   assert(Term.equal pterm bvvar2);
   let pterm, exp1 = product_component product2 1 in
+  check [pterm];
   assert(UInt.equal exp1 UInt.one);
   assert(Term.equal pterm ivar2);
   
