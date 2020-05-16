@@ -524,8 +524,8 @@ module SafeMake
       let poly_mpz = List.map (fun (z,t) -> MPZ.of_z z,t)
                      <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
                      <.> return_sint
-      let poly_mpq = List.map (fun (q,t) -> print_endline "FF"; MPQ.of_q q,t)
-                     <.> ofList2 MPQ.t_ptr term_t yices_poly_mpq
+      let poly_mpq = List.map (fun (q,t) -> MPQ.of_q q,t)
+                     <.> ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x)
                      <.> return_sint
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint

@@ -10,7 +10,8 @@ true: annot, bin_annot
 "_darcs": -traverse
 "_darcs": not_hygienic
 
-true: debug, optimize(3), unbox_closures
+true: debug
+#, optimize(3), unbox_closures
 
 # <src/yices_header.{ml,mli}> : package(ctypes-of-clang.ppx)
 # <src/yices_limits.{ml,mli}> : package(ctypes-of-clang.ppx)

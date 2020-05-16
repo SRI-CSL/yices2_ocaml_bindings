@@ -1,5 +1,7 @@
 open Yices2_high
 
+let () = Printexc.record_backtrace true
+    
 module EH1 = Make(ExceptionsErrorHandling)
 
 let () =
