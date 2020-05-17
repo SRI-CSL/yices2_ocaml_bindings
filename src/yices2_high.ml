@@ -611,8 +611,9 @@ module SafeMake
           return (q, t)
         in
         let+ l = map aux l in
-        ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x) l
-        |> return_sint
+        let r = ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x) l in
+        print_endline "Done";
+        return_sint r
         (* List.map (fun (q,t) -> MPQ.of_q q,t)
          *              <.> ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x)
          *              <.> return_sint *)
