@@ -604,20 +604,24 @@ module SafeMake
                      <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
                      <.> return_sint
       let poly_mpq l =
-        let aux (q,t) =
+        let aux (q_list,t_list) (q,t) =
+          print_endline(Q.to_string q);
           let q = MPQ.of_q q in
           let+ s = PP.term_string t in
           print_endline s;
-          return (q, t)
+          return (q::q_list, t::t_list)
         in
-        let+ l = map aux l in
+        let+ q_list,t_list = fold aux (return([],[])) l in
         let length = List.length l in
-        Alloc.(load (yices_poly_mpq (UInt.of_int length))
-               |> allocN length MPQ.t_ptr
-               |> allocN length term_t
-               |> check (fun r _ ->
-                   print_endline "Done";
-                   r))
+        assert(length = List.length q_list);
+        assert(length = List.length t_list);
+        let q_args = CArray.of_list MPQ.t_ptr q_list in
+        let t_args = CArray.of_list term_t t_list in
+        let<= r =
+          yices_poly_mpq (UInt.of_int length) (CArray.start q_args) (CArray.start t_args)
+        in
+        print_endline "Done";
+        return r
         
         (* let r = ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x) l in
          * print_endline "Done";
