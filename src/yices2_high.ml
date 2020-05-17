@@ -168,6 +168,21 @@ module SafeMake
   let (<++>) f g x1 x2     = let+ x = f x1 x2 in g x
   let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x
 
+  (* Monadic fold and map *)
+  let fold (aux : 'a -> 'b -> 'a EH.t) =
+    let aux sofar c =
+      let+ sofar = sofar in
+      aux sofar c
+    in
+    List.fold_left aux
+
+  let map f l =
+    let aux sofar c =
+      let+ c = f c in
+      return(c::sofar)
+    in
+    List.rev l |> fold aux (return [])
+
   (* Conversions to/from bools *)
   let toBool  x     = let<= x = x in return(Conv.bool.read x)
   let toBool1 f a   = f a       |> toBool
@@ -325,7 +340,71 @@ module SafeMake
     end)
 
   (* Yices High-level bindings *)
-  
+
+    module PP = struct
+
+    let ddisplay = {
+      width=80;
+      height=1;
+      offset=0
+    }
+        
+    let type_file file ?(display=ddisplay) t
+      = yices_pp_type file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let term_file file ?(display=ddisplay) t
+      = yices_pp_term file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let terms_file file ?(display=ddisplay) l ~layout
+      = (yices_pp_term_array file |>
+         ofList1 term_t) l !>(display.width) !>(display.height) !>(display.offset)
+        (Conv.bool.write layout) |> toUnit
+    let model_file file ?display t
+      = match display with
+      | Some {width; height; offset} ->
+        yices_pp_model file t !>width !>height !>offset |> toUnit
+      | _ ->  return(yices_print_model file t)
+    let term_values_file file ?display model terms =
+      match display with
+      | Some {width; height; offset} ->
+        (yices_pp_term_values file model |> ofList1 term_t) terms
+          !>width !>height !>offset |> toUnit
+      | None ->
+        (yices_print_term_values file model |> ofList1 term_t) terms
+        |> toUnit
+    
+    let type_fd fd ?(display=ddisplay) t
+      = yices_pp_type_fd fd t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let term_fd fd ?(display=ddisplay) t
+      = yices_pp_term_fd fd t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
+    let terms_fd fd ?(display=ddisplay) t ~layout
+      = (yices_pp_term_array_fd fd |> ofList1 term_t) t
+        !>(display.width) !>(display.height) !>(display.offset)
+        (Conv.bool.write layout) |> toUnit
+    let model_fd fd ?display t
+      = match display with
+      | Some {width; height; offset} ->
+        yices_pp_model_fd fd t !>width !>height !>offset |> toUnit
+      | _ ->  yices_print_model_fd fd t |> toUnit
+    let term_values_fd fd ?display model terms =
+      match display with
+      | Some {width; height; offset} ->
+        (yices_pp_term_values_fd fd model |> ofList1 term_t) terms
+          !>width !>height !>offset |> toUnit
+      | None ->
+        (yices_print_term_values_fd fd model |> ofList1 term_t) terms
+        |> toUnit
+
+    let type_string ?(display=ddisplay) t
+      = yices_type_to_string t !>(display.width) !>(display.height) !>(display.offset)
+        |> toString
+    let term_string ?(display=ddisplay) t
+      = yices_term_to_string t !>(display.width) !>(display.height) !>(display.offset)
+        |> toString
+    let model_string ?(display=ddisplay) t
+      = yices_model_to_string t !>(display.width) !>(display.height) !>(display.offset)
+        |> toString
+
+  end
+
   module type Names = sig
     type t
     val set     : t -> string -> unit EH.t
@@ -524,9 +603,19 @@ module SafeMake
       let poly_mpz = List.map (fun (z,t) -> MPZ.of_z z,t)
                      <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
                      <.> return_sint
-      let poly_mpq = List.map (fun (q,t) -> MPQ.of_q q,t)
-                     <.> ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x)
-                     <.> return_sint
+      let poly_mpq l =
+        let aux (q,t) =
+          let q = MPQ.of_q q in
+          let+ s = PP.term_string t in
+          print_endline s;
+          return (q, t)
+        in
+        let+ l = map aux l in
+        ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x) l
+        |> return_sint
+        (* List.map (fun (q,t) -> MPQ.of_q q,t)
+         *              <.> ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x)
+         *              <.> return_sint *)
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint
       let geq  = yices_arith_geq_atom <..> return_sint
@@ -697,20 +786,6 @@ module SafeMake
       let+ index, last = aux [] l in
       return(List.rev index, last)
 
-    let fold (aux : 'a -> 'b -> 'a EH.t) =
-      let aux sofar c =
-        let+ sofar = sofar in
-        aux sofar c
-      in
-      List.fold_left aux
-
-    let map f l =
-      let aux sofar c =
-        let+ c = f c in
-        return(c::sofar)
-      in
-      List.rev l |> fold aux (return [])
-    
     let reveal t = let+ c = constructor t in
       match c with
       | `YICES_CONSTRUCTOR_ERROR -> raise_error "`YICES_CONSTRUCTOR_ERROR"
@@ -1138,63 +1213,6 @@ module SafeMake
     let set p ~name ~value = yices_set_param p ?>name ?>value |> toUnit
   end
 
-  module PP = struct
-
-    let type_file file t ~display
-      = yices_pp_type file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
-    let term_file file t ~display
-      = yices_pp_term file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
-    let terms_file file l ~display ~layout
-      = (yices_pp_term_array file |>
-         ofList1 term_t) l !>(display.width) !>(display.height) !>(display.offset)
-        (Conv.bool.write layout) |> toUnit
-    let model_file file ?display t
-      = match display with
-      | Some {width; height; offset} ->
-        yices_pp_model file t !>width !>height !>offset |> toUnit
-      | _ ->  return(yices_print_model file t)
-    let term_values_file file ?display model terms =
-      match display with
-      | Some {width; height; offset} ->
-        (yices_pp_term_values file model |> ofList1 term_t) terms
-          !>width !>height !>offset |> toUnit
-      | None ->
-        (yices_print_term_values file model |> ofList1 term_t) terms
-        |> toUnit
-    
-    let type_fd fd t ~display
-      = yices_pp_type_fd fd t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
-    let term_fd fd t ~display
-      = yices_pp_term_fd fd t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
-    let terms_fd fd t ~display ~layout
-      = (yices_pp_term_array_fd fd |> ofList1 term_t) t
-        !>(display.width) !>(display.height) !>(display.offset)
-        (Conv.bool.write layout) |> toUnit
-    let model_fd fd ?display t
-      = match display with
-      | Some {width; height; offset} ->
-        yices_pp_model_fd fd t !>width !>height !>offset |> toUnit
-      | _ ->  yices_print_model_fd fd t |> toUnit
-    let term_values_fd fd ?display model terms =
-      match display with
-      | Some {width; height; offset} ->
-        (yices_pp_term_values_fd fd model |> ofList1 term_t) terms
-          !>width !>height !>offset |> toUnit
-      | None ->
-        (yices_print_term_values_fd fd model |> ofList1 term_t) terms
-        |> toUnit
-
-    let type_string t ~display
-      = yices_type_to_string t !>(display.width) !>(display.height) !>(display.offset)
-        |> toString
-    let term_string t ~display
-      = yices_term_to_string t !>(display.width) !>(display.height) !>(display.offset)
-        |> toString
-    let model_string t ~display
-      = yices_model_to_string t !>(display.width) !>(display.height) !>(display.offset)
-        |> toString
-
-  end
 end
 
 module Make(EH: ErrorHandling) = SafeMake(struct include Yices2_low type 'a checkable = 'a end)(EH)

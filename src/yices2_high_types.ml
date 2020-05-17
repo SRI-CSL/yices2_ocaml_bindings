@@ -3582,7 +3582,7 @@ module type API = sig
      ****************** *)
 
     (** Pretty print type tau or term t on file f
-        - width, height, offset define the print area
+        - width, height, offset define the print area (default is 80,1,0)
         - f = output file to use.
           f must be open and writable.
 
@@ -3601,8 +3601,8 @@ module type API = sig
           code = OUTPUT_ERROR if writing to file f failed.
           in this case, errno, perror, etc. can be used for diagnostic.  *)
 
-    val type_file : FILE.t ptr -> type_t -> display:display -> unit eh
-    val term_file : FILE.t ptr -> term_t -> display:display -> unit eh
+    val type_file : FILE.t ptr -> ?display:display -> type_t -> unit eh
+    val term_file : FILE.t ptr -> ?display:display -> term_t -> unit eh
 
     (** Pretty print an array of terms:
         - f = output file to use
@@ -3634,7 +3634,7 @@ module type API = sig
         set the error report to:
           code = OUTPUT_ERROR
         *)
-    val terms_file : FILE.t ptr -> term_t list -> display:display -> layout:bool -> unit eh
+    val terms_file : FILE.t ptr -> ?display:display -> term_t list -> layout:bool -> unit eh
 
     (** Print model mdl on FILE f
         - f must be open/writable
@@ -3749,9 +3749,9 @@ module type API = sig
         In particular, if fd is not a valid file descriptor or some other IO error happens,
           code is set to OUTPUT_ERROR
           and errno, perror can be used for diagnostic. *)
-    val type_fd        : sint -> type_t -> display:display -> unit eh
-    val term_fd        : sint -> term_t -> display:display -> unit eh
-    val terms_fd       : sint -> term_t list -> display:display -> layout:bool -> unit eh
+    val type_fd        : sint -> ?display:display -> type_t -> unit eh
+    val term_fd        : sint -> ?display:display -> term_t -> unit eh
+    val terms_fd       : sint -> ?display:display -> term_t list -> layout:bool -> unit eh
     val model_fd       : sint -> ?display:display -> model_t ptr -> unit eh
     (** Since 2.6.2. *)
     val term_values_fd : sint -> ?display:display -> model_t ptr -> term_t list -> unit eh
@@ -3773,13 +3773,13 @@ module type API = sig
           term1 = t
         *)
 
-    val type_string : type_t -> display:display -> string eh
-    val term_string : term_t -> display:display -> string eh
+    val type_string : ?display:display -> type_t -> string eh
+    val term_string : ?display:display -> term_t -> string eh
 
     (** Convert model to a string using the pretty printer.
         - width, height, offset define the print area
           Returns a '\0'-terminated string otherwise. This string must be deleted
           when no longer needed by calling yices_free_string.  *)
-    val model_string : model_t ptr -> display:display -> string eh
+    val model_string : ?display:display -> model_t ptr -> string eh
   end
 end
