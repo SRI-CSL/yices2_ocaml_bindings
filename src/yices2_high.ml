@@ -600,35 +600,24 @@ module SafeMake
       let poly_rational64 = ofList3 long ulong term_t yices_poly_rational64 <.> return_sint
       let poly_rational   = List.map (fun (n,d,t) -> Long.of_int n, ULong.of_int d, t)
                             <.> poly_rational64
-      let poly_mpz = List.map (fun (z,t) -> MPZ.of_z z,t)
-                     <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
-                     <.> return_sint
-      let poly_mpq l =
-        let aux (q_list,t_list) (q,t) =
-          print_endline(Q.to_string q);
-          let q = MPQ.of_q q in
-          let+ s = PP.term_string t in
-          print_endline s;
-          return (q::q_list, t::t_list)
-        in
-        let+ q_list,t_list = fold aux (return([],[])) l in
-        let length = List.length l in
-        assert(length = List.length q_list);
-        assert(length = List.length t_list);
-        let q_args = CArray.of_list MPQ.t_ptr q_list in
-        let t_args = CArray.of_list term_t t_list in
-        let<= r =
-          yices_poly_mpq (UInt.of_int length) (CArray.start q_args) (CArray.start t_args)
-        in
-        print_endline "Done";
-        return r
-        
-        (* let r = ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x) l in
-         * print_endline "Done";
-         * return_sint r *)
+      let poly_mpz =
+        (* Following code using yices_poly_mpz leads to segfault! *)
+        (* List.map (fun (z,t) -> MPZ.of_z z,t)
+         * <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
+         * <.> return_sint *)
+        (* Less efficient workaround *)
+        let aux (z,t) = mpz z |+> mul t in
+        map aux <+> sum
+
+      let poly_mpq =
+        (* Following code using yices_poly_mpq leads to segfault! *)
         (* List.map (fun (q,t) -> MPQ.of_q q,t)
-         *              <.> ofList2 MPQ.t_ptr term_t (fun x -> print_endline "FF"; yices_poly_mpq x)
+         *              <.> ofList2 MPQ.t_ptr term_t yices_poly_mpq
          *              <.> return_sint *)
+        (* Less efficient workaround *)
+        let aux (q,t) = mpq q |+> mul t in
+        map aux <+> sum
+
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint
       let geq  = yices_arith_geq_atom <..> return_sint
@@ -952,12 +941,21 @@ module SafeMake
           in
           return(summand::sofar)
         in
-        let+ l = List.rev l |> List.fold_left aux (return []) in
-        Arith.product l
+        List.rev l |> List.fold_left aux (return []) |+> BV.bvsum
       | Sum l ->
-        let+ one = Arith.int 1 in
-        let l = List.map (function coeff, Some t -> coeff, t | coeff, None -> coeff, one) l in
-        Arith.poly_mpq l
+        let aux sofar (coeff, term) =
+          let+ sofar = sofar in
+          let+ coeff_as_term = Arith.mpq coeff in
+          let+ summand = match term with
+            | Some term -> Arith.mul coeff_as_term term
+            | None -> return coeff_as_term
+          in
+          return(summand::sofar)
+        in
+        List.rev l |> List.fold_left aux (return []) |+> Arith.sum
+        (* let+ one = Arith.int 1 in
+         * let l = List.map (function coeff, Some t -> coeff, t | coeff, None -> coeff, one) l in
+         * Arith.poly_mpq l *)
       | Product(isBV, l) ->
         let generic power32 product =
           let aux sofar (t,p) =
@@ -965,8 +963,7 @@ module SafeMake
             let+ pp = power32 t p in
             return(pp::sofar)
           in
-          let+ l = List.rev l |> List.fold_left aux (return []) in
-          product l
+          List.rev l |> List.fold_left aux (return []) |+> product
         in
         if isBV then generic BV.bvpower32 BV.bvproduct else generic Arith.power32 Arith.product
 

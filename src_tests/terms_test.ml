@@ -16,12 +16,9 @@ let test () =
 
   let check t =
     let Term tr = reveal t in
-    let t = build tr in
-    (* let Term tr2 = reveal t in
-     * let tr3 = map (fun x -> x) tr2 in
-     * assert(Term.equal (build tr2) t);
-     * assert(Term.equal (build tr3) t); *)
-    ()
+    assert(Term.equal t (build tr));
+    let t' = build(map (fun x -> x) tr) in
+    assert(Term.equal t t')
   in
   let check = List.iter check in
   let true_  = true0() in
@@ -115,14 +112,6 @@ let test () =
   assert(equal mul1 square1);
   let power1 = int1 ^^ 4 in
   let sum1  = !+ int4 in
-
-  (* let s = PP.term_string sum1 ~display:{
-   *     width=70;
-   *     height=10;
-   *     offset=0
-   *   }  
-   * in
-   * print_endline s; *)
   let product1 = !* int4 in
   let product2 = !* int4_2 in
   let div1  = int1 // int1 in
@@ -137,13 +126,16 @@ let test () =
   let coeff4 = [2; 3; 4; 5] in
   let coeff4_32 = List.map SInt.of_int coeff4 in
   let coeff4_64 = List.map Long.of_int coeff4 in
+  let coeff4_mpz = List.map Z.of_int coeff4 in
   let combine2 a b = a,b in
   let poly   = poly_int(List.map2 combine2 coeff4 int4) in
   let poly32 = poly_int32 (List.map2 combine2 coeff4_32 int4) in
   let poly64 = poly_int64 (List.map2 combine2 coeff4_64 int4) in
+  let polympz = poly_mpz (List.map2 combine2 coeff4_mpz int4) in
   let denum4 = [12; 13; 14; 15] in
   let denum4_32 = List.map UInt.of_int denum4 in
   let denum4_64 = List.map ULong.of_int denum4 in
+  let denum4_mpz = List.map Z.of_int denum4 in
   let combine3 (a,b) c = a,b,c in
   let polyrat = poly_rational (List.map2 combine3 (List.map2 combine2 coeff4 denum4) int4) in
   let polyrat32 = poly_rational32
@@ -152,7 +144,9 @@ let test () =
   let polyrat64 = poly_rational64
       (List.map2 combine3 (List.map2 combine2 coeff4_64 denum4_64) int4)
   in
-
+  let polyratmpq = poly_mpq
+      (List.map2 combine2 (List.map2 Q.make coeff4_mpz denum4_mpz) int4)
+  in
   let areqatom1   = arith_eq int1 zero in
   let arneqatom1  = arith_neq int1 zero in
   let argeqatom1  = geq int1 zero in
@@ -165,6 +159,9 @@ let test () =
   let arleq0atom1 = leq0 int1 in
   let argt0atom1  = gt0 int1 in
   let arlt0atom1  = lt0 int1 in
+
+
+  
   let bv_t = Type.bv 8 in
   let open BV in
   let bvconstu_1   = bvconst_int ~width:8 42 in
@@ -318,19 +315,19 @@ let test () =
          xor1; or2_; and2_; xor2_; or3; and3; xor3; iff1; implies1; tup1; pair1; triple1;
          select1; select2; tupup1; update1; update2; update3; update4; distinct1; var2; vareq;
          forall1;  exists1; lambda1; int64_1; rat_1; rat32_1; rat64_1; mpz1; mpq1; rat1; float1;
-         add1; sub1; neg1; mul1; square1; power1; sum1;
-         (* product1; product2; div1; idiv1; imod1; *)
-         (* divatom1; intatom1; abs1; floor1; ceil1; poly; poly32; poly64; polyrat; polyrat32; *)
-         (* polyrat64; areqatom1; arneqatom1; argeqatom1; arleqatom1; argtatom1; arltatom1;
-          * areq0atom1; arneq0atom1; argeq0atom1; arleq0atom1; argt0atom1; arlt0atom1;
-          * bvconstu_1; bvconstu32_1; bvconstu64_1; bvconst32_1; bvconst64_1; bvconstzero_1;
-          * bvconstone_1; bvconstminusone_1; bvconstarray1; bvvar1; bvbin1; bvhex1; bvadd1; bvsub1;
-          * bvneg1; bvmul1; bvsquare1; bvpower1; bvdiv1; bvrem1; bvsdiv1; bvsrem1; bvsmod1; bvnot1;
-          * bvnand1; bvnor1; bvxnor1; bvshl1; bvlshr1; bvashr1; bvand1; bvor1; bvand2_1; bvor2_1;
-          * bvxor2_1; bvand3_1; bvor3_1; bvxor3_1; bvsum1; bvsum2; bvproduct1; shleft0_1; shleft1_1;
-          * shright0_1; shright1_1; shleft1_1; ashright_1; rotleft_1; rotright_1; bvextract1;
-          * bvconcat2_1; bvconcat_1; bvrepeat1; signext1; zeroext1; redand1; redor1; redcomp1;
-          * bvarray1; bitextract1; bveqatom1; bvneqatom1; bvgeatom1; bvgtatom1; bvleatom1; *)
+         add1; sub1; neg1; mul1; square1; power1; sum1; product1; product2; div1; idiv1; imod1;
+         divatom1; intatom1; abs1; floor1; ceil1; poly; poly32; poly64; polympz; polyrat;
+         polyrat32; polyrat64; polyratmpq; areqatom1; arneqatom1; argeqatom1; arleqatom1;
+         argtatom1; arltatom1;
+         areq0atom1; arneq0atom1; argeq0atom1; arleq0atom1; argt0atom1; arlt0atom1;
+         bvconstu_1; bvconstu32_1; bvconstu64_1; bvconst32_1; bvconst64_1; bvconstzero_1;
+         bvconstone_1; bvconstminusone_1; bvconstarray1; bvvar1; bvbin1; bvhex1; bvadd1; bvsub1;
+         bvneg1; bvmul1; bvsquare1; bvpower1; bvdiv1; bvrem1; bvsdiv1; bvsrem1; bvsmod1; bvnot1;
+         bvnand1; bvnor1; bvxnor1; bvshl1; bvlshr1; bvashr1; bvand1; bvor1; bvand2_1; bvor2_1;
+         bvxor2_1; bvand3_1; bvor3_1; bvxor3_1; bvsum1; bvsum2; bvproduct1; shleft0_1; shleft1_1;
+         shright0_1; shright1_1; shleft1_1; ashright_1; rotleft_1; rotright_1; bvextract1;
+         bvconcat2_1; bvconcat_1; bvrepeat1; signext1; zeroext1; redand1; redor1; redcomp1;
+         bvarray1; bitextract1; bveqatom1; bvneqatom1; bvgeatom1; bvgtatom1; bvleatom1;
          bvltatom1; bvsgeatom1; bvsgtatom1; bvsleatom1; bvsltatom1; pterm1; subst1 ];
 
   let projarg1 = proj_arg(select2) in
