@@ -1306,8 +1306,8 @@ module type API = sig
   (* Coefficients are GMP integers or rationals.
      - the rationals q[0 ... n-1] must all be canonicalized *)
 
-  val yices_poly_mpz : uint -> MPZ.t abstract ptr ptr -> term_t ptr -> term_t checkable
-  val yices_poly_mpq : uint -> MPQ.t abstract ptr ptr -> term_t ptr -> term_t checkable
+  val yices_poly_mpz : uint -> MPZ.t abstract ptr -> term_t ptr -> term_t checkable
+  val yices_poly_mpq : uint -> MPQ.t abstract ptr -> term_t ptr -> term_t checkable
   
   (* ARITHMETIC ATOMS *)
 

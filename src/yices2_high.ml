@@ -1,3 +1,4 @@
+open Containers
 open Ctypes
 open Ctypes_zarith
 open Signed
@@ -14,9 +15,97 @@ end
 
 open Types
 
+module Array = CArray
+
 module List = struct
   include List
   let map f l = rev(rev_map f l) (* Tail-recursive version of map to avoid stack overflows *)
+end
+
+module type Monad = sig
+  type 'a t
+  val return : 'a -> 'a t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
+end
+
+(* Monadic fold and map on lists *)
+module MList(M : Monad) = struct
+
+  open M
+  let (let++) = bind
+  
+  let fold  (aux : 'a -> 'b -> 'a M.t) =
+    let aux sofar c =
+      let++ sofar = sofar in
+      aux sofar c
+    in
+    List.fold_left aux
+
+  let map f l =
+    let aux sofar c =
+      let++ c = f c in
+      return(c::sofar)
+    in
+    List.rev l |> fold aux (return [])
+end
+
+(* Monadic map on terms *)
+module MTerm(M : Monad) = struct
+  open M
+  let (let+) = bind
+  open MList(M)
+
+  let polymap f l =
+    let aux (coeff,term_o) =
+      let+ t = match term_o with
+        | Some t -> let+ t = f t in return(Some t)
+        | None -> return None
+      in
+      return(coeff, t)
+    in
+    map aux l
+
+  let map : type a. (term_t -> term_t M.t) -> a termstruct -> a termstruct M.t =
+    fun f -> function
+      | A0(c,t)     -> let+ t = f t in return (A0(c,t))
+      | A1(c,t)     -> let+ t = f t in return (A1(c,t))
+      | A2(c,t1,t2) ->
+        let+ t1 = f t1 in
+        let+ t2 = f t2 in
+        return (A2(c,t1,t2))
+      | ITE(c, tb, eb) -> 
+        let+ c  = f c in
+        let+ tb = f tb in
+        let+ eb = f eb in
+        return (ITE(c,tb,eb))
+      | Astar(c,l) ->
+        let+ l = map f l in
+        return (Astar(c,l))
+      | Bindings{c;vars;body} ->
+        let+ vars = map f vars in
+        let+ body = f body in
+        return(Bindings{c;vars;body})
+      | App(a,l) ->
+        let+ a = f a in
+        let+ l = map f l in
+        return(App(a,l))
+      | Update {array; index; value} ->
+        let+ array = f array in
+        let+ index = map f index in
+        let+ value = f value in
+        return(Update {array; index; value})
+      | Projection(c,i,t) ->
+        let+ t = f t in
+        return(Projection(c,i,t))
+      | BV_Sum l -> let+ l = polymap f l in return(BV_Sum l)
+      | Sum l    -> let+ l = polymap f l in return(Sum l)
+      | Product(isBV, l) ->
+        let aux (t,p) =
+          let+ t = f t in
+          return(t,p)
+        in
+        let+ l = map aux l in
+        return(Product(isBV, l))
 end
 
 (* Mnemotechnic: ! represents OCaml's int.
@@ -58,7 +147,7 @@ let multipack (ids: 'a TypList.t) (l: 'a AList.t list) =
   let rec aux2 : type a b. a TypList.t -> a ListList.t -> (a PtrList.t -> b PtrList.t) -> b PtrList.t
     = fun a b cont -> match a, b with
     | El,El -> cont El
-    | Cons(a',a),Cons(b',b) -> aux2 a b (fun r -> cont(Cons(CArray.(start(of_list a' b')), r)))
+    | Cons(a',a),Cons(b',b) -> aux2 a b (fun r -> cont(Cons(Array.(start(of_list a' b')), r)))
   in
   let id x = x in
   aux2 ids (List.fold_left (fun x y -> aux x y id) (init ids id) (List.rev l)) id
@@ -169,19 +258,7 @@ module SafeMake
   let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x
 
   (* Monadic fold and map *)
-  let fold (aux : 'a -> 'b -> 'a EH.t) =
-    let aux sofar c =
-      let+ sofar = sofar in
-      aux sofar c
-    in
-    List.fold_left aux
-
-  let map f l =
-    let aux sofar c =
-      let+ c = f c in
-      return(c::sofar)
-    in
-    List.rev l |> fold aux (return [])
+  open MList(EH)
 
   (* Conversions to/from bools *)
   let toBool  x     = let<= x = x in return(Conv.bool.read x)
@@ -215,7 +292,7 @@ module SafeMake
   let toIntu x = let/= x = x in return(Conv.uint.read x)
 
   (* Turn list into size+pointer; t specifies the type of elements *)
-  let carray t l = CArray.(let c = of_list t l in !>(length c), start c)
+  let carray t l = Array.(let c = of_list t l in !>(length c), start c)
 
   (* Useful abbreviation *)
   type 'a vector = ('a, [`Struct]) structured
@@ -225,10 +302,19 @@ module SafeMake
     type ('a,'b) t
     val load : 'b -> (unit,'b) t
     val apply  : ('a, 'b -> 'c) t -> 'b -> ('a, 'c) t
-    val alloc  : 'b typ -> ('a, 'b ptr -> 'c) t -> ('a * 'b ptr, 'c) t
+    val alloc  :
+      'b typ
+      -> ?finalise: ('b ptr -> unit)
+      -> ('a, 'b ptr -> 'c) t
+      -> ('a * 'b ptr, 'c) t
+    val allocN :
+      int
+      -> 'b typ
+      -> ?finalise: ('b Array.t -> unit)
+      -> ('a, 'b Array.t -> 'c) t
+      -> ('a * 'b Array.t, 'c) t
     val allocZ : ('a, MPZ.t abstract ptr -> 'c) t -> ('a * MPZ.t abstract ptr, 'c) t
     val allocQ : ('a, MPQ.t abstract ptr -> 'c) t -> ('a * MPQ.t abstract ptr, 'c) t
-    val allocN : int -> 'b typ -> ('a, 'b ptr -> 'c) t -> ('a * 'b CArray.t, 'c) t
     val allocV : (unit -> 'b vector) -> ('a, 'b vector ptr -> 'c) t -> ('a * 'b vector, 'c) t
     val nocheck: ('c -> 'a -> 'b) -> ('a, 'c) t -> 'b
     val check  : ('c sintbase -> 'a -> 'b) -> ('a, 'c sintbase checkable) t -> 'b EH.t
@@ -244,11 +330,15 @@ module SafeMake
     let aux alloc preproc (y,f) =
       let x = alloc () in
       (y,x), (x |> preproc |> f)
-    
-    let alloc hdl    = aux (fun () -> allocate_n hdl ~count:1) (fun x -> x)
-    let allocZ a     = aux MPZ.make (fun x -> x) a
-    let allocQ a     = aux MPQ.make (fun x -> x) a
-    let allocN n hdl = aux (fun () -> CArray.make hdl n) CArray.start
+
+    let id x = x
+
+    let alloc hdl ?finalise =
+      aux (fun () -> allocate_n hdl ~count:1 ?finalise) id
+    let allocN n hdl ?finalise =
+      aux (fun () -> Array.make hdl n ?finalise) id
+    let allocZ a     = aux MPZ.make id a
+    let allocQ a     = aux MPQ.make id a
     let allocV make  = aux make addr
     
     let nocheck cont (y,f) = cont f y 
@@ -261,9 +351,14 @@ module SafeMake
 
   end
 
+  (* Get 1 result *)
   let alloc1 t f     = Alloc.(load f |> alloc t |> check1 (fun x -> !@x))
+  (* Get 2 results *)
   let alloc2 t1 t2 f = Alloc.(load f |> alloc t1 |> alloc t2 |> check2 (fun x1 x2 -> !@x1, !@x2))
-  let alloc ~n t f   = Alloc.(load f |> allocN n t |> check1 CArray.to_list)
+  (* Get a list of results *)
+  let allocL ~n t f   = Alloc.(load (Array.start <.> f)
+                               |> allocN n t
+                               |> check1 Array.to_list)
 
   (* Conversion to Z.t *)
   let toZ1 f = Alloc.(load f |> allocZ |> check1 MPZ.to_z)
@@ -275,7 +370,7 @@ module SafeMake
     type e
     val make     : unit -> t
     val reset    : t -> unit
-    val to_array : t -> e CArray.t
+    val to_array : t -> e Array.t
     val to_list  : t -> e list
     val toList   : (t ptr -> unit_t checkable) -> e list EH.t
   end
@@ -304,8 +399,8 @@ module SafeMake
     let reset tv = M.reset (addr tv)
     let size tv  = getf tv (M.o#members#size)
     let data tv  = getf tv (M.o#members#data)
-    let to_array tv = CArray.from_ptr (data tv) (UInt.to_int (size tv))
-    let to_list  = to_array <.> CArray.to_list
+    let to_array tv = Array.from_ptr (data tv) (UInt.to_int (size tv))
+    let to_list  = to_array <.> Array.to_list
     let toList f = Alloc.(load f |> allocV make |> check1 to_list)
   end
 
@@ -602,23 +697,38 @@ module SafeMake
       let poly_rational64 = ofList3 long ulong term_t yices_poly_rational64 <.> return_sint
       let poly_rational   = List.map (fun (n,d,t) -> Long.of_int n, ULong.of_int d, t)
                             <.> poly_rational64
-      let poly_mpz =
-        (* Following code using yices_poly_mpz leads to segfault! *)
-        (* List.map (fun (z,t) -> MPZ.of_z z,t)
-         * <.> ofList2 MPZ.t_ptr term_t yices_poly_mpz
-         * <.> return_sint *)
-        (* Less efficient workaround *)
-        let aux (z,t) = mpz z |+> mul t in
-        map aux <+> sum
+          
+      let poly_mpz l =
+        let length = List.length l in
+        let aux zz tt i (z,t) =
+          MPZ.init_set z Array.(start zz.(i));
+          Array.set tt i t
+        in
+        let to_load zz tt =
+          List.iteri (aux zz tt) l;
+          yices_poly_mpz !>length (Array.start zz.(0)) (Array.start tt)
+        in
+        let finalise = Array.(iter (start <.> MPZ.clear)) in
+        Alloc.(load to_load
+               |> allocN length (array 1 MPZ.t) ~finalise
+               |> allocN length term_t
+               |> check (fun r _ -> r))
 
-      let poly_mpq =
-        (* Following code using yices_poly_mpq leads to segfault! *)
-        (* List.map (fun (q,t) -> MPQ.of_q q,t)
-         *              <.> ofList2 MPQ.t_ptr term_t yices_poly_mpq
-         *              <.> return_sint *)
-        (* Less efficient workaround *)
-        let aux (q,t) = mpq q |+> mul t in
-        map aux <+> sum
+      let poly_mpq l =
+        let length = List.length l in
+        let aux qq tt i (z,t) =
+          MPQ.init_set z Array.(start qq.(i));
+          Array.set tt i t
+        in
+        let to_load qq tt =
+          List.iteri (aux qq tt) l;
+          yices_poly_mpq !>length (Array.start qq.(0)) (Array.start tt)
+        in
+        let finalise = Array.(iter (start <.> MPQ.clear)) in
+        Alloc.(load to_load
+               |> allocN length (array 1 MPQ.t) ~finalise
+               |> allocN length term_t
+               |> check (fun r _ -> r))
 
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint
@@ -707,7 +817,7 @@ module SafeMake
     let subst_terms l =
       let aux len ptr =
         let+ () = ofList2 term_t term_t yices_subst_term_array l len ptr |> toUnit in
-        CArray.(from_ptr ptr !<len |> to_list |> return)
+        Array.(from_ptr ptr !<len |> to_list |> return)
       in 
       ofList1 term_t aux
 
@@ -737,7 +847,7 @@ module SafeMake
     let child t       = SInt.of_int <.> yices_term_child t <.> return_sint
     let children      = yices_term_children <.> TermVector.toList
 
-    let term_ptr2term_opt t = if t = null_term then None else Some t
+    let term_ptr2term_opt t = if equal t null_term then None else Some t
     
     let sum_component term i =
       let cont q t = MPQ.to_q q, term_ptr2term_opt (!@ t) in
@@ -749,9 +859,9 @@ module SafeMake
     let sint2bool = List.map (fun x -> if SInt.(equal x one) then true else false)
 
     let bvsum_component term i =
-      let cont carray t = CArray.to_list carray |> sint2bool, term_ptr2term_opt (!@ t) in
+      let cont carray t = Array.to_list carray |> sint2bool, term_ptr2term_opt (!@ t) in
       let+ bitwidth = bitsize term in
-      Alloc.(load ((SInt.of_int <.> yices_bvsum_component term) i)
+      Alloc.(load (Array.start <.> (SInt.of_int <.> yices_bvsum_component term) i)
              |> allocN bitwidth sint 
              |> alloc term_t
              |> check2 cont)
@@ -868,16 +978,6 @@ module SafeMake
           | [] -> raise_error("Term.reveal expected at least 2 arguments for `YICES_UPDATE_TERM, got empty list instead")
         end
 
-    let polymap f l =
-      let aux (coeff,term_o) =
-        let+ t = match term_o with
-          | Some t -> let+ t = f t in return(Some t)
-          | None -> return None
-        in
-        return(coeff, t)
-      in
-      map aux l
-
     let build : type a. a termstruct -> term_t EH.t = function
       | A0(_,t) -> return t
       | A1(c,t) ->
@@ -969,55 +1069,14 @@ module SafeMake
         in
         if isBV then generic BV.bvpower32 BV.bvproduct else generic Arith.power32 Arith.product
 
-    let map : type a. (term_t -> term_t EH.t) -> a termstruct -> a termstruct EH.t = fun f -> function
-      | A0(c,t)     -> let+ t = f t in return (A0(c,t))
-      | A1(c,t)     -> let+ t = f t in return (A1(c,t))
-      | A2(c,t1,t2) ->
-        let+ t1 = f t1 in
-        let+ t2 = f t2 in
-        return (A2(c,t1,t2))
-      | ITE(c, tb, eb) -> 
-        let+ c  = f c in
-        let+ tb = f tb in
-        let+ eb = f eb in
-        return (ITE(c,tb,eb))
-      | Astar(c,l) ->
-        let+ l = map f l in
-        return (Astar(c,l))
-      | Bindings{c;vars;body} ->
-        let+ vars = map f vars in
-        let+ body = f body in
-        return(Bindings{c;vars;body})
-      | App(a,l) ->
-        let+ a = f a in
-        let+ l = map f l in
-        return(App(a,l))
-      | Update {array; index; value} ->
-        let+ array = f array in
-        let+ index = map f index in
-        let+ value = f value in
-        return(Update {array; index; value})
-      | Projection(c,i,t) ->
-        let+ t = f t in
-        return(Projection(c,i,t))
-      | BV_Sum l -> let+ l = polymap f l in return(BV_Sum l)
-      | Sum l    -> let+ l = polymap f l in return(Sum l)
-      | Product(isBV, l) ->
-        let aux (t,p) =
-          let+ t = f t in
-          return(t,p)
-        in
-        let+ l = map aux l in
-        return(Product(isBV, l))
-
+    include MTerm(EH)
       
     let bool_const_value = yices_bool_const_value
                            <.> alloc1 bool_t
                            <+> (Conv.bool.read <.> return)
     let bv_const_value t =
       let+ n = bitsize t in
-      let+ l = t |> yices_bv_const_value |> alloc ~n sint in
-      return (sint2bool l)
+      t |> yices_bv_const_value |> allocL ~n sint |+> (sint2bool <.> return)
 
     let scalar_const_value   = yices_scalar_const_value
                                <.> alloc1 sint
@@ -1112,9 +1171,9 @@ module SafeMake
     let val_get_scalar         = yices_val_get_scalar <..> alloc2 sint type_t
     let val_expand_tuple m t   =
       let+ arity = val_tuple_arity m t in
-      Alloc.(load (yices_val_expand_tuple m t)
+      Alloc.(load (Array.start <.> yices_val_expand_tuple m t)
              |> allocN arity yval_t
-             |> check1 (CArray.to_list <.> List.map addr))
+             |> check1 (Array.to_list <.> List.map addr))
       
     let val_expand_function m t =
       let cont default modifs = default, modifs |> YValVector.to_list |> List.map addr in
@@ -1125,19 +1184,19 @@ module SafeMake
 
     let val_expand_mapping m t =
       let+ arity = val_mapping_arity m t in
-      Alloc.(load (yices_val_expand_mapping m t)
+      Alloc.(load (Array.start <.> yices_val_expand_mapping m t)
              |> allocN arity yval_t
              |> alloc yval_t
-             |> check2 (fun x1 x2 -> x1 |> CArray.to_list |> List.map addr, x2))
+             |> check2 (fun x1 x2 -> x1 |> Array.to_list |> List.map addr, x2))
       
     let formula_true_in_model  = yices_formula_true_in_model <..> toBool
     let formulas_true_in_model = yices_formulas_true_in_model <.> ofList1 term_t <..> toBool
     let get_value_as_term      = yices_get_value_as_term     <..> return_sint
     let terms_value m l =
       let n = List.length l in 
-      Alloc.(load ((yices_term_array_value m |> ofList1 term_t) l)
+      Alloc.(load (Array.start <.> (yices_term_array_value m |> ofList1 term_t) l)
              |> allocN n term_t
-             |> check1 CArray.to_list)
+             |> check1 Array.to_list)
 
     let model_term_support  = yices_model_term_support <..> TermVector.toList
     let model_terms_support =

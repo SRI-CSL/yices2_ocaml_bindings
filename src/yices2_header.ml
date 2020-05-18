@@ -1256,12 +1256,12 @@ module TMP =
     let yices_poly_mpz =
       Foreign.foreign "yices_poly_mpz"
         (Ctypes.(@->) uint32_t
-           (Ctypes.(@->) (Ctypes.ptr MPZ.t_ptr)
+           (Ctypes.(@->) MPZ.t_ptr
                  (Ctypes.(@->) (Ctypes.ptr term_t) (Ctypes.returning term_t))))
     let yices_poly_mpq =
       Foreign.foreign "yices_poly_mpq"
         (Ctypes.(@->) uint32_t
-           (Ctypes.(@->) (Ctypes.ptr MPQ.t_ptr)
+           (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.(@->) (Ctypes.ptr term_t) (Ctypes.returning term_t))))
     let yices_arith_eq_atom =
       Foreign.foreign "yices_arith_eq_atom"

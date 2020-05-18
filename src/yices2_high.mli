@@ -13,6 +13,23 @@ end
 
 open Types
 
+module type Monad = sig
+  type 'a t
+  val return : 'a -> 'a t
+  val bind : 'a t -> ('a -> 'b t) -> 'b t
+end
+
+module MList(M : Monad) : sig
+    val fold : ('a -> 'b -> 'a M.t) -> 'a M.t -> 'b list -> 'a M.t
+    val map : ('a -> 'b M.t) -> 'a list -> 'b list M.t
+end
+
+module MTerm(M : Monad) : sig
+    val map : (term_t -> term_t M.t) -> 'a termstruct -> 'a termstruct M.t
+end
+
+
+
 module Error : sig
   (** ********************
       ERROR REPORTING  *
