@@ -341,14 +341,14 @@ module SafeMake
 
   (* Yices High-level bindings *)
 
-    module PP = struct
+  module PP = struct
 
     let ddisplay = {
       width=80;
       height=1;
       offset=0
     }
-        
+
     let type_file file ?(display=ddisplay) t
       = yices_pp_type file t !>(display.width) !>(display.height) !>(display.offset) |> toUnit
     let term_file file ?(display=ddisplay) t
@@ -438,7 +438,8 @@ module SafeMake
 
   module Type = struct
 
-    type t = type_t [@@deriving eq]
+    type t = type_t [@@deriving eq, ord]
+    let hash = hash_sint
 
     let bool = yices_bool_type <.> return_sint
     let int  = yices_int_type  <.> return_sint
@@ -510,7 +511,8 @@ module SafeMake
 
   module Term = struct
 
-    type t = term_t [@@deriving eq]
+    type t = term_t [@@deriving eq,ord]
+    let hash = hash_sint
 
     let true0  = yices_true  <.> return_sint
     let false0 = yices_false <.> return_sint

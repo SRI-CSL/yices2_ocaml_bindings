@@ -396,7 +396,11 @@ module type API = sig
 
   module Type : sig
 
-    type t = type_t [@@deriving eq]
+    (** Type of yices types *)
+    type t = type_t [@@deriving eq, ord]
+
+    (** Its hash function *)
+    val hash : t -> int
 
     (** ********************
         TYPE CONSTRUCTORS  *
@@ -592,7 +596,11 @@ module type API = sig
 
   module Term : sig
 
-    type t = term_t [@@deriving eq]
+    (** Type of yices terms *)
+    type t = term_t [@@deriving eq, ord]
+
+    (** Its hash function *)
+    val hash : t -> int
 
     (** ********************
         TERM CONSTRUCTORS  *
@@ -3576,11 +3584,14 @@ module type API = sig
   end
 
   module PP : sig
-
+    
     (** *******************
         PRETTY PRINTING   *
      ****************** *)
 
+    (** default display *)
+    val ddisplay : display
+    
     (** Pretty print type tau or term t on file f
         - width, height, offset define the print area (default is 80,1,0)
         - f = output file to use.

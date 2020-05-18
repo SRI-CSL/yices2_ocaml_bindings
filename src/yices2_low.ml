@@ -12,27 +12,32 @@ module Types = struct
 
   let equal_sint = SInt.equal
   let equal_uint = UInt.equal
+  let compare_sint = SInt.compare
+  let compare_uint = UInt.compare
 
   (* Type of things that yices implements as a signed int, that can be checked for error *)
-  type 'a sintbase = sint [@@deriving eq]
+  type 'a sintbase = sint [@@deriving eq, ord]
 
   (* Type of things that yices implements as an unsigned int, that can be checked for error *)
-  type 'a uintbase = uint [@@deriving eq]
+  type 'a uintbase = uint [@@deriving eq, ord]
 
+  let hash_sint = SInt.to_int
+  let hash_uint = UInt.to_int
+  
   (* Opaque C types, only accessible through the API functions *)
-  type uint_t = [`uint_t] uintbase [@@deriving eq]
-  type sint_t = [`sint_t] sintbase [@@deriving eq]
-  type unit_t = [`unit_t] sintbase [@@deriving eq]
-  type bool_t = [`bool_t] sintbase [@@deriving eq]
-  type term_t = [`term_t] sintbase [@@deriving eq]
-  type type_t = [`type_t] sintbase [@@deriving eq]
+  type uint_t = [`uint_t] uintbase [@@deriving eq, ord]
+  type sint_t = [`sint_t] sintbase [@@deriving eq, ord]
+  type unit_t = [`unit_t] sintbase [@@deriving eq, ord]
+  type bool_t = [`bool_t] sintbase [@@deriving eq, ord]
+  type term_t = [`term_t] sintbase [@@deriving eq, ord]
+  type type_t = [`type_t] sintbase [@@deriving eq, ord]
 
   (* C's enums *)
-  type smt_status_t       = uint [@@deriving eq]
-  type term_constructor_t = [`term_constructor_t] sintbase [@@deriving eq]
-  type yval_tag_t         = uint [@@deriving eq]
-  type yices_gen_mode_t   = uint [@@deriving eq]
-  type error_code_t       = uint [@@deriving eq]
+  type smt_status_t       = uint [@@deriving eq, ord]
+  type term_constructor_t = [`term_constructor_t] sintbase [@@deriving eq, ord]
+  type yval_tag_t         = uint [@@deriving eq, ord]
+  type yices_gen_mode_t   = uint [@@deriving eq, ord]
+  type error_code_t       = uint [@@deriving eq, ord]
 
 end
 
