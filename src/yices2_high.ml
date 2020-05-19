@@ -1271,9 +1271,13 @@ module SafeMake
     let check_with_assumptions ?param ctx =
       let param = opt_ptr param_t (fun x->x) param in
       yices_check_context_with_assumptions ctx param |> ofList1 term_t <.> Conv.smt_status.read
+    let check_with_model ?param ctx model =
+      let param = opt_ptr param_t (fun x->x) param in
+      yices_check_context_with_model ctx param model |> ofList1 term_t <.> Conv.smt_status.read
     let stop                     = yices_stop_search
     let get_model m ~keep_subst  = yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
     let get_unsat_core context   = yices_get_unsat_core context |> TermVector.toList
+    let get_model_interpolant context = yices_get_model_interpolant context |> TermVector.toList
   end
 
   module Param = struct

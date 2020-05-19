@@ -21,11 +21,11 @@ depends: [
 #  "ctypes-of-clang"
 ]
 build: [
-  "make"
+  make
 ]
 install: [
-  "make" "install"
+  make "install"
 ]
 remove: [
-  "make" "clean"
+  make "clean"
 ]

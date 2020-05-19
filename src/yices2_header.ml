@@ -1788,6 +1788,14 @@ module TMP =
               (Ctypes.(@->) uint32_t
                  (Ctypes.(@->) (Ctypes.ptr term_t)
                     (Ctypes.returning smt_status_t)))))
+    let yices_check_context_with_model =
+      Foreign.foreign "yices_check_context_with_model"
+        (Ctypes.(@->) (Ctypes.ptr context_t)
+           (Ctypes.(@->) (Ctypes.ptr param_t)
+              (Ctypes.(@->) (Ctypes.ptr model_t)
+                 (Ctypes.(@->) uint32_t
+                    (Ctypes.(@->) (Ctypes.ptr term_t)
+                       (Ctypes.returning smt_status_t))))))
     let yices_assert_blocking_clause =
       Foreign.foreign "yices_assert_blocking_clause"
         (Ctypes.(@->) (Ctypes.ptr context_t) (Ctypes.returning int32_t))
@@ -1812,6 +1820,11 @@ module TMP =
         (Ctypes.(@->) (Ctypes.ptr param_t) (Ctypes.returning Ctypes.void))
     let yices_get_unsat_core =
       Foreign.foreign "yices_get_unsat_core"
+        (Ctypes.(@->) (Ctypes.ptr context_t)
+           (Ctypes.(@->) (Ctypes.ptr term_vector_t)
+              (Ctypes.returning int32_t)))
+    let yices_get_model_interpolant =
+      Foreign.foreign "yices_get_model_interpolant"
         (Ctypes.(@->) (Ctypes.ptr context_t)
            (Ctypes.(@->) (Ctypes.ptr term_vector_t)
               (Ctypes.returning int32_t)))

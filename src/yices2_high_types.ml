@@ -3470,6 +3470,20 @@ module type API = sig
         that's inconsistent with ctx.  *)
     val check_with_assumptions : ?param:param_t ptr -> t -> term_t list -> smt_status
 
+    (** Check satisfiability under model: check whether the assertions stored in ctx
+     * conjoined with the assignment of the model is satisfiable.
+     *
+     * - params is an optional structure to store heuristic parameters
+     * - if params is NULL, default parameter settings are used.
+     * - model = model to assume
+     * - t = variables to use, i.e., we check context && t = mdl(t)
+     *
+     * It behaves the same as the previous function.
+     *
+     * If this function returns STATUS_UNSAT, then one can construct a model interpolant by
+     * calling function yices_get_model_interpolant. *)
+    val check_with_model : ?param:param_t ptr -> t -> Model.t -> term_t list -> smt_status
+
     (** Interrupt the search:
         - this can be called from a signal handler to stop the search,
           after a call to yices_check_context to interrupt the solver.
@@ -3530,6 +3544,23 @@ module type API = sig
         Error code:
         - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.  *)
     val get_unsat_core : t -> term_t list eh
+
+    (** Construct a model interpolant and store the result in vector *v.
+     * - v must be an initialized term_vector
+     *
+     * If ctx status is unsat, this function stores a model interpolant in v,
+     * and returns 0. Otherwise, it sets an error core an returns -1.
+     *
+     * This is intended to be used after a call to
+     * yices_check_context_with_model that returned STATUS_UNSAT. In
+     * this case, the function builds an model interpolant. The model interpolant
+     * is a clause implied by the current context that is false in the model provides
+     * to yices_check_context_with_model. If the model was empty or if the context is UNSAT
+     * for another reason, an empty core is returned (i.e., v->size is set to 0).
+     *
+     * Error code:
+     * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT. *)
+    val get_model_interpolant : t -> term_t list eh
 
   end
 
