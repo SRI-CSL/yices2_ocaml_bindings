@@ -3545,22 +3545,20 @@ module type API = sig
         - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.  *)
     val get_unsat_core : t -> term_t list eh
 
-    (** Construct a model interpolant and store the result in vector *v.
-     * - v must be an initialized term_vector
+    (** Construct and return a model interpolant.
      *
-     * If ctx status is unsat, this function stores a model interpolant in v,
-     * and returns 0. Otherwise, it sets an error core an returns -1.
+     * If ctx status is unsat, this function returns a model interpolant.
+     * Otherwise, it sets an error core an NULL_TERM.
      *
      * This is intended to be used after a call to
      * yices_check_context_with_model that returned STATUS_UNSAT. In
      * this case, the function builds an model interpolant. The model interpolant
      * is a clause implied by the current context that is false in the model provides
-     * to yices_check_context_with_model. If the model was empty or if the context is UNSAT
-     * for another reason, an empty core is returned (i.e., v->size is set to 0).
+     * to yices_check_context_with_model.
      *
      * Error code:
      * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT. *)
-    val get_model_interpolant : t -> term_t list eh
+    val get_model_interpolant : t -> term_t eh
 
   end
 

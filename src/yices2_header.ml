@@ -1826,8 +1826,7 @@ module TMP =
     let yices_get_model_interpolant =
       Foreign.foreign "yices_get_model_interpolant"
         (Ctypes.(@->) (Ctypes.ptr context_t)
-           (Ctypes.(@->) (Ctypes.ptr term_vector_t)
-              (Ctypes.returning int32_t)))
+           (Ctypes.returning term_t))
     let yices_get_model =
       Foreign.foreign "yices_get_model"
         (Ctypes.(@->) (Ctypes.ptr context_t)
