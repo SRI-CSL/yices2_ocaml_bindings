@@ -30,26 +30,26 @@ exception Yices_SMT2_exception of string
 module Variables : sig
   type t
   val init            : unit -> t
-  val add             : t -> (string*term_t) list -> t
-  val permanently_add : t -> string -> term_t -> unit
+  val add             : t -> (string*Term.t) list -> t
+  val permanently_add : t -> string -> Term.t -> unit
   val mem             : t -> string -> bool
-  val find            : t -> string -> term_t
+  val find            : t -> string -> Term.t
 end
 
 module Session : sig
 
   type env = {
     logic   : string;
-    context : context_t ptr;
-    assertions : term_t list;
-    param   : param_t ptr;
-    model   : model_t ptr option
+    context : Context.t;
+    assertions : Term.t list;
+    param   : Param.t;
+    model   : Model.t option
   }
 
   type t = {
     verbosity : int;
-    config    : ctx_config_t ptr;
-    types     : type_t VarMap.t;
+    config    : Config.t;
+    types     : Type.t VarMap.t;
     variables : Variables.t;
     env       : env option ref
   }
@@ -61,21 +61,21 @@ module Session : sig
 end
 
 module ParseType : sig
-  type t = (type_t, type_t) Cont.t
-  val atom  : type_t VarMap.t -> string -> t
-  val parse : type_t VarMap.t -> Sexp.t -> t
+  type t = (Type.t, Type.t) Cont.t
+  val atom  : Type.t VarMap.t -> string -> t
+  val parse : Type.t VarMap.t -> Sexp.t -> t
 end
 
 module ParseTerm : sig
-  type t = (term_t, term_t) Cont.t
+  type t = (Term.t, Term.t) Cont.t
   val atom        : Session.t -> string -> t
-  val right_assoc : Session.t -> (term_t -> term_t -> term_t) -> Sexp.t list -> t
-  val left_assoc  : Session.t -> (term_t -> term_t -> term_t) -> Sexp.t list -> t
-  val chainable   : Session.t -> (term_t -> term_t -> term_t) -> Sexp.t list -> (term_t list, term_t) Cont.t
-  val unary       : Session.t -> (term_t -> term_t) -> Sexp.t -> t
-  val binary      : Session.t -> (term_t -> term_t -> term_t) -> Sexp.t -> Sexp.t -> t
-  val ternary     : Session.t -> (term_t -> term_t -> term_t -> term_t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
-  val list        : Session.t -> (term_t list -> term_t) -> Sexp.t list -> t
+  val right_assoc : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+  val left_assoc  : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+  val chainable   : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
+  val unary       : Session.t -> (Term.t -> Term.t) -> Sexp.t -> t
+  val binary      : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
+  val ternary     : Session.t -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
+  val list        : Session.t -> (Term.t list -> Term.t) -> Sexp.t list -> t
   val parse       : Session.t -> Sexp.t -> t
 end
 
