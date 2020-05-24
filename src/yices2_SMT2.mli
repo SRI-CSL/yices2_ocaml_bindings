@@ -8,6 +8,8 @@ open Types
 
 module Bindings : API with type 'a eh := 'a
 open Bindings
+
+val pp_error : error_report CCFormat.printer
   
 module VarMap : Hashtbl.S with type key = string
 
