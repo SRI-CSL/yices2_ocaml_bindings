@@ -1001,10 +1001,10 @@ module SafeMake
           | `YICES_BV_REM        -> BV.bvrem t1 t2
           | `YICES_BV_SDIV       -> BV.bvsdiv t1 t2
           | `YICES_BV_SGE_ATOM   -> BV.bvsge t1 t2
-          | `YICES_BV_SHL        -> BV.bvge t1 t2
-          | `YICES_BV_SMOD       -> BV.bvge t1 t2
-          | `YICES_BV_SREM       -> BV.bvge t1 t2
-          | `YICES_DIVIDES_ATOM  -> BV.bvge t1 t2
+          | `YICES_BV_SHL        -> BV.bvshl t1 t2
+          | `YICES_BV_SMOD       -> BV.bvsmod t1 t2
+          | `YICES_BV_SREM       -> BV.bvsrem t1 t2
+          | `YICES_DIVIDES_ATOM  -> Arith.divides_atom t1 t2
           | `YICES_IDIV          -> Arith.idiv t1 t2
           | `YICES_IMOD          -> Arith.imod t1 t2
           | `YICES_RDIV          -> Arith.division t1 t2
