@@ -1,4 +1,8 @@
+[%%import "gmp.mlh"]
+
+[%%if gmp_present]
 open Ctypes_zarith
+[%%endif]
 
 (* Most of this file was automatically generated from yices_header_src.ml
    by the ctypes-of-clang ppx *)
@@ -1166,6 +1170,7 @@ module TMP =
       Foreign.foreign "yices_rational64"
         (Ctypes.(@->) int64_t
            (Ctypes.(@->) uint64_t (Ctypes.returning term_t)))
+[%%if gmp_present]
     let yices_mpz =
       Foreign.foreign "yices_mpz"
         (Ctypes.(@->) MPZ.t_ptr
@@ -1174,6 +1179,7 @@ module TMP =
       Foreign.foreign "yices_mpq"
         (Ctypes.(@->) MPQ.t_ptr
            (Ctypes.returning term_t))
+[%%endif]
     let yices_parse_rational =
       Foreign.foreign "yices_parse_rational"
         (Ctypes.(@->) (Ctypes.ptr Ctypes.char) (Ctypes.returning term_t))
@@ -1253,6 +1259,7 @@ module TMP =
            (Ctypes.(@->) (Ctypes.ptr int64_t)
               (Ctypes.(@->) (Ctypes.ptr uint64_t)
                  (Ctypes.(@->) (Ctypes.ptr term_t) (Ctypes.returning term_t)))))
+[%%if gmp_present]
     let yices_poly_mpz =
       Foreign.foreign "yices_poly_mpz"
         (Ctypes.(@->) uint32_t
@@ -1263,6 +1270,7 @@ module TMP =
         (Ctypes.(@->) uint32_t
            (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.(@->) (Ctypes.ptr term_t) (Ctypes.returning term_t))))
+[%%endif]
     let yices_arith_eq_atom =
       Foreign.foreign "yices_arith_eq_atom"
         (Ctypes.(@->) term_t (Ctypes.(@->) term_t (Ctypes.returning term_t)))
@@ -1315,10 +1323,12 @@ module TMP =
       Foreign.foreign "yices_bvconst_int64"
         (Ctypes.(@->) uint32_t
            (Ctypes.(@->) int64_t (Ctypes.returning term_t)))
+[%%if gmp_present]
     let yices_bvconst_mpz =
       Foreign.foreign "yices_bvconst_mpz"
         (Ctypes.(@->) uint32_t
            (Ctypes.(@->) MPZ.t_ptr (Ctypes.returning term_t)))
+[%%endif]
     let yices_bvconst_zero =
       Foreign.foreign "yices_bvconst_zero"
         (Ctypes.(@->) uint32_t (Ctypes.returning term_t))
@@ -1669,6 +1679,7 @@ module TMP =
       Foreign.foreign "yices_scalar_const_value"
         (Ctypes.(@->) term_t
            (Ctypes.(@->) (Ctypes.ptr int32_t) (Ctypes.returning int32_t)))
+[%%if gmp_present]
     let yices_rational_const_value =
       Foreign.foreign "yices_rational_const_value"
         (Ctypes.(@->) term_t
@@ -1679,6 +1690,7 @@ module TMP =
            (Ctypes.(@->) int32_t
               (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.(@->) (Ctypes.ptr term_t) (Ctypes.returning int32_t)))))
+[%%endif]
     let yices_bvsum_component =
       Foreign.foreign "yices_bvsum_component"
         (Ctypes.(@->) term_t
@@ -1914,6 +1926,7 @@ module TMP =
            (Ctypes.(@->) term_t
               (Ctypes.(@->) (Ctypes.ptr Ctypes.double)
                  (Ctypes.returning int32_t))))
+[%%if gmp_present]
     let yices_get_mpz_value =
       Foreign.foreign "yices_get_mpz_value"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -1926,6 +1939,7 @@ module TMP =
            (Ctypes.(@->) term_t
               (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.returning int32_t))))
+[%%endif]
     let yices_get_bv_value =
       Foreign.foreign "yices_get_bv_value"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -2028,6 +2042,7 @@ module TMP =
            (Ctypes.(@->) (Ctypes.ptr yval_t)
               (Ctypes.(@->) (Ctypes.ptr Ctypes.double)
                  (Ctypes.returning int32_t))))
+[%%if gmp_present]
     let yices_val_get_mpz =
       Foreign.foreign "yices_val_get_mpz"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -2040,6 +2055,7 @@ module TMP =
            (Ctypes.(@->) (Ctypes.ptr yval_t)
               (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.returning int32_t))))
+[%%endif]
     let yices_val_get_bv =
       Foreign.foreign "yices_val_get_bv"
         (Ctypes.(@->) (Ctypes.ptr model_t)

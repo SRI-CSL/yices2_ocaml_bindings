@@ -18,19 +18,17 @@ true: debug, optimize(3), unbox_closures
 
 <src/*> : package(ctypes),\
           package(ctypes.foreign),\
-          package(zarith),\
           package(sexplib),\
           package(containers),\
-          package(ctypes-zarith),\
-          package(ppx_deriving.std)
+          package(ppx_deriving.std),\
+          package(ppx_optcomp)
 
 <src_tests/*> : package(ctypes),\
                 package(ctypes.foreign),\
-                package(ctypes-zarith),\
                 package(yices2_bindings),\
                 package(sexplib),\
-                package(zarith),\
                 package(containers),\
                 package(ppx_deriving.std),\
+                package(ppx_optcomp),\
                 cclib(-lyices)
 

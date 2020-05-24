@@ -1,0 +1,7 @@
+version = "0.9"
+description = "Yices2 bindings library"
+
+requires        = "ocamlbuild ctypes ctypes.foreign containers sexplib"
+archive(byte)   = "yices2_bindings.cma"
+archive(native) = "yices2_bindings.cmxa"
+exists_if       = "yices2_bindings.cmxa"
