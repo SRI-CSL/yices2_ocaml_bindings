@@ -53,7 +53,7 @@ module Session : sig
   }
 
   val create   : verbosity:int -> t
-  val init_env : ?configure:(Config.t -> logic:string -> unit) -> t -> logic:string -> unit
+  val init_env : ?configure:unit -> t -> logic:string -> unit
   val exit : t -> unit
 
 end
