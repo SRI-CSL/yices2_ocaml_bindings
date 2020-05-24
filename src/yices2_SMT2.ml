@@ -112,8 +112,10 @@ module Session = struct
       variables = Variables.init();
       env       = ref None }
 
-  let init_env session ~logic =
-    let () = Config.default session.config ~logic in
+  let init_env ?configure session ~logic =
+    match configure with
+    | Some () -> ()
+    | None -> Config.default session.config ~logic;
     let context = Context.malloc session.config in
     let assertions = [] in
     let param = Param.malloc() in
