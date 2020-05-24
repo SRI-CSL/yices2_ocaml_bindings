@@ -1,3 +1,5 @@
+[%%import "gmp.mlh"]
+
 open Ctypes
 open Unsigned
 open Signed
@@ -122,6 +124,12 @@ module Types = struct
        bit selection:  (bit i t)
       - the child t is a bitvector term of n bits
       - i is an index between 0 and n-1  *)
+
+  [%%if gmp_present]
+  type rational = Q.t
+  [%%else]
+  type rational = unit
+  [%%endif]
   type 'a termstruct =
     | A0 : [ `YICES_BOOL_CONSTANT
            | `YICES_ARITH_CONSTANT
@@ -166,7 +174,7 @@ module Types = struct
     | Update : { array : term_t; index : term_t list; value : term_t}      -> [`update] composite termstruct
     | Projection : [ `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
     | BV_Sum    : (bool list * (term_t option)) list -> [`bvsum] termstruct
-    | Sum       : (Q.t * (term_t option)) list   -> [`sum]   termstruct
+    | Sum       : (rational * (term_t option)) list   -> [`sum]   termstruct
     | Product   : bool * (term_t * uint) list    -> [`prod]  termstruct
     (** In Product(b,l), b is true if the power product is on bitvectors,
         false if on arithmetic *)
@@ -988,8 +996,10 @@ module type API = sig
       val rational32 : sint -> uint -> term_t eh
       val rational64 : long -> ulong -> term_t eh
 
+      [%%if gmp_present]
       val mpz : Z.t -> term_t eh
       val mpq : Q.t -> term_t eh
+      [%%endif]
       
       (** Convert a string to a rational or integer term.
        * The string format is
@@ -1237,10 +1247,13 @@ module type API = sig
       val poly_rational32 : (sint*uint*term_t) list -> term_t eh
       val poly_rational64 : (long*ulong*term_t) list -> term_t eh
 
+      [%%if gmp_present]
+
       (** Coefficients are GMP integers or rationals. *)
 
       val poly_mpz : (Z.t * term_t) list -> term_t eh
       val poly_mpq : (Q.t * term_t) list -> term_t eh
+      [%%endif]
 
       (** ARITHMETIC ATOMS  *)
 
@@ -1342,7 +1355,9 @@ module type API = sig
       val bvconst_uint64 : width:int -> ulong -> term_t eh
       val bvconst_int32  : width:int -> sint -> term_t eh
       val bvconst_int64  : width:int -> long -> term_t eh
+      [%%if gmp_present]
       val bvconst_mpz    : width:int -> Z.t -> term_t eh
+      [%%endif]
 
       (** bvconst_zero: set all bits to 0
        * bvconst_one: set low-order bit to 1, all the other bits to 0
@@ -2056,7 +2071,9 @@ module type API = sig
     val bool_const_value     : term_t -> bool eh
     val bv_const_value       : term_t -> bool list eh
     val scalar_const_value   : term_t -> int eh
+    [%%if gmp_present]
     val rational_const_value : term_t -> Q.t eh
+    [%%endif]
 
     (** Components of a sum t
         - i = index (must be between 0 and t's number of children - 1)
@@ -2074,7 +2091,10 @@ module type API = sig
           term1 = t
         if t is not of the right kind of the index is invalid
           code = INVALID_TERM_OP  *)
+
+    [%%if gmp_present]
     val sum_component   : term_t -> int -> (Q.t  * (term_t option)) eh
+    [%%endif]
     val bvsum_component : term_t -> int -> (bool list * (term_t option)) eh
 
     (** Component of power product t
@@ -2563,8 +2583,10 @@ module type API = sig
     val get_rational32_value : t -> term_t -> (sint*uint) eh
     val get_rational64_value : t -> term_t -> (long*ulong) eh
     val get_double_value     : t -> term_t -> float eh
+    [%%if gmp_present]
     val get_mpz_value        : t -> term_t -> Z.t eh
     val get_mpq_value        : t -> term_t -> Q.t eh
+    [%%endif]
 
     (** UNSUPPORTED (extract from Yices's API)
      *
@@ -2767,10 +2789,13 @@ module type API = sig
     (** Value converted to a floating point number  *)
     val val_get_double : t -> yval_t ptr -> float eh
 
+    [%%if gmp_present]
+
     (** GMP values *)
 
     val val_get_mpz : model_t ptr -> yval_t ptr -> Z.t eh
     val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
+    [%%endif]
 
     (** NOT SUPPORTED in yices bindings
 

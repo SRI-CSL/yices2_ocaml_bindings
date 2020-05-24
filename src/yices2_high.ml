@@ -1,6 +1,10 @@
+[%%import "gmp.mlh"]
+
 open Containers
 open Ctypes
+[%%if gmp_present]
 open Ctypes_zarith
+[%%endif]
 open Signed
 open Unsigned
 open Yices2_low
@@ -168,6 +172,7 @@ let ofList3 t1 t2 t3 f l =
 
 let swap f a b = f b a
 
+[%%if gmp_present]
 (* Importing the canonization function for mpq *)
 let mpq_canonicalize = Foreign.foreign "__gmpq_canonicalize" (MPQ.t_ptr @-> returning void)
 
@@ -176,6 +181,7 @@ let ofQ f q =
   let q = MPQ.of_q q in
   mpq_canonicalize q;
   f q
+[%%endif]
 
 module Error = struct
   let code     = yices_error_code <.> Conv.error_code.read
@@ -313,8 +319,10 @@ module SafeMake
       -> ?finalise: ('b Array.t -> unit)
       -> ('a, 'b Array.t -> 'c) t
       -> ('a * 'b Array.t, 'c) t
+[%%if gmp_present]
     val allocZ : ('a, MPZ.t abstract ptr -> 'c) t -> ('a * MPZ.t abstract ptr, 'c) t
     val allocQ : ('a, MPQ.t abstract ptr -> 'c) t -> ('a * MPQ.t abstract ptr, 'c) t
+[%%endif]
     val allocV : (unit -> 'b vector) -> ('a, 'b vector ptr -> 'c) t -> ('a * 'b vector, 'c) t
     val nocheck: ('c -> 'a -> 'b) -> ('a, 'c) t -> 'b
     val check  : ('c sintbase -> 'a -> 'b) -> ('a, 'c sintbase checkable) t -> 'b EH.t
@@ -337,8 +345,10 @@ module SafeMake
       aux (fun () -> allocate_n hdl ~count:1 ?finalise) id
     let allocN n hdl ?finalise =
       aux (fun () -> Array.make hdl n ?finalise) id
+[%%if gmp_present]
     let allocZ a     = aux MPZ.make id a
     let allocQ a     = aux MPQ.make id a
+[%%endif]
     let allocV make  = aux make addr
     
     let nocheck cont (y,f) = cont f y 
@@ -360,10 +370,12 @@ module SafeMake
                                |> allocN n t
                                |> check1 Array.to_list)
 
+[%%if gmp_present]
   (* Conversion to Z.t *)
   let toZ1 f = Alloc.(load f |> allocZ |> check1 MPZ.to_z)
   (* Conversion to Q.t *)
   let toQ1 f = Alloc.(load f |> allocQ |> check1 MPQ.to_q)
+[%%endif]
   
   module type Vector = sig
     type t
@@ -656,8 +668,12 @@ module SafeMake
       let rational32 = yices_rational32 <..> return_sint
       let rational64 = yices_rational64 <..> return_sint
       let rational n d = rational64 (Long.of_int n) (ULong.of_int d)
+[%%if gmp_present]
       let mpz        = yices_mpz |> ofZ <.> return_sint
       let mpq        = yices_mpq |> ofQ <.> return_sint
+[%%else]
+      let mpq _      = raise_error("Term.Arith.mpq necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+[%%endif]
       let parse_rational = ofString yices_parse_rational <.> return_sint
       let parse_float = ofString yices_parse_float <.> return_sint
       let add   = yices_add <..> return_sint
@@ -697,7 +713,8 @@ module SafeMake
       let poly_rational64 = ofList3 long ulong term_t yices_poly_rational64 <.> return_sint
       let poly_rational   = List.map (fun (n,d,t) -> Long.of_int n, ULong.of_int d, t)
                             <.> poly_rational64
-          
+
+[%%if gmp_present]
       let poly_mpz l =
         let length = List.length l in
         let aux zz tt i (z,t) =
@@ -729,6 +746,7 @@ module SafeMake
                |> allocN length (array 1 MPQ.t) ~finalise
                |> allocN length term_t
                |> check (fun r _ -> r))
+[%%endif]
 
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint
@@ -750,7 +768,9 @@ module SafeMake
       let bvconst_int32  ~width = yices_bvconst_int32  !> width <.> return_sint
       let bvconst_int64  ~width = yices_bvconst_int64  !> width <.> return_sint
       let bvconst_int    ~width = Long.of_int <.> bvconst_int64 ~width
+[%%if gmp_present]
       let bvconst_mpz    ~width = yices_bvconst_mpz    !> width |> ofZ <.> return_sint
+[%%endif]
       let bvconst_zero   ~width = yices_bvconst_zero   !> width |> return_sint
       let bvconst_one    ~width = yices_bvconst_one    !> width |> return_sint
       let bvconst_minus_one ~width = yices_bvconst_minus_one !> width |> return_sint
@@ -849,12 +869,14 @@ module SafeMake
 
     let term_ptr2term_opt t = if equal t null_term then None else Some t
     
+[%%if gmp_present]
     let sum_component term i =
       let cont q t = MPQ.to_q q, term_ptr2term_opt (!@ t) in
       Alloc.(load ((SInt.of_int <.> yices_sum_component term) i)
              |> allocQ
              |> alloc term_t
              |> check2 cont)
+[%%endif]
 
     let sint2bool = List.map (fun x -> if SInt.(equal x one) then true else false)
 
@@ -882,7 +904,11 @@ module SafeMake
       aux [] (x-1)
     let bvsum_components   = args bvsum_component
     let product_components = args product_component
+[%%if gmp_present]
     let sum_components     = args sum_component
+[%%else]
+    let sum_components _   = raise_error("Term.sum_components necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+[%%endif]
 
     let proj_index = yices_proj_index <.> toInts
     let proj_arg   = yices_proj_arg   <.> return_sint
@@ -917,6 +943,7 @@ module SafeMake
         return(Term(Projection(c, index, arg)))
       | `YICES_BV_SUM        -> let+ x = bvsum_components t in return(Term(BV_Sum x))
       | `YICES_ARITH_SUM     -> let+ x = sum_components t   in return(Term(Sum x))
+
       | `YICES_POWER_PRODUCT ->
         let+ x = product_components t in
         let+ typ = type_of_term t in
@@ -1081,7 +1108,9 @@ module SafeMake
     let scalar_const_value   = yices_scalar_const_value
                                <.> alloc1 sint
                                <+> (SInt.to_int <.> return)
+[%%if gmp_present]
     let rational_const_value = yices_rational_const_value <.> toQ1
+[%%endif]
 
     module Names = struct
       let set     = yices_set_term_name <.> ofString <..> toUnit
@@ -1135,8 +1164,10 @@ module SafeMake
     let get_int64_value = yices_get_int64_value <..> alloc1 long
     let get_rational32_value = yices_get_rational32_value <..> alloc2 sint uint
     let get_rational64_value = yices_get_rational64_value <..> alloc2 long ulong
+[%%if gmp_present]
     let get_mpz_value    = yices_get_mpz_value <..> toZ1
     let get_mpq_value    = yices_get_mpq_value <..> toQ1
+[%%endif]
     let get_double_value = yices_get_double_value <..> alloc1 float
     let get_bv_value     = yices_get_bv_value     <..> alloc1 sint
     let get_scalar_value = yices_get_scalar_value <..> alloc1 sint
@@ -1165,8 +1196,10 @@ module SafeMake
     let val_get_rational32     = yices_val_get_rational32 <..> alloc2 sint uint
     let val_get_rational64     = yices_val_get_rational64 <..> alloc2 long ulong
     let val_get_double         = yices_val_get_double <..> alloc1 float
+[%%if gmp_present]
     let val_get_mpz            = yices_val_get_mpz    <..> toZ1
     let val_get_mpq            = yices_val_get_mpq    <..> toQ1
+[%%endif]
     let val_get_bv             = yices_val_get_bv     <..> alloc1 sint
     let val_get_scalar         = yices_val_get_scalar <..> alloc2 sint type_t
     let val_expand_tuple m t   =
