@@ -54,6 +54,28 @@ open Bindings
 let print verbosity i s = if verbosity >= i then print_endline s
 let print_term term = print_endline(PP.term_string term ~display:{width=80;height=80;offset=0})
 
+let pp_error fmt Types.{badval; code; column; line; term1; term2; type1; type2} =
+  Format.fprintf fmt
+    "@[<v 1> \
+     error: %s@,\
+     bad val: %i@,\
+     code: %a@,\
+     column %i line %i@,\
+     term1: %s@,\
+     term2: %s@,\
+     type1: %s@,\
+     type2: %s@,\
+     @]"
+    (ErrorPrint.string ())
+    badval
+    Types.pp_error_code code
+    column line
+    (PP.term_string term1)
+    (PP.term_string term2)
+    (PP.type_string type1)
+    (PP.type_string type2)
+
+
 exception Yices_SMT2_exception of string
 
 module Variables : sig
