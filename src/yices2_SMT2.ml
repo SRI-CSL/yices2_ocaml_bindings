@@ -1,3 +1,4 @@
+open Containers
 open Ctypes
 open Arg
 
@@ -7,8 +8,6 @@ open Type
     
 open Yices2_high
 open Types
-
-open Containers
 
 module Cont : sig
   type ('a, 'r) t
@@ -46,13 +45,31 @@ module List = struct
   let map f l = List.rev (List.fold_left (fun sofar a -> f a::sofar) [] l)
 end
 
-module VarMap = Hashtbl.Make(String)
+module StringHashtbl = Hashtbl.Make(String)
+module VarMap = StringHashtbl
 
 module Bindings = Make(ExceptionsErrorHandling)
 open Bindings
 
-let print verbosity i s = if verbosity >= i then print_endline s
-let print_term term = print_endline(PP.term_string term ~display:{width=80;height=80;offset=0})
+module Type = struct
+  include Type
+  let pp fmt t =
+    try
+      t |> PP.type_string ~display:Types.{ width = 100; height = 50; offset=0}
+      |> Format.fprintf fmt "%s"
+    with _ -> Format.fprintf fmt "null_type"
+end
+
+module Term = struct
+  include Term
+  let pp fmt t =
+    try
+      t |> PP.term_string ~display:Types.{ width = 100; height = 50; offset=0}
+      |> Format.fprintf fmt "%s"
+    with _ -> Format.fprintf fmt "null_term"
+end
+
+let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
 
 let pp_error fmt Types.{badval; code; column; line; term1; term2; type1; type2} =
   Format.fprintf fmt
@@ -61,19 +78,19 @@ let pp_error fmt Types.{badval; code; column; line; term1; term2; type1; type2} 
      bad val: %i@,\
      code: %a@,\
      column %i line %i@,\
-     term1: %s@,\
-     term2: %s@,\
-     type1: %s@,\
-     type2: %s@,\
+     term1: %a@,\
+     term2: %a@,\
+     type1: %a@,\
+     type2: %a@,\
      @]"
     (ErrorPrint.string ())
     badval
     Types.pp_error_code code
     column line
-    (PP.term_string term1)
-    (PP.term_string term2)
-    (PP.type_string type1)
-    (PP.type_string type2)
+    Term.pp term1
+    Term.pp term2
+    Type.pp type1
+    Type.pp type2
 
 
 exception Yices_SMT2_exception of string
@@ -81,16 +98,16 @@ exception Yices_SMT2_exception of string
 module Variables : sig
   type t
   val init            : unit -> t
-  val add             : t -> (string*term_t) list -> t
-  val permanently_add : t -> string -> term_t -> unit
+  val add             : t -> (string*Term.t) list -> t
+  val permanently_add : t -> string -> Term.t -> unit
   val mem             : t -> string -> bool
-  val find            : t -> string -> term_t
+  val find            : t -> string -> Term.t
 end = struct
 
   module StringMap = Map.Make(String)
   type t = {
-    uninterpreted : term_t VarMap.t;
-    bound : term_t StringMap.t
+    uninterpreted : Term.t VarMap.t;
+    bound         : Term.t StringMap.t
   }
 
   let init () = {
@@ -101,8 +118,8 @@ end = struct
   let permanently_add m s t = VarMap.add m.uninterpreted s t
   let mem m s = VarMap.mem m.uninterpreted s || StringMap.mem s m.bound
   let find m s =
-    if VarMap.mem m.uninterpreted s then VarMap.find m.uninterpreted s
-    else StringMap.find s m.bound
+    if StringMap.mem s m.bound then StringMap.find s m.bound
+    else VarMap.find m.uninterpreted s
 
 end
 
@@ -111,7 +128,7 @@ module Session = struct
   type env = {
     logic   : string;
     context : context_t ptr;
-    assertions : term_t list;
+    assertions : term_t list list;
     param   : param_t ptr;
     model   : model_t ptr option
   }
@@ -121,18 +138,22 @@ module Session = struct
     config    : ctx_config_t ptr;
     types     : type_t VarMap.t;
     variables : Variables.t;
-    env       : env option ref
+    env       : env option ref;
+    infos   : string StringHashtbl.t;
+    options : string StringHashtbl.t
   }
 
   let create ~verbosity =
-    print verbosity 1("Now initialising Yices version "^Global.version);
+    print verbosity 1 "Now initialising Yices version %s" Global.version;
     Global.init();
     print verbosity 1 "Init done";
     { verbosity;
       config    = Config.malloc ();
       types     = VarMap.create 10;
       variables = Variables.init();
-      env       = ref None }
+      env       = ref None;
+      infos     = StringHashtbl.create 10;
+      options   = StringHashtbl.create 10 }
 
   let init_env ?configure session ~logic =
     begin match configure with
@@ -140,7 +161,7 @@ module Session = struct
     | None -> Config.default session.config ~logic
     end;
     let context = Context.malloc session.config in
-    let assertions = [] in
+    let assertions = [[]] in
     let param = Param.malloc() in
     let model = None in
     Param.default context param;
@@ -252,14 +273,22 @@ module ParseTerm = struct
 
   and parse session = function
     | Atom s -> atom session s
-    | List l as sexp -> match l with
+    | List l as sexp ->
+      let print a (type a) b : a = print session.verbosity a b in
+      print 3 "@[<v>Parsing %a@]%!@," Sexp.pp sexp;
+      match l with
       | (Atom s)::l ->
         let open Term in
         begin match s, l with
 
           | _, l when Variables.mem session.variables s ->
-            return(Variables.find session.variables s)
-
+            let symb = Variables.find session.variables s in
+            begin match l with
+              | [] -> return symb
+              | _::_ ->
+                let aux = Term.application symb in 
+                list session aux l
+            end
           | "let", [List vs; body] ->
             let reg_var sexp = match sexp with
               | List[Atom var_string; term] ->
@@ -288,7 +317,7 @@ module ParseTerm = struct
             in
             let session = { session with variables = Variables.add session.variables l } in
             unary session (f (List.map snd l)) body
-
+            
           | "match", [_;_]  -> raise (Yices_SMT2_exception "match not supported")
           | "!", _::_       -> raise (Yices_SMT2_exception "! not supported")
             
@@ -405,23 +434,48 @@ module ParseInstruction = struct
   let display = { width=80; height=80; offset=0 }
   
   let parse session sexp =
-    let print = print session.verbosity in
+    let print a (type a) b : a = print session.verbosity a b in
     match sexp with
     | List(Atom head::args) -> begin match head, args, !(session.env) with
       | "reset", _, _                              -> Global.reset()
+
       | "set-logic",  [Atom logic],   None         -> init_env session ~logic
-      | "set-logic",  [Atom logic],   Some _       -> raise (Yices_SMT2_exception "set_logic already used")
-      | "set-option", [Atom name; Atom value], _   -> Config.set session.config ~name ~value
+
+      | "set-logic",  [Atom logic],   Some _       ->
+        raise (Yices_SMT2_exception "set_logic already used")
+
+      | "set-option", [Atom name; Atom value], _ ->
+        StringHashtbl.replace session.options name value;
+        Config.set session.config ~name ~value
+
       | "exit",       [], None                     -> Config.free session.config; Global.exit()
+
       | "exit",       [], Some env                 -> exit session
-      | "push",       [Atom n], _                  -> raise(Yices_SMT2_exception("To do"))
-      | "pop",        [Atom n], _                  -> raise(Yices_SMT2_exception("To do"))
-      | "reset-assertions", [], _                  -> raise(Yices_SMT2_exception("To do"))
+
+      | "push",       [Atom n], Some env           ->
+        session.env := Some { env with assertions = []::env.assertions;
+                                       model = None};
+        Context.push env.context
+
+      | "pop",        [Atom n], Some({assertions = _::tail} as env) ->
+        session.env :=
+          begin match tail with
+            | [] -> raise (Yices_SMT2_exception "popping last level")
+            | _ -> Some{ env with assertions = tail }
+          end;
+        Context.pop env.context
+        
+      | "reset-assertions", [], Some env           ->
+        Context.reset env.context;
+        session.env := Some{ env with assertions = [[]] }
+
       | "declare-sort", [Atom var; Atom n], _ ->
         let n = int_of_string n in
-        if n <> 0 then raise (Yices_SMT2_exception "Yices only treats uninterpreted types of arity 0");
+        if n <> 0
+        then raise (Yices_SMT2_exception "Yices only treats uninterpreted types of arity 0");
         let ytype = Type.new_uninterpreted () in
         VarMap.add session.types var ytype
+
       | "declare-fun", [Atom var; List domain; codomain], _ ->
         let domain = List.map (fun x -> ParseType.parse session.types x |> get) domain in
         let codomain = ParseType.parse session.types codomain |> get in
@@ -429,47 +483,102 @@ module ParseInstruction = struct
           | []   -> codomain
           | _::_ -> Type.func domain codomain
         in
-        let yvar = Term.new_uninterpreted_term ytype in 
+        let yvar = Term.new_uninterpreted_term ytype in
         Variables.permanently_add session.variables var yvar
+
       | "declare-const", [Atom var; typ], _ ->
         let yvar = Term.new_uninterpreted_term (ParseType.parse session.types typ |> get) in 
         Variables.permanently_add session.variables var yvar
-      | "declare-datatypes", _, _          -> raise (Yices_SMT2_exception "Yices does not support datatypes")
-      | "declare-datatype", _, _           -> raise (Yices_SMT2_exception "Yices does not support datatypes")
-      | "define-fun", _, _                 -> raise (Yices_SMT2_exception "TODO")
-      | "define-funs-rec", _, _            -> raise (Yices_SMT2_exception "TODO")
-      | "define-fun-rec", _, _             -> raise (Yices_SMT2_exception "TODO")
-      | "get-assertions", _, Some real_env -> List.iter print_term real_env.assertions
-      | "assert", [formula], Some real_env ->
+
+      | "declare-datatypes", _, _          ->
+        raise (Yices_SMT2_exception "Yices does not support datatypes")
+
+      | "declare-datatype", _, _           ->
+        raise (Yices_SMT2_exception "Yices does not support datatypes")
+
+      | "define-fun", [Atom var; List domain; codomain; body], _ ->
+        let codomain = ParseType.parse session.types codomain |> get in
+        let parse_pair (subst,bindings,domain) pair = match pair with
+          | List [Atom var_string; typ] ->
+            let vartyp = ParseType.parse session.types typ |> get in
+            let var = Term.new_variable vartyp in
+            (var_string, var)::subst, var::bindings, vartyp::domain
+          | _ -> raise (Yices_SMT2_exception "List of variables in a define-fun should be list of pairs")
+        in
+        let subst, bindings, domain =
+          domain |> List.rev |> List.fold_left parse_pair ([],[],[])
+        in
+        let session_body = { session with variables = Variables.add session.variables subst } in
+        let body         = ParseTerm.parse session_body body |> get in
+        let ytype, body = match domain with
+          | []   -> codomain, body
+          | _::_ -> Type.func domain codomain, Term.lambda bindings body
+        in
+        let yvar = Term.new_uninterpreted_term ytype in 
+        Variables.permanently_add session.variables var yvar
+        
+
+      | "define-funs-rec", _, _            ->
+        raise (Yices_SMT2_exception "Yices does not support recursive functions")
+
+      | "define-fun-rec", _, _             ->
+        raise (Yices_SMT2_exception "Yices does not support recursive functions")
+
+      | "get-assertions", _, Some env ->
+        print 0 "@[<v>%a@]@," (Term.pp |> List.pp |> List.pp) env.assertions
+
+      | "assert", [formula], Some({assertions = level::tail} as env) ->
         let formula = ParseTerm.parse session formula |> get in
-        Context.assert_formula real_env.context formula;
-        (match real_env.model with
+        Context.assert_formula env.context formula;
+        (match env.model with
          | Some model -> Model.free model
          | None -> ());
-        session.env := Some { real_env with assertions = formula::real_env.assertions;
-                                            model = None};
-      | "check-sat", [], Some env          -> Context.check env.context ~param:env.param |> status_print
+        session.env := Some { env with assertions = (formula::level)::tail;
+                                       model = None};
+
+      | "check-sat", [], Some env          ->
+        Context.check env.context ~param:env.param |> status_print
+
       | "check-sat-assuming", l, Some env  ->
         let assumptions = List.map (fun x -> get(ParseTerm.parse session x)) l in
         Context.check_with_assumptions env.context ~param:env.param assumptions |> status_print
+
       | "get-value", l, Some env ->
         let model = get_model env in
         let terms = List.map (fun x -> get(ParseTerm.parse session x)) l in
-        List.iter print_term (Model.terms_value model terms);
+        print 0 "@[<v>%a@]@," (List.pp Term.pp) (Model.terms_value model terms);
         session.env := Some { env with model = Some model }
-      | "get-assignment", [], Some env -> raise (Yices_SMT2_exception "TODO")
+
+      | "get-assignment", [], Some env ->
+        raise (Yices_SMT2_exception "Not sure how to treat get-assignment")
+
       | "get-model", [], Some env -> 
         let model = get_model env in
-        print_endline(PP.model_string model ~display)
-      | "get-unsat-assumptions", [], Some env -> raise (Yices_SMT2_exception "TODO")
-      | "get-proof", [], Some env             -> raise (Yices_SMT2_exception "Yices produces no proof")
+        print 0 "%s@," (PP.model_string model ~display)
+
+      | "get-unsat-assumptions", [], Some env ->
+        raise (Yices_SMT2_exception "Not sure how to treat get-unsat-assumptions")
+
+      | "get-proof", [], Some env             ->
+        raise (Yices_SMT2_exception "Yices produces no proof")
+
       | "get-unsat-core", [], Some env ->
         let terms = Context.get_unsat_core env.context in
         List.iter (fun formula -> print_endline(PP.term_string formula ~display)) terms
-      | "get-info", [ _ ], _                  -> raise (Yices_SMT2_exception "TODO")
-      | "get-option", [ _ ], _                -> raise (Yices_SMT2_exception "TODO")
+
+      | "get-info", [ Atom key ], _                  ->
+        print 0 "%s@," (StringHashtbl.find session.infos key)
+
+      | "get-option", [ Atom key ], _                ->
+        print 0 "%s@," (StringHashtbl.find session.options key)
+
       | "echo", [Atom s], _                   -> print_endline s
-      | "set-info", _ , _                     -> print 1 "Silently ignoring set-info"
+
+      | "set-info", [Atom key; Atom value] , _ ->
+        StringHashtbl.replace session.infos key value
+
+      | "set-info", _ , _ -> print 1 "@[Silently ignoring set-info@]@,"
+
       | _ -> raise (Yices_SMT2_exception("Not part of SMT2 "^head));
       end
     | Atom s ->
@@ -490,15 +599,18 @@ module SMT2 = struct
   let process_all session l =
     let open Session in
     let aux sexp =
-      print session.verbosity 3 (Sexp.to_string sexp);
+      print session.verbosity 3 "%s" (Sexp.to_string sexp);
       ParseInstruction.parse session sexp
     in
     List.iter aux l
 
   let process_file ?(verbosity=0) filename =
     let l = load_file filename in
-    print verbosity 1 ("Loading sexps done: "^string_of_int(List.length l)^" of them were found.");
     let session = Session.create ~verbosity in
-    process_all session l
-    
+    print session.verbosity 0 "@[<v>";
+    print verbosity 1 "Loading sexps done: %i of them were found." (List.length l);
+    process_all session l;
+    print session.verbosity 0 "@]"
+
+
 end
