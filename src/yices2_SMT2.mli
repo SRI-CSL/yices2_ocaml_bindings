@@ -1,3 +1,4 @@
+open Containers
 open Sexplib
 open Type
 
@@ -9,8 +10,21 @@ open Types
 module Bindings : API with type 'a eh := 'a
 open Bindings
 
+module Type := Type
+module Type : sig
+  include module type of Type
+  val pp : t Format.printer
+end
+
+module Term := Term
+module Term : sig
+  include module type of Term
+  val pp : t Format.printer
+end
+
 val pp_error : error_report CCFormat.printer
   
+module StringHashtbl : Hashtbl.S with type key = string
 module VarMap : Hashtbl.S with type key = string
 
 module Cont : sig
@@ -41,7 +55,7 @@ module Session : sig
   type env = {
     logic   : string;
     context : Context.t;
-    assertions : Term.t list;
+    assertions : Term.t list list;
     param   : Param.t;
     model   : Model.t option
   }
@@ -51,7 +65,9 @@ module Session : sig
     config    : Config.t;
     types     : Type.t VarMap.t;
     variables : Variables.t;
-    env       : env option ref
+    env       : env option ref;
+    infos   : string StringHashtbl.t;
+    options : string StringHashtbl.t
   }
 
   val create   : verbosity:int -> t
