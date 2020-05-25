@@ -7,20 +7,25 @@ open Ctypes
 open Yices2_high
 open Types
 
-module Bindings : API with type 'a eh := 'a
+module Bindings : sig
+  include API with type 'a eh := 'a
+
+  module Type := Type
+  module Type : sig
+    include module type of Type
+    val pp : t Format.printer
+  end
+
+  module Term := Term
+  module Term : sig
+    include module type of Term
+    val pp : t Format.printer
+  end
+
+end
+
 open Bindings
 
-module Type := Type
-module Type : sig
-  include module type of Type
-  val pp : t Format.printer
-end
-
-module Term := Term
-module Term : sig
-  include module type of Term
-  val pp : t Format.printer
-end
 
 val pp_error : error_report CCFormat.printer
   

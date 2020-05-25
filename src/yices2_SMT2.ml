@@ -48,26 +48,30 @@ end
 module StringHashtbl = Hashtbl.Make(String)
 module VarMap = StringHashtbl
 
-module Bindings = Make(ExceptionsErrorHandling)
+module Bindings = struct
+  include Make(ExceptionsErrorHandling)
+
+  module Type = struct
+    include Type
+    let pp fmt t =
+      try
+        t |> PP.type_string ~display:Types.{ width = 100; height = 50; offset=0}
+        |> Format.fprintf fmt "%s"
+      with _ -> Format.fprintf fmt "null_type"
+  end
+
+  module Term = struct
+    include Term
+    let pp fmt t =
+      try
+        t |> PP.term_string ~display:Types.{ width = 100; height = 50; offset=0}
+        |> Format.fprintf fmt "%s"
+      with _ -> Format.fprintf fmt "null_term"
+  end
+end
+
 open Bindings
 
-module Type = struct
-  include Type
-  let pp fmt t =
-    try
-      t |> PP.type_string ~display:Types.{ width = 100; height = 50; offset=0}
-      |> Format.fprintf fmt "%s"
-    with _ -> Format.fprintf fmt "null_type"
-end
-
-module Term = struct
-  include Term
-  let pp fmt t =
-    try
-      t |> PP.term_string ~display:Types.{ width = 100; height = 50; offset=0}
-      |> Format.fprintf fmt "%s"
-    with _ -> Format.fprintf fmt "null_term"
-end
 
 let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
 
