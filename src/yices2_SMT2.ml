@@ -497,7 +497,6 @@ module ParseInstruction = struct
         raise (Yices_SMT2_exception "Yices does not support datatypes")
 
       | "define-fun", [Atom var; List domain; codomain; body], _ ->
-        let codomain = ParseType.parse session.types codomain |> get in
         let parse_pair (subst,bindings,domain) pair = match pair with
           | List [Atom var_string; typ] ->
             let vartyp = ParseType.parse session.types typ |> get in
@@ -510,12 +509,11 @@ module ParseInstruction = struct
         in
         let session_body = { session with variables = Variables.add session.variables subst } in
         let body         = ParseTerm.parse session_body body |> get in
-        let ytype, body = match domain with
-          | []   -> codomain, body
-          | _::_ -> Type.func domain codomain, Term.lambda bindings body
+        let body = match domain with
+          | []   -> body
+          | _::_ -> Term.lambda bindings body
         in
-        let yvar = Term.new_uninterpreted_term ytype in 
-        Variables.permanently_add session.variables var yvar
+        Variables.permanently_add session.variables var body
         
 
       | "define-funs-rec", _, _            ->
