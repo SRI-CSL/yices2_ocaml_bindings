@@ -1,3 +1,5 @@
+[%%import "gmp.mlh"]
+
 open Yices2_high
 
 let () = Printexc.record_backtrace true
@@ -83,3 +85,14 @@ let () =
   with
     Yices2_high.ExceptionsErrorHandling.YicesException(error,report) ->
     print_endline (EH1.ErrorPrint.string())
+[%%if gmp_present]
+let () =
+  try
+    Terms_test.test_gmp()
+  with
+    Yices2_high.ExceptionsErrorHandling.YicesException(error,report) ->
+    print_endline (EH1.ErrorPrint.string())
+[%%else]
+let () = print_endline ""
+let () = print_endline "Warning: gmp not present; so gmp-dependent tests were skipped."
+[%%endif]

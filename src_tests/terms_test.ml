@@ -1,9 +1,21 @@
+[%%import "gmp.mlh"]
+
 open Signed
 open Unsigned
 open Containers
 open Yices2_high
 
 module EH1 = Make(ExceptionsErrorHandling)
+
+let check t =
+  let open EH1 in
+  let open Term in
+  let Term tr = reveal t in
+  assert(Term.equal t (build tr));
+  let t' = build(map (fun x -> x) tr) in
+  assert(Term.equal t t')
+
+let check = List.iter check
 
 let test () =
   print_endline "Terms tests";
@@ -14,13 +26,6 @@ let test () =
   let open Term in
   let open Arith in
 
-  let check t =
-    let Term tr = reveal t in
-    assert(Term.equal t (build tr));
-    let t' = build(map (fun x -> x) tr) in
-    assert(Term.equal t t')
-  in
-  let check = List.iter check in
   let true_  = true0() in
   let false_ = false0() in
   let bool_t = Type.bool() in
@@ -96,14 +101,10 @@ let test () =
   let rat_1   = rational 13 7 in
   let rat32_1 = rational32 (SInt.of_int 13) (UInt.of_int 7) in
   let rat64_1 = rational64 (Long.of_int (-47)) (ULong.of_int 111) in
-  let gmpz = Z.of_int 42 in
-  let mpz1 = mpz gmpz in
-  let gmpq = Q.of_ints 42 77 in
-  let mpq1 = mpq gmpq in
   let rat1 = parse_rational "-3/117" in
   let float1 = parse_float "-3.117e-2" in
-  let add1 = int1 ++ int1 in
-  let sub1 = int1 -- zero in
+  let _add1 = int1 ++ int1 in
+  let _sub1 = int1 -- zero in
   let neg1 = !- int1 in
   assert(equal !-zero zero);
   assert(not (equal neg1 int1));
@@ -126,26 +127,20 @@ let test () =
   let coeff4 = [2; 3; 4; 5] in
   let coeff4_32 = List.map SInt.of_int coeff4 in
   let coeff4_64 = List.map Long.of_int coeff4 in
-  let coeff4_mpz = List.map Z.of_int coeff4 in
   let combine2 a b = a,b in
-  let poly   = poly_int(List.map2 combine2 coeff4 int4) in
-  let poly32 = poly_int32 (List.map2 combine2 coeff4_32 int4) in
-  let poly64 = poly_int64 (List.map2 combine2 coeff4_64 int4) in
-  let polympz = poly_mpz (List.map2 combine2 coeff4_mpz int4) in
+  let _poly   = poly_int(List.map2 combine2 coeff4 int4) in
+  let _poly32 = poly_int32 (List.map2 combine2 coeff4_32 int4) in
+  let _poly64 = poly_int64 (List.map2 combine2 coeff4_64 int4) in
   let denum4 = [12; 13; 14; 15] in
   let denum4_32 = List.map UInt.of_int denum4 in
   let denum4_64 = List.map ULong.of_int denum4 in
-  let denum4_mpz = List.map Z.of_int denum4 in
   let combine3 (a,b) c = a,b,c in
-  let polyrat = poly_rational (List.map2 combine3 (List.map2 combine2 coeff4 denum4) int4) in
-  let polyrat32 = poly_rational32
+  let _polyrat = poly_rational (List.map2 combine3 (List.map2 combine2 coeff4 denum4) int4) in
+  let _polyrat32 = poly_rational32
       (List.map2 combine3 (List.map2 combine2 coeff4_32 denum4_32) int4)
   in
-  let polyrat64 = poly_rational64
+  let _polyrat64 = poly_rational64
       (List.map2 combine3 (List.map2 combine2 coeff4_64 denum4_64) int4)
-  in
-  let polyratmpq = poly_mpq
-      (List.map2 combine2 (List.map2 Q.make coeff4_mpz denum4_mpz) int4)
   in
   let areqatom1   = arith_eq int1 zero in
   let arneqatom1  = arith_neq int1 zero in
@@ -314,11 +309,10 @@ let test () =
          app1; fun2; app2; fun3; app3; tupconst1; fun4; app4; ite1; eq1; neq1; not1; or1; and1;
          xor1; or2_; and2_; xor2_; or3; and3; xor3; iff1; implies1; tup1; pair1; triple1;
          select1; select2; tupup1; update1; update2; update3; update4; distinct1; var2; vareq;
-         forall1;  exists1; lambda1; int64_1; rat_1; rat32_1; rat64_1; mpz1; mpq1; rat1; float1;
-         add1; sub1; neg1; mul1; square1; power1; sum1; product1; product2; div1; idiv1; imod1;
-         divatom1; intatom1; abs1; floor1; ceil1; poly; poly32; poly64; polympz; polyrat;
-         polyrat32; polyrat64; polyratmpq; areqatom1; arneqatom1; argeqatom1; arleqatom1;
-         argtatom1; arltatom1;
+         forall1;  exists1; lambda1; int64_1; rat_1; rat32_1; rat64_1; rat1; float1;
+         mul1; square1; power1; product2; div1; idiv1; imod1;
+         divatom1; intatom1; floor1; ceil1;
+         areqatom1; arneqatom1; argeqatom1; arleqatom1; argtatom1; arltatom1;
          areq0atom1; arneq0atom1; argeq0atom1; arleq0atom1; argt0atom1; arlt0atom1;
          bvconstu_1; bvconstu32_1; bvconstu64_1; bvconst32_1; bvconst64_1; bvconstzero_1;
          bvconstone_1; bvconstminusone_1; bvconstarray1; bvvar1; bvbin1; bvhex1; bvadd1; bvsub1;
@@ -340,8 +334,6 @@ let test () =
   let scalar_t = Type.new_scalar 20 in
   let scalar_c = Term.constant scalar_t 13 in
   assert(Int.equal (scalar_const_value scalar_c) 13);
-  let _gmpq = rational_const_value rat32_1 in
-  let _gmpq, _pterm = sum_component sum1 2 in
   (* value must be an array of eight integers since bvsum has type (bitvector 8) *)
   let value, pterm = bvsum_component bvsum2 1 in
   let pterm = match pterm with
@@ -374,3 +366,67 @@ let test () =
   assert(Int.equal (num_types()) 3);
   print_endline "Done with Terms tests";
   exit()
+
+[%%if gmp_present]
+let test_gmp () =
+  print_endline "Terms tests";
+  let open EH1 in
+  let open Global in
+  init();
+
+  let open Term in
+  let open Arith in
+
+  let gmpz = Z.of_int 42 in
+  let mpz1 = mpz gmpz in
+  let gmpq = Q.of_ints 42 77 in
+  let mpq1 = mpq gmpq in
+  let coeff4 = [2; 3; 4; 5] in
+  let coeff4_32 = List.map SInt.of_int coeff4 in
+  let coeff4_64 = List.map Long.of_int coeff4 in
+  let coeff4_mpz = List.map Z.of_int coeff4 in
+  let combine2 a b = a,b in
+  let int1 = Arith.int 13 in
+  let int2 = Arith.int 17 in
+  let int_t  = Type.int() in
+  let iconst1 = new_uninterpreted_term int_t in
+  let ivar1 = new_variable int_t in
+  let int4 = [int1; int2; iconst1; ivar1] in
+  let polympz = poly_mpz (List.map2 combine2 coeff4_mpz int4) in
+  let denum4 = [12; 13; 14; 15] in
+  let denum4_32 = List.map UInt.of_int denum4 in
+  let denum4_64 = List.map ULong.of_int denum4 in
+  let denum4_mpz = List.map Z.of_int denum4 in
+  let polyratmpq = poly_mpq
+      (List.map2 combine2 (List.map2 Q.make coeff4_mpz denum4_mpz) int4)
+  in
+  let poly   = poly_int(List.map2 combine2 coeff4 int4) in
+  let poly32 = poly_int32 (List.map2 combine2 coeff4_32 int4) in
+  let poly64 = poly_int64 (List.map2 combine2 coeff4_64 int4) in
+
+  let combine3 (a,b) c = a,b,c in
+  let polyrat = poly_rational (List.map2 combine3 (List.map2 combine2 coeff4 denum4) int4) in
+  let polyrat32 = poly_rational32
+      (List.map2 combine3 (List.map2 combine2 coeff4_32 denum4_32) int4)
+  in
+  let polyrat64 = poly_rational64
+      (List.map2 combine3 (List.map2 combine2 coeff4_64 denum4_64) int4)
+  in
+  let add1 = int1 ++ int1 in
+  let zero = Arith.zero() in
+  let sub1 = int1 -- zero in
+  let neg1 = !- int1 in
+  let sum1  = !+ int4 in
+  let abs1 = abs(neg1) in
+  let product1 = !* int4 in
+  let rat32_1 = rational32 (SInt.of_int 13) (UInt.of_int 7) in
+  
+
+  check [mpz1; mpq1; poly; poly32; poly64; polyrat; polyrat32; polyrat64; polympz; polyratmpq; add1; sub1; neg1; sum1; abs1; product1;  ];
+  let _gmpq = rational_const_value rat32_1 in
+  let _gmpq, _pterm = sum_component sum1 2 in
+
+
+  print_endline "Done with Terms tests";
+  exit()
+[%%endif]

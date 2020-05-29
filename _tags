@@ -16,14 +16,16 @@ true: debug, optimize(3), unbox_closures
 # <src/yices_limits.{ml,mli}> : package(ctypes-of-clang.ppx)
 # <src/zarith_src.{ml,mli}> : package(ctypes-of-clang.ppx)
 
-<src/*> : package(ctypes),\
+<src/*> : main,\
+          package(ctypes),\
           package(ctypes.foreign),\
           package(sexplib),\
           package(containers),\
           package(ppx_deriving.std),\
           package(ppx_optcomp)
 
-<src_tests/*> : package(ctypes),\
+<src_tests/*> : tests,\
+                package(ctypes),\
                 package(ctypes.foreign),\
                 package(yices2_bindings),\
                 package(sexplib),\
