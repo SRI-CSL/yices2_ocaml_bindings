@@ -3,7 +3,7 @@
 # OCaml Bindings for Yices 2
 
 This repository provides an ocaml library containing bindings for yices2's standard API (https://yices.csl.sri.com/doc/).
-We provide two layers: of abstraction that wrap the yices C functions:
+We provide two layers of abstraction that wrap the yices C functions:
 - a low level, where the functions that wrap the yices C functions are essentially identical to the yices API.
 (+ some type safety provided by type abstraction over the types types_t of yices's types and term_t of yices's terms, which are now abstract instead of int32_t).
 - a high level, which is more ocaml-friendly, using some ML datatype, etc.
