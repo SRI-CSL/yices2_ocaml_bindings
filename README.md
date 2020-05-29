@@ -6,91 +6,49 @@ This repository provides an ocaml library containing bindings for yices2's stand
 We provide two layers: of abstraction that wrap the yices C functions:
 - a low level, where the functions that wrap the yices C functions are essentially identical to the yices API.
 (+ some type safety provided by type abstraction over the types types_t of yices's types and term_t of yices's terms, which are now abstract instead of int32_t).
-- a high level, which is more ocaml-friendly, using some ML datatype, etc
+- a high level, which is more ocaml-friendly, using some ML datatype, etc.
 
-## Building From Source
-
-#### Prerequisites
-
-To build the ocaml bindings library from the source, you need the following OCaml dependencies (as in the opam file): ocaml, ocamlbuild, ocamlfind, ctypes, ctypes-foreign
+## Building and Installing From Source
 
 Technically you don't need yices to build and install the library: the yices binary code is not in the library itself.
 But you should have yices for linking.
 
-#### Quick Installation (in findlib)
+#### Using opam (needs 2.0 or higher, needs gmp)
 
-With opam (needs 2.0 or higher):
-In the top-level directory, build and install with the following command:
+In the directory of this `README.md`, build and install (in findlib) with the following command:
 ```
 opam pin add yices2_bindings .
 ```
 
-With ocamlbuild directly, the bindings can be build with the `build.sh` script:
-```
-ocamlbuild -use-ocamlfind src/yices2_bindings.cma src/yices2_bindings.cmxa
-```
-To install in findlib, follow the `install` section of the opam file.
+#### Without opam (gmp not mandatory, but it provides additional yices bindings)
 
-#### Quick Testing (once findlib has the yices2_bindings library)
+The dependencies you need are listed in `src/META_gmp` (if you have gmp) or `src/META_nogmp` (if you do not have gmp). These are the findlib libraries that are / would be installed by the opam dependencies (listed in file `yices2_bindings.opam`), namely ocamlbuild, ctypes, ctypes-foreign, ppx_deriving, ppx_optcomp, sexplib, sexplib0, and, in presence of gmp, zarith, and ctypes-zarith.
 
-In the top-level directory, build with the following command:
+To build, run the following command:
 ```
-ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
+make
 ```
+in the directory of this `README.md`. The build should automatically detect whether you have gmp and add the extra yices bindings if you do.
 
-Run with the following command:
-```yices_runtime.native```
-
-You should get
+To install (in findlib), run the following command:
 ```
-First test, using exceptions for error handling
-Initialising Yices version 2.6.1
-Init done
-New config done
-Set config done
-New context done
-New param done
-Set param done
-`STATUS_SAT
-Adding assertion "false"
-`STATUS_UNSAT
-Exited gracefully
-
-Second test, using Result monad for error handling
-Initialising Yices version 2.6.1
-Init done
-New config done
-Set config done
-New context done
-New param done
-Set param done
-`STATUS_SAT
-Adding assertion "false"
-`STATUS_UNSAT
-Exited gracefully
+make install
 ```
 
-#### Building the documentation
+You can also use `make reinstall` and `make clean`.
 
-In the top-level directory, do:
+#### Quick Testing (once findlib has the yices2_bindings library, whether it was installed manually or via opam)
+
+In the directory of this `README.md`, run the following command:
+```
+make test
+```
+Whether the tests pass is rather self-explanatory.
+
+#### Building the documentation (this is broken at the moment, as ocamldoc does not seem to handle the latest ocaml features)
+
+In the top-level directory, run the following command:
 ```
 ocamlbuild -use-ocamlfind 'src/yices2_bindings.docdir/index.html'
 ```
 You can then open `yices2_bindings.docdir/index.html` in a web browser.
-
-
-#### Note
-
-The file that immediately refers to yices's C API (located in `yices.h` of its distribution) is `src/yices2_header.ml`.
-This file has been generated automatically from `yices.h` by running the ctypes-of-clang ppx (https://github.com/disteph/ctypes_of_clang) on file `src/yices2_header_src.ml`.
-Editing the file, `src/yices2_header.ml`, by hand is discouraged. If the yices API changes, 
-then the suggested way of updating the bindings library is to 
-
-1. Rerun ctypes_of_clang on `src/yices2_header_src.ml`, then 
-2. Edit the two levels of ocaml wrappings.
-
-For running the ctypes-of-clang ppx, you need clang, and clang needs to find its standard libraries (stdio.h, stdint.h, etc) as well as yices.h.
-Make sure of this by setting environment variables, e.g.
-```
-C_INCLUDE_PATH="/usr/lib/llvm-8/lib/clang/8.0.0/include/:$YICES_PATH/yices2/build/x86_64-pc-linux-gnu-release/dist/include/"
-```

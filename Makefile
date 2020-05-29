@@ -1,11 +1,11 @@
-.PHONY: default build install uninstall test clean
+.PHONY: default build install uninstall reinstall test clean
 
 default: build
 
 build:
 	ocamlbuild -use-ocamlfind src/yices2_bindings.cma src/yices2_bindings.cmxa src/META
 
-test: reinstall clean
+test:
 	ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
 	./yices_runtime.native
 

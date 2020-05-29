@@ -1,4 +1,4 @@
-PKG ctypes ctypes.foreign sexplib containers ppx_deriving.std yices2_bindings
+PKG ctypes ctypes.foreign sexplib containers ppx_deriving.std ppx_optcomp yices2_bindings zarith
 S ../src
 S ../src_tests
 B ../_build/src
