@@ -29,6 +29,12 @@ To build, run the following command:
 make
 ```
 in the directory of this `README.md`. The build should automatically detect whether you have gmp and add the extra yices bindings if you do.
+If for some weird reason you want the non-gmp version of the bindings even though you do have it, run this before `make`:
+```
+echo "[%%define gmp_present false]" > src/gmp.mlh
+echo "[%%define gmp_present false]" > src_tests/gmp.mlh
+```
+and remove those two files to revert to automated detection.
 
 To install (in findlib), run the following command:
 ```
@@ -44,6 +50,16 @@ In the directory of this `README.md`, run the following command:
 make test
 ```
 Whether the tests pass is rather self-explanatory.
+
+#### Wrapping Yices as an SMTLib2 solver (experimental)
+
+In the directory of this `README.md`, run the following command (after having installed the yices2_bindings library in findlib):
+```
+make smt2
+```
+This should produce an executable `yices_smt2` which you can run giving as sole argument the name of the SMTLib2 file to solve.
+
+The code in `src_test` and in the `src_smt2/yices_smt2.ml` file give examples on how to use the bindings.
 
 #### Building the documentation (this is broken at the moment, as ocamldoc does not seem to handle the latest ocaml features)
 
