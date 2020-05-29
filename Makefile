@@ -3,14 +3,14 @@
 default: build
 
 build:
-	ocamlbuild -use-ocamlfind src/yices2_bindings.cma src/yices2_bindings.cmxa src/META
+	ocamlbuild -use-ocamlfind test_gmp src/yices2_bindings.cma src/yices2_bindings.cmxa src/META
 
 smt2:
-	ocamlbuild -use-ocamlfind src_tests/main.native
+	ocamlbuild -use-ocamlfind src_smt2/yices_smt2.native
 
 test:
-	ocamlbuild -use-ocamlfind src_tests/yices_runtime.native
-	./yices_runtime.native
+	ocamlbuild -use-ocamlfind test_gmp src_tests/test.native
+	./test.native
 
 install: build
 	ocamlfind install yices2_bindings _build/src/META\

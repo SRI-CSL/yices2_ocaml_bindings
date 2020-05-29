@@ -441,8 +441,8 @@ module type API = sig
          badval = size  *)
     val new_scalar : card:int -> type_t eh
 
-    (** New uninterpreted type. No error report.  *)
-    val new_uninterpreted : unit -> type_t eh
+    (** New uninterpreted type. Optionally give a name to type. No error report.  *)
+    val new_uninterpreted : ?name:string -> unit -> type_t eh
 
     (** Tuple type tau[0] x ... x tau[n-1].
         Requires n>0 and tau[0] ... tau[n-1] to be well defined types.
@@ -659,11 +659,13 @@ module type API = sig
         If tau is a function type, then this creates an uninterpreted
         function (see yices_application).
 
+        Optionally give a name to term. 
+        
         Error report:
         if tau is undefined
          code = INVALID_TYPE
          type1 = tau  *)
-    val new_uninterpreted_term : type_t -> term_t eh
+    val new_uninterpreted : ?name:string -> type_t -> term_t eh
 
     (** Variable of type tau. This creates a new variable.
 
@@ -2467,7 +2469,7 @@ module type API = sig
 
         CTX_UNKNOWN_LOGIC if logic is not a valid name
         CTX_LOGIC_NOT_SUPPORTED if logic is known but not supported  *)
-    val default : t -> logic:string -> unit eh
+    val default : ?logic:string -> t -> unit eh
   end
 
 
@@ -3295,7 +3297,7 @@ module type API = sig
 
         If there's an error (i.e., the configuration is not supported), the
         function returns NULL and set an error code: CTX_INVALID_CONFIG.  *)
-    val malloc : Config.t -> t eh
+    val malloc : ?config:Config.t -> unit -> t eh
 
     (** Deletion  *)
     val free : t -> unit
