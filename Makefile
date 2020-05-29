@@ -1,9 +1,12 @@
-.PHONY: default build install uninstall reinstall test clean
+.PHONY: default build install uninstall reinstall test clean smt2
 
 default: build
 
 build:
 	ocamlbuild -use-ocamlfind src/yices2_bindings.cma src/yices2_bindings.cmxa src/META
+
+smt2:
+	ocamlbuild -use-ocamlfind src_tests/main.native
 
 test:
 	ocamlbuild -use-ocamlfind src_tests/yices_runtime.native

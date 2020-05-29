@@ -131,15 +131,15 @@ module Session = struct
 
   type env = {
     logic   : string;
-    context : context_t ptr;
-    assertions : term_t list list;
-    param   : param_t ptr;
-    model   : model_t ptr option
+    context : Context.t;
+    assertions : Term.t list list;
+    param   : Param.t;
+    model   : Model.t option
   }
 
   type t = {
     verbosity : int;
-    config    : ctx_config_t ptr;
+    config    : Config.t;
     types     : type_t VarMap.t;
     variables : Variables.t;
     env       : env option ref;
