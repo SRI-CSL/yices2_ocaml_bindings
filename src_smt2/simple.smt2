@@ -1,0 +1,8 @@
+(set-info :smt-lib-version 2.6)
+(set-logic QF_BV)
+(set-info :status sat)
+(declare-fun x1 () (_ BitVec 32))
+(assert (bvsge x1 (_ bv34 32)))
+(check-sat)
+(get-model)
+(exit)

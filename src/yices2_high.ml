@@ -119,6 +119,10 @@ let (!<)  = UInt.to_int
 let (!>>) = ULong.of_int
 let (!<<) = ULong.to_int
 
+(* The null pointer for a particular type *)
+let null typ = null |> from_voidp typ
+
+(* Composition operators *)
 let (<.>) f g x = g(f x)
 let (<..>) f g x1 x2 = g (f x1 x2)
 let (<...>) f g x1 x2 x3 = g (f x1 x2 x3)
@@ -548,12 +552,27 @@ module SafeMake
     type t = type_t [@@deriving eq, ord]
     let hash = hash_sint
 
+    module Names = struct
+      let set x     = ofString(yices_set_type_name x) <.> toUnit
+      let remove    = ofString yices_remove_type_name
+      let clear     = yices_clear_type_name <.> toUnit
+      let of_name   = ofString yices_get_type_by_name <.> return_sint
+      let to_name   = yices_get_type_name <.> toString
+    end
+
+    let parse = ofString yices_parse_type <.> return_sint
+
     let bool = yices_bool_type <.> return_sint
     let int  = yices_int_type  <.> return_sint
     let real = yices_real_type <.> return_sint
     let bv i = yices_bv_type !>i |> return_sint
     let new_scalar ~card  = yices_new_scalar_type !>card |> return_sint
-    let new_uninterpreted = yices_new_uninterpreted_type <.> return_sint
+    let new_uninterpreted ?name () =
+      let+ r = yices_new_uninterpreted_type() |> return_sint in
+      match name with
+      | Some name -> let+ () = Names.set r name in return r
+      | None -> return r
+               
     let tuple = ofList1 type_t yices_tuple_type     <.> return_sint
     let func  = ofList1 type_t yices_function_type <..> return_sint
 
@@ -604,16 +623,6 @@ module SafeMake
       | Tuple l -> tuple l
       | Fun{dom; codom} -> func dom codom
 
-    module Names = struct
-      let set x     = ofString(yices_set_type_name x) <.> toUnit
-      let remove    = ofString yices_remove_type_name
-      let clear     = yices_clear_type_name <.> toUnit
-      let of_name   = ofString yices_get_type_by_name <.> return_sint
-      let to_name   = yices_get_type_name <.> toString
-    end
-
-    let parse = ofString yices_parse_type <.> return_sint
-
   end
 
   module Term = struct
@@ -621,10 +630,25 @@ module SafeMake
     type t = term_t [@@deriving eq,ord]
     let hash = hash_sint
 
+    module Names = struct
+      let set     = yices_set_term_name <.> ofString <..> toUnit
+      let remove  = yices_remove_term_name |> ofString
+      let clear   = yices_clear_term_name <.> toUnit
+      let of_name = ofString yices_get_term_by_name <.> return_sint
+      let to_name = yices_get_term_name <.> toString
+    end
+
+    let parse = ofString yices_parse_term <.> return_sint
+
     let true0  = yices_true  <.> return_sint
     let false0 = yices_false <.> return_sint
     let constant t ~id = yices_constant t (SInt.of_int id) |> return_sint
-    let new_uninterpreted_term = yices_new_uninterpreted_term <.> return_sint
+    let new_uninterpreted ?name typ =
+      let+ r = yices_new_uninterpreted_term typ |> return_sint in
+      match name with
+      | Some name -> let+ () = Names.set r name in return r
+      | None -> return r
+
     let new_variable = yices_new_variable <.> return_sint
     let application a = ofList1 term_t (yices_application a) <.> return_sint
 
@@ -1112,16 +1136,6 @@ module SafeMake
     let rational_const_value = yices_rational_const_value <.> toQ1
 [%%endif]
 
-    module Names = struct
-      let set     = yices_set_term_name <.> ofString <..> toUnit
-      let remove  = yices_remove_term_name |> ofString
-      let clear   = yices_clear_term_name <.> toUnit
-      let of_name = ofString yices_get_term_by_name <.> return_sint
-      let to_name = yices_get_term_name <.> toString
-    end
-
-    let parse = ofString yices_parse_term <.> return_sint
-
   end
 
   module GC = struct
@@ -1144,7 +1158,7 @@ module SafeMake
     let malloc = yices_new_config <.> return_ptr
     let free   = yices_free_config
     let set     c ~name ~value = yices_set_config c ?>name ?>value |> toUnit
-    let default c ~logic = yices_default_config_for_logic c ?>logic |> toUnit
+    let default ?(logic="NONE") c = yices_default_config_for_logic c ?>logic |> toUnit
   end
 
   module Model = struct
@@ -1249,22 +1263,22 @@ module SafeMake
 
   let opt_ptr t f = function
     | Some logic -> f logic
-    | None -> null |> from_voidp t
+    | None -> null t
 
   let (??>) = opt_ptr char (?>)
     
   let check_formula ?logic ?(model=false) ?delegate term =
     let model_ptr =
-      if model then allocate (ptr model_t) (null |> from_voidp model_t)
-      else null |> from_voidp (ptr model_t)
+      if model then allocate (ptr model_t) (null model_t)
+      else null (ptr model_t)
     in
     let status = yices_check_formula term ??>logic model_ptr ??>delegate in
     (status, if model then Some !@model_ptr else None)
 
   let check_formulas ?logic ?(model=false) ?delegate terms =
     let model_ptr =
-      if model then allocate (ptr model_t) (null |> from_voidp model_t)
-      else null |> from_voidp (ptr model_t)
+      if model then allocate (ptr model_t) (null model_t)
+      else null (ptr model_t)
     in
     let status =
       (yices_check_formulas |> swap |> ofList1 term_t) terms ??>logic model_ptr ??>delegate
@@ -1287,7 +1301,7 @@ module SafeMake
 
   module Context = struct
     type t = context_t ptr
-    let malloc = yices_new_context <.> return_ptr
+    let malloc ?(config=null ctx_config_t) () = config |> yices_new_context |> return_ptr
     let free   = yices_free_context
     let status = yices_context_status <.> Conv.smt_status.read
     let reset  = yices_reset_context

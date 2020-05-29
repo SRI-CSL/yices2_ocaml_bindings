@@ -17,7 +17,7 @@ let () =
   print_endline "New config done";
   let _ = Config.default config ~logic:"QF_BV" in
   print_endline "Set config done";
-  let context = Context.malloc config in
+  let context = Context.malloc ~config () in
   print_endline "New context done";
   let param = Param.malloc() in
   print_endline "New param done";
@@ -50,7 +50,7 @@ let _ =
   print_endline "New config done";
   let+ ()      = Config.default config ~logic:"QF_BV" in
   print_endline "Set config done";
-  let+ context = Context.malloc config in
+  let+ context = Context.malloc ~config () in
   print_endline "New context done";
   let+ param   = Param.malloc() in
   print_endline "New param done";

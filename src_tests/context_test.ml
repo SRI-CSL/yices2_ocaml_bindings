@@ -38,7 +38,7 @@ let test_context () =
   let open Global in
   init();
   let cfg = Config.malloc () in
-  let ctx = Context.malloc cfg in
+  let ctx = Context.malloc ~config:cfg () in
   let _stat = Context.status ctx in
   let () = Context.push ctx in
   let () = Context.pop ctx in
@@ -58,11 +58,11 @@ let test_context () =
       assert(String.equal error_string "assertion contains a free variable")
   end;
   let bv_t  = Type.bv 3 in
-  let bvar1 = Term.new_uninterpreted_term bv_t in
+  let bvar1 = Term.new_uninterpreted bv_t in
   let () = Term.Names.set bvar1 "x" in
-  let bvar2 = Term.new_uninterpreted_term bv_t in
+  let bvar2 = Term.new_uninterpreted bv_t in
   let () = Term.Names.set bvar2 "y" in
-  let bvar3 = Term.new_uninterpreted_term bv_t in
+  let bvar3 = Term.new_uninterpreted bv_t in
   let () = Term.Names.set bvar3 "z" in
   let fmla1 = Term.parse "(= x (bv-add y z))" in
   let fmla2 = Term.parse "(bv-gt y 0b000)" in

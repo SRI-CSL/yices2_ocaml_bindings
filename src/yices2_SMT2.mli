@@ -10,6 +10,12 @@ open Types
 module Bindings : sig
   include API with type 'a eh := 'a
 
+  module Types := Types
+  module Types : sig
+    include module type of Types
+    val pp_error_report : error_report Format.printer
+  end
+
   module Type := Type
   module Type : sig
     include module type of Type
@@ -22,15 +28,52 @@ module Bindings : sig
     val pp : t Format.printer
   end
 
+  module Context : sig
+
+    val assert_blocking_clause : Context.t -> unit
+      
+    type assertions = Term.t list list
+    val pp_assertions : assertions Format.printer
+
+    type options
+    val pp_options : options Format.printer
+
+    type nonrec t = {
+      config     : Config.t option;
+      context    : Context.t;
+      assertions : assertions ref;
+      options    : options;
+    }
+    val pp : Containers.Format.t -> t -> unit
+    val malloc : ?config:Config.t -> unit -> t
+    val free : t -> unit
+    val status : t -> Types.smt_status
+    val reset : t -> unit
+    val push : t -> unit
+    val pop : t -> unit
+    val enable_option  : t -> option:string -> unit
+    val disable_option : t -> option:string -> unit
+    val assert_formula : t -> Term.t -> unit
+    val assert_formulas : t -> Term.t list -> unit
+    val check                  : ?param:Param.t -> t -> Types.smt_status
+    val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
+    val stop : t -> unit
+    val get_model : t -> keep_subst:bool -> Model.t
+    val get_unsat_core : t -> Term.t list
+  end
+
+  module Param := Param
+  module Param : sig
+    include module type of Param
+    val default : Context.t -> t -> unit
+  end
+
 end
 
 open Bindings
 
-
-val pp_error : error_report CCFormat.printer
-  
-module StringHashtbl : Hashtbl.S with type key = string
-module VarMap : Hashtbl.S with type key = string
+module StringHashtbl : CCHashtbl.S with type key = string
+module VarMap : CCHashtbl.S with type key = string
 
 module Cont : sig
   type ('a, 'r) t
@@ -60,7 +103,6 @@ module Session : sig
   type env = {
     logic   : string;
     context : Context.t;
-    assertions : Term.t list list;
     param   : Param.t;
     model   : Model.t option
   }
@@ -68,7 +110,7 @@ module Session : sig
   type t = {
     verbosity : int;
     config    : Config.t;
-    types     : Type.t VarMap.t;
+    types     : type_t VarMap.t;
     variables : Variables.t;
     env       : env option ref;
     infos   : string StringHashtbl.t;

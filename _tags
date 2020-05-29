@@ -14,7 +14,6 @@ true: debug, optimize(3), unbox_closures
 
 # <src/yices_header.{ml,mli}> : package(ctypes-of-clang.ppx)
 # <src/yices_limits.{ml,mli}> : package(ctypes-of-clang.ppx)
-# <src/zarith_src.{ml,mli}> : package(ctypes-of-clang.ppx)
 
 <src/*> : main,\
           package(ctypes),\
@@ -33,4 +32,11 @@ true: debug, optimize(3), unbox_closures
                 package(ppx_deriving.std),\
                 package(ppx_optcomp),\
                 cclib(-lyices)
+
+<src_smt2/*> : package(ctypes),\
+               package(ctypes.foreign),\
+               package(yices2_bindings),\
+               package(sexplib),\
+               package(containers),\
+               cclib(-lyices)
 
