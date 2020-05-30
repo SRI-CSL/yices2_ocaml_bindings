@@ -456,7 +456,7 @@ module SafeMake
 
     let ddisplay = {
       width=80;
-      height=1;
+      height=10;
       offset=0
     }
 

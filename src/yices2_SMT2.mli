@@ -32,7 +32,25 @@ module Bindings : sig
   module Context : sig
 
     val assert_blocking_clause : Context.t -> unit
-      
+
+    type action =
+      | Status
+      | Reset
+      | Push
+      | Pop
+      | EnableOption of string
+      | DisableOption of string
+      | AssertFormula of Term.t
+      | AssertFormulas of Term.t list
+      | Check of Param.t option
+      | CheckWithAssumptions of Param.t option * Term.t list
+      | Stop
+      | GetModel
+      | GetUnsatCore
+      | CheckWithModel of Param.t option * Model.t * Term.t list
+      | GetModelInterpolant
+    [@@deriving show]
+
     type assertions = Term.t list list
     val pp_assertions : assertions Format.printer
 
@@ -44,6 +62,7 @@ module Bindings : sig
       context    : Context.t;
       assertions : assertions ref;
       options    : options;
+      log : action list ref;
     }
     val pp : Containers.Format.t -> t -> unit
     val malloc : ?config:Config.t -> unit -> t
