@@ -57,7 +57,7 @@ module Bindings = struct
     include Type
     let pp fmt t =
       try
-        t |> PP.type_string ~display:Types.{ width = 100; height = 50; offset=0}
+        t |> PP.type_string (* ~display:Types.{ width = 100; height = 50; offset=0} *)
         |> Format.fprintf fmt "%s"
       with _ -> Format.fprintf fmt "null_type"
   end
@@ -66,7 +66,7 @@ module Bindings = struct
     include Term
     let pp fmt t =
       try
-        t |> PP.term_string ~display:Types.{ width = 100; height = 50; offset=0}
+        t |> PP.term_string (* ~display:Types.{ width = 100; height = 50; offset=0} *)
         |> Format.fprintf fmt "%s"
       with _ -> Format.fprintf fmt "null_term"
   end
@@ -94,9 +94,35 @@ module Bindings = struct
         Type.pp type1
         Type.pp type2
   end
-  
+
+  module Model = struct
+    include Model
+    let pp fmt t =
+      t |> PP.model_string ~display:Types.{ width = 100; height = 50; offset=0}
+      |> Format.fprintf fmt "%s"
+  end
+
   module Context = struct
     include Context
+
+    type param = Param.t
+    let pp_param _ _ = ()
+
+    type action =
+      | Status
+      | Reset
+      | Push
+      | Pop
+      | EnableOption of string
+      | DisableOption of string
+      | AssertFormula of Term.t
+      | AssertFormulas of Term.t list
+      | Check of param option
+      | CheckWithAssumptions of param option * Term.t list
+      | Stop
+      | GetModel
+      | GetUnsatCore
+    [@@deriving show { with_path = false }]
 
     type assertions = Term.t list list
 
@@ -112,7 +138,8 @@ module Bindings = struct
       config  : Config.t option; 
       context : t;
       assertions : assertions ref;
-      options : options
+      options : options;
+      log : action list ref
     }
 
     let pp fmt {assertions} = pp_assertions fmt !assertions
@@ -121,43 +148,53 @@ module Bindings = struct
       { config  = config;
         context = malloc ?config ();
         assertions = ref [[]];
-        options = StringHashtbl.create 10 }
+        options = StringHashtbl.create 10;
+        log = ref [] }
       
     let free   {context} = free context
-    let status {context} = status context
+    let status x =
+      x.log := Status::!(x.log);
+      status x.context
     
-    let reset  {context; assertions} =
-      reset context;
-      assertions := [[]]
+    let reset x =
+      reset x.context;
+      x.assertions := [[]];
+      x.log := Reset::!(x.log)
 
-    let push   {context; assertions} =
-      push context;
-      assertions := []::!assertions
+    let push x =
+      x.log := Push::!(x.log);
+      x.assertions := []::!(x.assertions);
+      push x.context
 
-    let pop    {context; assertions} =
-      begin match !assertions with
+    let pop x =
+      x.log := Pop::!(x.log);
+      begin match !(x.assertions) with
         | []     -> assert false
         | [last] -> raise (Yices_SMT2_exception "popping last level")
-        | _::tail -> assertions := tail
+        | _::tail -> x.assertions := tail
       end;
-      pop context
+      pop x.context
       
-    let enable_option {context; options} ~option =
+    let enable_option {context; options; log} ~option =
+      log := EnableOption option::!log;
       enable_option context ~option;
       StringHashtbl.replace options option ()
 
-    let disable_option {context; options} ~option =
+    let disable_option {context; options; log} ~option =
+      log := DisableOption option::!log;
       disable_option context ~option;
       StringHashtbl.remove options option 
 
-    let assert_formula {context; assertions} formula =
+    let assert_formula {context; assertions; log} formula =
+      log := AssertFormula formula::!log;
       begin match !assertions with
         | []     -> assert false
         | last::tail -> assertions := (formula::last)::tail
       end;
       assert_formula context formula
 
-    let assert_formulas {context; assertions} formulas =
+    let assert_formulas {context; assertions; log} formulas =
+      log := AssertFormulas formulas::!log;
       begin match !assertions with
         | []     -> assert false
         | last::tail ->
@@ -165,11 +202,23 @@ module Bindings = struct
       end;
       assert_formulas context formulas
 
-    let check ?param {context} = check ?param context
-    let check_with_assumptions ?param {context} = check_with_assumptions ?param context
-    let stop {context} = stop context
-    let get_model {context} = get_model context
-    let get_unsat_core {context} = get_unsat_core context
+    let check ?param {context;log} =
+      log := Check param::!log;
+      check ?param context
+
+    let check_with_assumptions ?param {context; log} assumptions =
+      log := CheckWithAssumptions(param, assumptions)::!log;
+      check_with_assumptions ?param context assumptions
+
+    let stop {context; log} =
+      log := Stop::!log;
+      stop context
+    let get_model {context; log} =
+      log := GetModel::!log;
+      get_model context
+    let get_unsat_core {context; log} =
+      log := GetUnsatCore::!log;
+      get_unsat_core context
 
   end
 
