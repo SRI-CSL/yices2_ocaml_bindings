@@ -1,3 +1,4 @@
+[%%import "gmp.mlh"]
 open Containers
 open Ctypes
 open Arg
@@ -167,6 +168,10 @@ module Bindings = struct
 
     let check ?param {context} = check ?param context
     let check_with_assumptions ?param {context} = check_with_assumptions ?param context
+    [%%if gmp_present]
+    let check_with_model ?param {context} model = check_with_model ?param context model
+    let get_model_interpolant {context} = get_model_interpolant context
+    [%%endif]
     let stop {context} = stop context
     let get_model {context} = get_model context
     let get_unsat_core {context} = get_unsat_core context

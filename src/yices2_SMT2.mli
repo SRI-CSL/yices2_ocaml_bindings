@@ -1,3 +1,4 @@
+[%%import "gmp.mlh"]
 open Containers
 open Sexplib
 open Type
@@ -57,6 +58,10 @@ module Bindings : sig
     val assert_formulas : t -> Term.t list -> unit
     val check                  : ?param:Param.t -> t -> Types.smt_status
     val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
+    [%%if gmp_present]
+    val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
+    val get_model_interpolant : t -> Term.t
+    [%%endif]
     val stop : t -> unit
     val get_model : t -> keep_subst:bool -> Model.t
     val get_unsat_core : t -> Term.t list
