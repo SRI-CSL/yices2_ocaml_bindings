@@ -291,9 +291,9 @@ module Session = struct
   }
 
   let create ~verbosity =
-    print verbosity 1 "Now initialising Yices version %s" Global.version;
+    print verbosity 1 "Now initialising Yices version %s@," Global.version;
     Global.init();
-    print verbosity 1 "Init done";
+    print verbosity 1 "Init done@,";
     { verbosity;
       config    = Config.malloc ();
       types     = VarMap.create 10;
@@ -568,11 +568,6 @@ module ParseInstruction = struct
 
   open Session
       
-  let status_print = function
-    | `STATUS_SAT   -> print_endline "SAT"
-    | `STATUS_UNSAT -> print_endline "UNSAT"
-    | _ -> print_endline "other"
-
   let get_model env = match env.model with
     | Some m -> m
     | None -> Context.get_model env.context ~keep_subst:true
@@ -668,11 +663,13 @@ module ParseInstruction = struct
         session.env := Some { env with model = None};
 
       | "check-sat", [], Some env          ->
-        Context.check env.context ~param:env.param |> status_print
+        Context.check env.context ~param:env.param
+        |> print 0 "%a@," Types.pp_smt_status
 
       | "check-sat-assuming", l, Some env  ->
         let assumptions = List.map (fun x -> get(ParseTerm.parse session x)) l in
-        Context.check_with_assumptions env.context ~param:env.param assumptions |> status_print
+        Context.check_with_assumptions env.context ~param:env.param assumptions
+        |> print 0 "%a@," Types.pp_smt_status
 
       | "get-value", l, Some env ->
         let model = get_model env in
