@@ -708,6 +708,21 @@ module ParseInstruction = struct
 
       | "set-info", _ , _ -> print 1 "@[Silently ignoring set-info@]@,"
 
+      | "check-sat-assuming-model", [List vars; List vals], Some env ->
+        let f (map,tlist) a b =
+          let a = ParseTerm.parse session a |> get in
+          let b = ParseTerm.parse session b |> get in
+          (a,b)::map , a::tlist
+        in
+        let map,terms = List.fold_left2 f ([],[]) vars vals in
+        let model = Model.from_map map in
+        Context.check_with_model env.context ~param:env.param model terms
+        |> print 0 "%a@," Types.pp_smt_status
+      
+      | "get-unsat-model-interpolant", [], Some env ->
+        let interpolant = Context.get_model_interpolant env.context in
+        print 0 "%a@," Term.pp interpolant
+
       | _ -> raise (Yices_SMT2_exception("Not part of SMT2 "^head));
       end
     | Atom s ->
