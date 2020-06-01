@@ -282,7 +282,18 @@ module Bindings = struct
       | Stop     -> sexp "stop" [] ::accu
       | GetModel -> sexp "get-model" [] ::accu
       | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
-    
+      | CheckWithModel(_param, model, terms) ->
+        let aux (varl,vall) t =
+          let v = Model.get_value_as_term model t in
+          let t = Term.to_sexp t in
+          let v = Term.to_sexp v in
+          t::varl, v::vall
+        in
+        let varl,vall = terms |> List.rev |> List.fold_left aux ([],[]) in
+        sexp "check-sat-assuming-model" [List varl; List vall] ::accu
+      | GetModelInterpolant -> sexp "get-unsat-model-interpolant" [] ::accu
+
+
     type assertions = Term.t list list
 
     let pp_assertions fmt assertions = 
