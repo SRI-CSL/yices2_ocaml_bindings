@@ -88,7 +88,6 @@ module Bindings = struct
         |> Format.fprintf fmt "%s"
       with _ -> Format.fprintf fmt "null_term"
 
-    let one = Term.Arith.int 1
     let pow i t =
       if i = 0 then t
       else
@@ -194,6 +193,7 @@ module Bindings = struct
         sexp "bvadd" (List.map aux l) 
 
       | Sum l ->
+        let one = Term.Arith.int 1 in
         let aux (coeff, term) =
           let coeff = Term.Arith.mpq coeff in
           match term with
