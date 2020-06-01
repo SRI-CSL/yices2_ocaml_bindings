@@ -2,8 +2,8 @@ open Containers
 open Arg
 
 open Yices2_high
+open Yices2_ext_bindings
 open Yices2_SMT2
-open Bindings
 
 let args = ref []
 let description = "Executable for solving smt2 files. One filename as argument.";;

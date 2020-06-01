@@ -3,4 +3,5 @@ Yices2_low_types
 Yices2_high_types
 Yices2_low
 Yices2_high
+Yices2_ext_bindings
 Yices2_SMT2
