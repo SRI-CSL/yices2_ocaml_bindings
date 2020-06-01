@@ -50,6 +50,8 @@ module VarMap = StringHashtbl
 
 exception Yices_SMT2_exception of string
 
+let sexp f arg = List(Atom f::arg)
+
 module Bindings = struct
   include Make(ExceptionsErrorHandling)
 
@@ -60,6 +62,22 @@ module Bindings = struct
         t |> PP.type_string (* ~display:Types.{ width = 100; height = 50; offset=0} *)
         |> Format.fprintf fmt "%s"
       with _ -> Format.fprintf fmt "null_type"
+
+    let rec to_sexp typ =
+      match reveal typ with
+      | Bool -> Atom "Bool"
+      | Int  -> Atom "Int"
+      | Real -> Atom "Real"
+      | BV i -> List[Atom "_"; Atom "BitVec"; Atom(string_of_int i)]
+      | Scalar _
+      | Uninterpreted _ -> Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
+      | Tuple l -> l |> List.map to_sexp |> sexp "tuple"
+      | Fun { dom; codom } ->
+        let dom = List.map to_sexp dom in
+        match dom with
+        | [dom] -> sexp "Array" [dom; to_sexp codom]
+        | _ -> sexp "Array" [ List dom; to_sexp codom]
+
   end
 
   module Term = struct
@@ -69,6 +87,127 @@ module Bindings = struct
         t |> PP.term_string (* ~display:Types.{ width = 100; height = 50; offset=0} *)
         |> Format.fprintf fmt "%s"
       with _ -> Format.fprintf fmt "null_term"
+
+    let one = Term.Arith.int 1
+    let pow i t =
+      if i = 0 then t
+      else
+        let rec aux i accu =
+          if i = 0 then accu else aux i (t::accu) 
+        in
+        sexp "*" (aux i [])
+
+    let rec to_sexp t =
+      let Term x = reveal t in
+      match x with
+      | A0 _ ->
+        Atom(PP.term_string ~display:Types.{width = 80; height = 10000; offset = 0} t)
+
+      | A1(c,t) ->
+        let t = [to_sexp t] in
+        begin
+          match c with
+          | `YICES_NOT_TERM    -> sexp "not" t
+          | `YICES_ABS         -> sexp "abs" t
+          | `YICES_CEIL        -> sexp "ceil" t
+          | `YICES_FLOOR       -> sexp "floor" t
+          | `YICES_IS_INT_ATOM -> sexp "is-int" t
+        end
+      | A2(c,t1,t2) ->
+        let args = [to_sexp t1; to_sexp t2] in
+        begin
+          match c with
+          | `YICES_EQ_TERM       -> sexp "=" args
+          | `YICES_ARITH_GE_ATOM -> sexp ">=" args
+          | `YICES_BV_ASHR       -> sexp "bvashr" args
+          | `YICES_BV_DIV        -> sexp "bvdiv" args
+          | `YICES_BV_GE_ATOM    -> sexp "bvuge" args
+          | `YICES_BV_LSHR       -> sexp "bvlshr" args
+          | `YICES_BV_REM        -> sexp "bvurem" args
+          | `YICES_BV_SDIV       -> sexp "bvsdiv" args
+          | `YICES_BV_SGE_ATOM   -> sexp "bvsge" args
+          | `YICES_BV_SHL        -> sexp "bvshl" args
+          | `YICES_BV_SMOD       -> sexp "bvsmod" args
+          | `YICES_BV_SREM       -> sexp "bvsrem" args
+          | `YICES_DIVIDES_ATOM  -> sexp "divides_atom" args
+          | `YICES_IDIV          -> sexp "div" args
+          | `YICES_IMOD          -> sexp "mod" args
+          | `YICES_RDIV          -> sexp "div" args
+        end
+      | ITE(c, tb, eb) ->
+        let args = List.map to_sexp [c;tb;eb] in 
+        sexp "ite" args
+      | Astar(c,l) ->
+        let args = List.map to_sexp l in 
+        begin
+          match c with
+          | `YICES_TUPLE_TERM    -> sexp "tuple" args
+          | `YICES_DISTINCT_TERM -> sexp "distinct" args
+          | `YICES_OR_TERM       -> sexp "or" args
+          | `YICES_XOR_TERM      -> sexp "xor" args
+          | `YICES_BV_ARRAY      -> sexp "concat" args
+        end
+      | Bindings{c;vars;body} ->
+        let aux v = List[to_sexp v; Type.to_sexp(type_of_term v)] in  
+        let vars = List(List.map aux vars) in
+        let body = to_sexp body in
+        begin
+          match c with
+          | `YICES_FORALL_TERM -> sexp "forall" [vars; body]
+          | `YICES_LAMBDA_TERM -> sexp "lambda" [vars; body]
+        end
+      | App(f,l) ->
+        let f = to_sexp t in
+        let l = List.map to_sexp l in
+        begin
+          match l with
+          | [a] -> sexp "select" [f;a]
+          | l -> sexp "select" [f;List l]
+        end
+      | Update { array; index; value} ->
+        let array = to_sexp array in
+        let indices = List.map to_sexp index in
+        let value = to_sexp value in
+        begin
+          match indices with
+          | [index] -> sexp "store" [array;index;value]
+          | _ -> sexp "store" [array;List indices;value]
+        end
+      | Projection(c,i,t) ->
+        let t = to_sexp t in
+        begin
+          match c with
+          | `YICES_SELECT_TERM -> sexp "select" [Atom(string_of_int i);t]
+          | `YICES_BIT_TERM    -> sexp "bitextract" [Atom(string_of_int i);t]
+        end
+      | BV_Sum l ->
+        let width = t |> Term.type_of_term |> Type.bvsize in
+        let one  = Term.BV.bvconst_one ~width in
+        let aux (coeff, term) =
+          let coeff = Term.BV.bvconst_from_list coeff in
+          match term with
+          | Some term ->
+            if Term.equal coeff one then to_sexp term
+            else sexp "bvmul" [to_sexp coeff; to_sexp term]
+          | None -> to_sexp coeff
+        in
+        sexp "bvadd" (List.map aux l) 
+
+      | Sum l ->
+        let aux (coeff, term) =
+          let coeff = Term.Arith.mpq coeff in
+          match term with
+          | Some term ->
+            if Term.equal coeff one then to_sexp term
+            else sexp "*" [to_sexp coeff; to_sexp term]
+          | None -> to_sexp coeff
+        in
+        sexp "+" (List.map aux l) 
+
+      | Product(isBV, l) ->
+        let aux (term, exp) = pow (Unsigned.UInt.to_int exp) (to_sexp term) in
+        sexp (if isBV then "bvmul" else "*") (List.map aux l) 
+
   end
 
   module Types = struct
@@ -124,6 +263,23 @@ module Bindings = struct
       | GetUnsatCore
     [@@deriving show { with_path = false }]
 
+    let to_sexp accu = function
+      | Status -> sexp "get-status" [] ::accu
+      | Reset  -> sexp "reset-assertions" [] ::accu
+      | Push   -> sexp "push" [] ::accu
+      | Pop    -> sexp "pop" [] ::accu
+      | EnableOption s -> sexp "set-option" [Atom s; Atom "true"] ::accu 
+      | DisableOption s -> sexp "set-option" [Atom s; Atom "false"] ::accu
+      | AssertFormula t -> sexp "assert" [Term.to_sexp t] ::accu
+      | AssertFormulas l ->
+        List.fold_left (fun sofar t -> sexp "assert" [Term.to_sexp t]::sofar) accu l
+      | Check _param -> sexp "check-sat" [] ::accu 
+      | CheckWithAssumptions(_param,l) ->
+        sexp "check-sat-assuming" (List.map Term.to_sexp l) ::accu
+      | Stop     -> sexp "stop" [] ::accu
+      | GetModel -> sexp "get-model" [] ::accu
+      | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
+    
     type assertions = Term.t list list
 
     let pp_assertions fmt assertions = 

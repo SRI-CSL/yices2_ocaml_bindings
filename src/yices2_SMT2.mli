@@ -20,12 +20,14 @@ module Bindings : sig
   module Type : sig
     include module type of Type
     val pp : t Format.printer
+    val to_sexp : t -> Sexplib.Type.t
   end
 
   module Term := Term
   module Term : sig
     include module type of Term
     val pp : t Format.printer
+    val to_sexp : t -> Sexplib.Type.t
   end
 
   module Context : sig
@@ -47,6 +49,8 @@ module Bindings : sig
       | GetModel
       | GetUnsatCore
     [@@deriving show]
+
+    val to_sexp : Sexplib.Type.t list -> action -> Sexplib.Type.t list
 
     type assertions = Term.t list list
     val pp_assertions : assertions Format.printer
