@@ -6,6 +6,7 @@ open Type
     
 open Yices2_high
 open Types
+open Yices2_ext_bindings
 
 module Cont : sig
   type ('a, 'r) t
@@ -38,23 +39,8 @@ end
 
 open Cont
 
-module List = struct
-  include List
-  let map f l = List.rev (List.fold_left (fun sofar a -> f a::sofar) [] l)
-end
-
 module StringHashtbl = CCHashtbl.Make(String)
 module VarMap = StringHashtbl
-
-
-exception Yices_SMT2_exception of string
-
-module Bindings = Yices2_ext_bindings
-
-open Bindings
-
-let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
-
 
 module Variables : sig
   type t
@@ -86,6 +72,10 @@ end = struct
   let get_uninterpreted {uninterpreted} =
     VarMap.keys_list uninterpreted
 end
+
+exception Yices_SMT2_exception of string
+
+let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
 
 module Session = struct
 
