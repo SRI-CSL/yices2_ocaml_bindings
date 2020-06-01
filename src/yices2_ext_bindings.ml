@@ -244,6 +244,8 @@ module Action = struct
     | Stop
     | GetModel
     | GetUnsatCore
+    | CheckWithModel of Param.t option * Model.t * Term.t list
+    | GetModelInterpolant
 
   let to_sexp accu = function
     | DeclareType typ_string
@@ -265,6 +267,16 @@ module Action = struct
     | Stop     -> sexp "stop" [] ::accu
     | GetModel -> sexp "get-model" [] ::accu
     | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
+    | CheckWithModel(_param, model, terms) ->
+      let aux (varl,vall) t =
+        let v = Model.get_value_as_term model t in
+        let t = Term.to_sexp t in
+        let v = Term.to_sexp v in
+        t::varl, v::vall
+      in
+      let varl,vall = terms |> List.rev |> List.fold_left aux ([],[]) in
+      sexp "check-sat-assuming-model" [List varl; List vall] ::accu
+    | GetModelInterpolant -> sexp "get-unsat-model-interpolant" [] ::accu
 
 end
 
@@ -375,6 +387,13 @@ module Context = struct
 
   let declare_fun {log} s t =
     log := DeclareFun(s,t)::!log
+
+  let check_with_model ?param {context; log} model terms =
+    log := CheckWithModel(param, model, terms)::!log;
+    check_with_model ?param context model terms
+  let get_model_interpolant {context; log} =
+    log := GetModelInterpolant::!log;
+    get_model_interpolant context
 
 end
 

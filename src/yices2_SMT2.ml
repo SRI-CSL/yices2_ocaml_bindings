@@ -47,11 +47,9 @@ end
 module StringHashtbl = CCHashtbl.Make(String)
 module VarMap = StringHashtbl
 
-
 exception Yices_SMT2_exception of string
 
 let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
-
 
 module Variables : sig
   type t
@@ -538,8 +536,8 @@ module ParseInstruction = struct
 
       | "check-sat-assuming-model", [List vars; List vals], Some env ->
         let f (map,tlist) a b =
-          let a = ParseTerm.parse session a |> get in
-          let b = ParseTerm.parse session b |> get in
+          let a = ParseTerm.parse env a |> get in
+          let b = ParseTerm.parse env b |> get in
           (a,b)::map , a::tlist
         in
         let map,terms = List.fold_left2 f ([],[]) vars vals in

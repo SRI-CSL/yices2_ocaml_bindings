@@ -73,6 +73,8 @@ module Action : sig
     | Stop
     | GetModel
     | GetUnsatCore
+    | CheckWithModel of Param.t option * Model.t * Term.t list
+    | GetModelInterpolant
 
   (** Appends the action sexp(s) on top of input list *)
   val to_sexp : Sexp.t list -> t -> Sexp.t list
@@ -116,12 +118,15 @@ module Context : sig
   val assert_formula  : t -> Term.t -> unit
   val assert_formulas : t -> Term.t list -> unit
   val check                  : ?param:Param.t -> t -> Types.smt_status
-  val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
+  val get_model_interpolant : t -> Term.t
   val stop : t -> unit
   val get_model : t -> keep_subst:bool -> Model.t
   val get_unsat_core : t -> Term.t list
   val declare_type : t -> string -> unit    
   val declare_fun  : t -> string -> Type.t -> unit
+
+  val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
+  val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
 end
 
 module Param := Param
