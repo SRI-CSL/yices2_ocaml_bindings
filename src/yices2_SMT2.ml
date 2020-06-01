@@ -88,7 +88,15 @@ module Session = struct
     param   : Param.t;
     model   : Model.t option
   }
-      
+
+  let to_SMT2 {logic; context} =
+    let log = Context.to_sexp context in
+    let sl = List[Atom "set-logic"; Atom logic] in
+    let pp fmt sexplist =
+      Format.fprintf fmt "@[<v>%a@]" (List.pp ~sep:"" pp_sexp) sexplist
+    in
+    Format.to_string pp (sl::log)
+
   type t = {
     verbosity : int;
     config    : Config.t;
