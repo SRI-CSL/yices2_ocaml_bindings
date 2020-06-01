@@ -1,97 +1,12 @@
 open Containers
 open Sexplib
-open Type
 
 open Ctypes
 
 open Yices2_high
 open Types
 
-module Bindings : sig
-  include API with type 'a eh := 'a
-
-  module Types := Types
-  module Types : sig
-    include module type of Types
-    val pp_error_report : error_report Format.printer
-  end
-
-  module Type := Type
-  module Type : sig
-    include module type of Type
-    val pp : t Format.printer
-    val to_sexp : t -> Sexplib.Type.t
-  end
-
-  module Term := Term
-  module Term : sig
-    include module type of Term
-    val pp : t Format.printer
-    val to_sexp : t -> Sexplib.Type.t
-  end
-
-  module Context : sig
-
-    val assert_blocking_clause : Context.t -> unit
-
-    type action =
-      | Status
-      | Reset
-      | Push
-      | Pop
-      | EnableOption of string
-      | DisableOption of string
-      | AssertFormula of Term.t
-      | AssertFormulas of Term.t list
-      | Check of Param.t option
-      | CheckWithAssumptions of Param.t option * Term.t list
-      | Stop
-      | GetModel
-      | GetUnsatCore
-    [@@deriving show]
-
-    val to_sexp : Sexplib.Type.t list -> action -> Sexplib.Type.t list
-
-    type assertions = Term.t list list
-    val pp_assertions : assertions Format.printer
-
-    type options
-    val pp_options : options Format.printer
-
-    type nonrec t = {
-      config     : Config.t option;
-      context    : Context.t;
-      assertions : assertions ref;
-      options    : options;
-      log : action list ref;
-    }
-    val pp : Containers.Format.t -> t -> unit
-    val malloc : ?config:Config.t -> unit -> t
-    val free : t -> unit
-    val status : t -> Types.smt_status
-    val reset : t -> unit
-    val push : t -> unit
-    val pop : t -> unit
-    val enable_option  : t -> option:string -> unit
-    val disable_option : t -> option:string -> unit
-    val assert_formula : t -> Term.t -> unit
-    val assert_formulas : t -> Term.t list -> unit
-    val check                  : ?param:Param.t -> t -> Types.smt_status
-    val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
-    val stop : t -> unit
-    val get_model : t -> keep_subst:bool -> Model.t
-    val get_unsat_core : t -> Term.t list
-  end
-
-  module Param := Param
-  module Param : sig
-    include module type of Param
-    val default : Context.t -> t -> unit
-  end
-
-end
-
-open Bindings
+open Yices2_ext_bindings
 
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string
@@ -122,7 +37,10 @@ end
 module Session : sig
 
   type env = {
-    logic   : string;
+    verbosity : int;
+    logic     : string;
+    types     : type_t VarMap.t;
+    variables : Variables.t;
     context : Context.t;
     param   : Param.t;
     model   : Model.t option
@@ -131,15 +49,14 @@ module Session : sig
   type t = {
     verbosity : int;
     config    : Config.t;
-    types     : type_t VarMap.t;
-    variables : Variables.t;
     env       : env option ref;
-    infos   : string StringHashtbl.t;
-    options : string StringHashtbl.t
+    infos     : string StringHashtbl.t;
+    options   : string StringHashtbl.t;
+    set_logic : string -> Config.t -> unit
   }
 
-  val create   : verbosity:int -> t
-  val init_env : ?configure:unit -> t -> logic:string -> unit
+  val create   : ?set_logic:(string -> Config.t -> unit) -> int -> t
+  val init_env : t -> logic:string -> unit
   val exit : t -> unit
 
 end
@@ -152,15 +69,16 @@ end
 
 module ParseTerm : sig
   type t = (Term.t, Term.t) Cont.t
-  val atom        : Session.t -> string -> t
-  val right_assoc : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
-  val left_assoc  : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
-  val chainable   : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
-  val unary       : Session.t -> (Term.t -> Term.t) -> Sexp.t -> t
-  val binary      : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
-  val ternary     : Session.t -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
-  val list        : Session.t -> (Term.t list -> Term.t) -> Sexp.t list -> t
-  val parse       : Session.t -> Sexp.t -> t
+
+  val atom        : Session.env -> string -> t
+  val right_assoc : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+  val left_assoc  : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+  val chainable   : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
+  val unary       : Session.env -> (Term.t -> Term.t) -> Sexp.t -> t
+  val binary      : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
+  val ternary     : Session.env -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
+  val list        : Session.env -> (Term.t list -> Term.t) -> Sexp.t list -> t
+  val parse       : Session.env -> Sexp.t -> t
 end
 
 module ParseInstruction : sig
