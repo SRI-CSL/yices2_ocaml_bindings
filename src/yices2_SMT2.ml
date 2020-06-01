@@ -39,17 +39,8 @@ end
 
 open Cont
 
-module List = struct
-  include List
-  let map f l = List.rev (List.fold_left (fun sofar a -> f a::sofar) [] l)
-end
-
 module StringHashtbl = CCHashtbl.Make(String)
 module VarMap = StringHashtbl
-
-exception Yices_SMT2_exception of string
-
-let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
 
 module Variables : sig
   type t
@@ -82,6 +73,10 @@ end = struct
     VarMap.keys_list uninterpreted
 end
 
+exception Yices_SMT2_exception of string
+
+let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
+
 module Session = struct
 
   type env = {
@@ -93,7 +88,15 @@ module Session = struct
     param   : Param.t;
     model   : Model.t option
   }
-      
+
+  let to_SMT2 {logic; context} =
+    let log = Context.to_sexp context in
+    let sl = List[Atom "set-logic"; Atom logic] in
+    let pp fmt sexplist =
+      Format.fprintf fmt "@[<v>%a@]" (List.pp ~sep:"" pp_sexp) sexplist
+    in
+    Format.to_string pp (sl::log)
+
   type t = {
     verbosity : int;
     config    : Config.t;

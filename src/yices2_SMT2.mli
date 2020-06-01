@@ -1,4 +1,3 @@
-[%%import "gmp.mlh"]
 open Containers
 open Sexplib
 
@@ -45,6 +44,9 @@ module Session : sig
     param   : Param.t;
     model   : Model.t option
   }
+
+  (** Turns the log within context into SMT2 string. *)
+  val to_SMT2 : env -> string
 
   type t = {
     verbosity : int;

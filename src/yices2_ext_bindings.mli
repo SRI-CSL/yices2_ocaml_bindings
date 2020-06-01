@@ -101,9 +101,9 @@ module Context : sig
 
   val pp : t Format.printer
 
-  (** Appends the action log of the context on top of input list.
-      The first executed action ends up as the head of the list *)
-  val to_sexp : Sexplib.Type.t list -> t -> Sexplib.Type.t list
+  (** Turns the log into list of S-expressions.
+      The first executed action ends up as the head of the list. *)
+  val to_sexp : t -> Sexplib.Type.t list
 
   val malloc : ?config:Config.t -> unit -> t
 

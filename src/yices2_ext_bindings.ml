@@ -303,8 +303,8 @@ module Context = struct
 
   let pp fmt {assertions} = pp_assertions fmt !assertions
 
-  let to_sexp accu {log} =
-    !log |> List.fold_left Action.to_sexp accu
+  let to_sexp {log} =
+    !log |> List.fold_left Action.to_sexp [] 
 
   let malloc ?config () =
     { config  = config;
