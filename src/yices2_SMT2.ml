@@ -101,7 +101,14 @@ module Bindings = struct
       let Term x = reveal t in
       match x with
       | A0 _ ->
-        Atom(PP.term_string ~display:Types.{width = 80; height = 10000; offset = 0} t)
+        let s = PP.term_string ~display:Types.{width = 80; height = 10000; offset = 0} t in
+        let s = 
+          match String.sub s 0 2 with
+         | "0b" -> "#b"^String.sub s 2 (String.length s -2)
+         | "0x" -> "#x"^String.sub s 2 (String.length s -2)
+         | _ -> s
+        in
+        Atom s
 
       | A1(c,t) ->
         let t = [to_sexp t] in
