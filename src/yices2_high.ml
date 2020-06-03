@@ -177,14 +177,8 @@ let ofList3 t1 t2 t3 f l =
 let swap f a b = f b a
 
 [%%if gmp_present]
-(* Importing the canonization function for mpq *)
-let mpq_canonicalize = Foreign.foreign "__gmpq_canonicalize" (MPQ.t_ptr @-> returning void)
-
 let ofZ f = MPZ.of_z <.> f 
-let ofQ f q =
-  let q = MPQ.of_q q in
-  mpq_canonicalize q;
-  f q
+let ofQ f = MPQ.of_q <.> f
 [%%endif]
 
 module Error = struct
