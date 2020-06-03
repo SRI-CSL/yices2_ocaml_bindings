@@ -369,7 +369,7 @@ let test () =
 
 [%%if gmp_present]
 let test_gmp () =
-  print_endline "Terms tests";
+  print_endline "GMP Terms tests";
   let open EH1 in
   let open Global in
   init();
