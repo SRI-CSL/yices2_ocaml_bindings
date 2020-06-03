@@ -298,8 +298,10 @@ module SafeMake
   (* Turn list into size+pointer; t specifies the type of elements *)
   let carray t l = Array.(let c = of_list t l in !>(length c), start c)
 
-  (* Useful abbreviation *)
+  (* Useful abbreviations *)
   type 'a vector = ('a, [`Struct]) structured
+  type mpz_array = MPZ.t abstract Array.t Array.t
+  type mpq_array = MPQ.t abstract Array.t Array.t
 
   (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
   module Alloc  : sig
@@ -318,8 +320,10 @@ module SafeMake
       -> ('a, 'b Array.t -> 'c) t
       -> ('a * 'b Array.t, 'c) t
 [%%if gmp_present]
-    val allocZ : ('a, MPZ.t abstract ptr -> 'c) t -> ('a * MPZ.t abstract ptr, 'c) t
-    val allocQ : ('a, MPQ.t abstract ptr -> 'c) t -> ('a * MPQ.t abstract ptr, 'c) t
+    val allocZ : ('a, MPZ.ptr -> 'c) t -> ('a * MPZ.ptr, 'c) t
+    val allocQ : ('a, MPQ.ptr -> 'c) t -> ('a * MPQ.ptr, 'c) t
+    val allocZn : int -> ('a, mpz_array -> 'c) t -> ('a * mpz_array, 'c) t
+    val allocQn : int -> ('a, mpq_array -> 'c) t -> ('a * mpq_array, 'c) t
 [%%endif]
     val allocV : (unit -> 'b vector) -> ('a, 'b vector ptr -> 'c) t -> ('a * 'b vector, 'c) t
     val nocheck: ('c -> 'a -> 'b) -> ('a, 'c) t -> 'b
@@ -343,9 +347,28 @@ module SafeMake
       aux (fun () -> allocate_n hdl ~count:1 ?finalise) id
     let allocN n hdl ?finalise =
       aux (fun () -> Array.make hdl n ?finalise) id
+
 [%%if gmp_present]
-    let allocZ a     = aux MPZ.make id a
-    let allocQ a     = aux MPQ.make id a
+    let allocZ a = aux MPZ.make id a
+    let allocQ a = aux MPQ.make id a
+
+    let allocZn n a =
+      let finalise = CArray.(iter (start <.> MPZ.clear)) in
+      let make () = 
+        let r = Array.make ~finalise (array 1 MPZ.t) n in
+        Array.(iter (start <.> MPZ.init)) r;
+        r
+      in
+      aux make id a
+      
+    let allocQn n a =
+      let finalise = CArray.(iter (start <.> MPQ.clear)) in
+      let make () = 
+        let r = Array.make ~finalise (array 1 MPQ.t) n in
+        Array.(iter (start <.> MPQ.init)) r;
+        r
+      in
+      aux make id a
 [%%endif]
     let allocV make  = aux make addr
     
@@ -735,33 +758,31 @@ module SafeMake
 [%%if gmp_present]
       let poly_mpz l =
         let length = List.length l in
-        let aux zz tt i (z,t) =
-          MPZ.init_set z Array.(start zz.(i));
-          Array.set tt i t
-        in
         let to_load zz tt =
-          List.iteri (aux zz tt) l;
+          let aux i (z,t) =
+            MPZ.set z Array.(start zz.(i));
+            Array.set tt i t
+          in
+          List.iteri aux l;
           yices_poly_mpz !>length (Array.start zz.(0)) (Array.start tt)
         in
-        let finalise = Array.(iter (start <.> MPZ.clear)) in
         Alloc.(load to_load
-               |> allocN length (array 1 MPZ.t) ~finalise
+               |> allocZn length
                |> allocN length term_t
                |> check (fun r _ -> r))
 
       let poly_mpq l =
         let length = List.length l in
-        let aux qq tt i (z,t) =
-          MPQ.init_set z Array.(start qq.(i));
-          Array.set tt i t
-        in
         let to_load qq tt =
-          List.iteri (aux qq tt) l;
+          let aux i (z,t) =
+            MPQ.set z Array.(start qq.(i));
+            Array.set tt i t
+          in
+          List.iteri aux l;
           yices_poly_mpq !>length (Array.start qq.(0)) (Array.start tt)
         in
-        let finalise = Array.(iter (start <.> MPQ.clear)) in
         Alloc.(load to_load
-               |> allocN length (array 1 MPQ.t) ~finalise
+               |> allocQn length
                |> allocN length term_t
                |> check (fun r _ -> r))
 [%%endif]
