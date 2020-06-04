@@ -42,5 +42,11 @@ let () = dispatch begin function
       let gmp_options = (S [A "-package"; A "zarith"; A "-package"; A "ctypes-zarith"]) in
       flag ["ocaml"; "compile"; "gmp"] gmp_options;
       flag ["ocaml"; "link"; "gmp"] gmp_options;
+      (try
+         let ldflags = getenv "LDFLAGS" in
+         print_endline("Using \"-ccopt "^ldflags^"\" from LDFLAGS environment variable.");
+         flag ["ocaml"; "link"] (S [A "-ccopt"; A ldflags])
+       with
+         _ -> ())
     | _ -> ()
   end
