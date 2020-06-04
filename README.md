@@ -50,6 +50,12 @@ In the directory of this `README.md`, run the following command:
 make test
 ```
 Whether the tests pass is rather self-explanatory.
+This step involves linking and you therefore need the Yices library installed in your system.
+If Yices is not installed in a standard location (e.g., `/usr/local/lib`), you can specify the directory by setting the following environment variable:
+```
+LDFLAGS="-Lyour_path_to_yices_library"
+```
+
 
 #### Wrapping Yices as an SMTLib2 solver (experimental)
 
@@ -58,6 +64,7 @@ In the directory of this `README.md`, run the following command (after having in
 make smt2
 ```
 This should produce an executable `yices_smt2` which you can run giving as sole argument the name of the SMTLib2 file to solve.
+As with `make test`, this step involves linking and requires yices being installed. You can set `LDFLAGS` as above in case it is not in a standard location.
 
 The code in `src_test` and in the `src_smt2/yices_smt2.ml` file give examples on how to use the bindings.
 
