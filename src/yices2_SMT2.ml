@@ -462,6 +462,10 @@ module ParseInstruction = struct
       | "define-fun-rec", _, _    ->
         raise (Yices_SMT2_exception("Yices does not support "^head))
 
+      | "define-sort", [Atom var; List []; body], Some env ->
+        let ytype = ParseType.parse env.types body |> get in
+        VarMap.add env.types var ytype
+        
       | "define-fun", [Atom var; List domain; codomain; body], Some env ->
         let parse_pair (subst,bindings,domain) pair = match pair with
           | List [Atom var_string; typ] ->
