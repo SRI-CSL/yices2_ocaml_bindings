@@ -75,11 +75,13 @@ module Term = struct
     match x with
     | A0 _ ->
       let s = PP.term_string ~display:Types.{width = 80; height = 10000; offset = 0} t in
-      let s = 
-        match String.sub s 0 2 with
-        | "0b" -> "#b"^String.sub s 2 (String.length s -2)
-        | "0x" -> "#x"^String.sub s 2 (String.length s -2)
-        | _ -> s
+      let s =
+        if String.length s < 2 then s
+        else
+          match String.sub s 0 2 with
+          | "0b" -> "#b"^String.sub s 2 (String.length s -2)
+          | "0x" -> "#x"^String.sub s 2 (String.length s -2)
+          | _ -> s
       in
       Atom s
 
