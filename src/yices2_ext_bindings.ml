@@ -74,7 +74,7 @@ module Term = struct
     let Term x = reveal t in
     match x with
     | A0 _ ->
-      let s = PP.term_string ~display:Types.{width = 80; height = 10000; offset = 0} t in
+      let s = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0} t in
       let s =
         if String.length s < 2 then s
         else
