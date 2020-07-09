@@ -18,7 +18,7 @@ depends: [
   "sexplib"
   "sexplib0"
   "zarith"
-  "ctypes-zarith"
+  "ctypes-zarith" {>= "0.2.0"}
 #  "ctypes-of-clang"
 ]
 build: [
