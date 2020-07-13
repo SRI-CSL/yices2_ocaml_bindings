@@ -1,7 +1,7 @@
 version = "1.0"
 description = "Yices2 bindings library"
 
-requires        = "ocamlbuild ctypes ctypes.foreign containers sexplib sexplib0 ppx_deriving ppx_optcomp zarith ctypes-zarith"
+requires        = "ctypes ctypes.foreign containers sexplib sexplib0 ppx_deriving ppx_optcomp zarith ctypes-zarith"
 archive(byte)   = "yices2_bindings.cma"
 archive(native) = "yices2_bindings.cmxa"
 exists_if       = "yices2_bindings.cmxa"
