@@ -25,7 +25,7 @@ module Type : sig
   (** Print with specific height *)
   val pph : int -> t Format.printer
 
-  (** Print with height 20 *)
+  (** Print through SMTLib expressions *)
   val pp : t Format.printer
 
   val to_sexp : t -> Sexplib.Type.t
@@ -38,10 +38,83 @@ module Term : sig
   (** Print with specific height *)
   val pph : int -> t Format.printer
 
-  (** Print with height 20 *)
+  (** Print through SMTLib expressions *)
   val pp : t Format.printer
 
-  val to_sexp : t -> Sexplib.Type.t
+  val to_sexp_termstruct : _ Types.termstruct -> Sexp.t
+  val to_sexp : t -> Sexp.t
+
+  val fv_termstruct : Term.t -> _ Types.termstruct -> bool
+  val fv : Term.t -> Term.t -> bool
+
+  (** For bitvector terms *)
+  val width : Term.t -> int
+end
+
+module BoolStruct : sig
+  type 'a t = Leaf of 'a | And of 'a t list | Or of 'a t list | Not of 'a t
+  [@@deriving eq, show, ord]
+  val map : ('a -> 'b) -> 'a t -> 'b t
+  val nnf : bool -> 'a t -> 'a t (* Negation Normal Form *)
+end
+
+module Slice : sig
+  type t = private {
+    extractee : Term.t;
+    indices   : (int * int) option;
+  }
+  val build   : ?indices:(int*int) -> Term.t -> t
+  val to_term : t -> Term.t
+  val to_sexp : t -> Sexp.t
+  val pp      : t Format.printer
+  val width   : t -> int
+  val fv      : Term.t -> t -> bool
+end
+
+module ExtTerm : sig
+  type 'a bs    = private BS
+  type 'a ts    = private TS
+
+  type (_,_) base =
+    | TermStruct : 'a Types.termstruct -> ('a ts, [`tstruct]) base
+    | T      : Term.t                  -> (_  ts, [`closed] ) base
+    | Bits   : Term.t list             -> ([`bits]  bs, _) base 
+    | Slice  : Slice.t BoolStruct.t    -> ([`slice] bs, _) base
+    | Concat : [`block] closed list    -> ([`concat],   _) base
+    | Block  : { block : _ bs closed;
+                 sign_ext  : int; (* Length of sign extension *)
+                 zero_ext  : int; (* Length of zero extension *) } -> ([`block], _) base
+
+  and 'a closed      = ('a, [`closed])  base
+  type 'a termstruct = ('a, [`tstruct]) base
+
+  type 'a bits   = ([`bits]  bs, 'a) base
+  type 'a slice  = ([`slice] bs, 'a) base
+  type 'a concat = ([`concat], 'a) base
+  type 'a block  = ([`block], 'a) base
+
+  type bit_select = Term.t * int [@@deriving eq, ord]
+  type bit_struct = bit_select BoolStruct.t [@@deriving eq, ord]
+
+  val return_block : _ bs closed -> _ block
+  val to_sexp      : _ base -> Sexp.t
+  val pp           : _ base Format.printer
+  val to_term      : _ base -> Term.t
+  val build        : 'a termstruct -> 'a closed
+  val width        : _ base -> int
+  val fv           : Term.t -> _ base -> bool
+  val typeof       : _ base -> Type.t
+  val bvarray      : Term.t list -> _ block list
+  module MTerm(M : Monad) : sig
+    type update = { apply : 'a. 'a closed -> 'a closed M.t }
+    val map       : update ->   'a termstruct -> 'a termstruct M.t
+  end
+
+  type t  = ExtTerm  : _ closed -> t
+  type yt = YExtTerm : _ termstruct -> yt
+  val of_yterm : Types.yterm -> yt
+  val of_term  : Term.t -> yt
+
 end
 
 module Model := Model

@@ -32,8 +32,6 @@ module Type = struct
       |> Format.fprintf fmt "%s"
     with _ -> Format.fprintf fmt "null_type"
 
-  let pp = pph 20
-
   let rec to_sexp typ =
     match reveal typ with
     | Bool -> Atom "Bool"
@@ -49,18 +47,19 @@ module Type = struct
       | [dom] -> sexp "Array" [dom; to_sexp codom]
       | _ -> sexp "Array" [ List dom; to_sexp codom]
 
+  let pp fmt t = t |> to_sexp |> pp_sexp fmt
+
 end
 
-module Term = struct
+module TMP = struct
   include Term
+
   let pph height fmt t =
     let display = Types.{ width = 80; height; offset = 0 } in
     try
       t |> PP.term_string ~display
       |> Format.fprintf fmt "%s"
     with _ -> Format.fprintf fmt "null_term"
-
-  let pp = pph 20
 
   let pow i t = 
     if i = 0 then t
@@ -70,10 +69,47 @@ module Term = struct
       in
       sexp "*" (aux i [])
 
-  let rec to_sexp t =
-    let Term x = reveal t in
-    match x with
-    | A0 _ ->
+  (* For bitvector terms *)
+  let width y = Type.bvsize(Term.type_of_term y)
+
+  (*************************)
+  (* Free Variable testing *)
+  (*************************)
+
+  open MTerm(struct
+      include Option
+      let bind = ( >>= )
+    end)
+
+  module HPairs = Hashtbl.Make(struct
+      type t = Term.t * Term.t [@@deriving eq]
+      let hash = Hash.pair Term.hash Term.hash
+    end)
+
+  let free_table = HPairs.create 500
+
+  let rec fv_termstruct : type a. Term.t -> a termstruct -> bool = fun x -> function
+    | A0(_,t) -> Term.equal t x
+    | a    ->
+      match map (fv_aux x) a with
+      | Some _ -> false
+      | None   -> true
+  and fv_aux x t =
+    match HPairs.find_opt free_table (x,t) with
+    | Some b -> b
+    | None ->
+      let Term a = Term.reveal t in
+      let answer = if fv_termstruct x a then None else Some t in
+      HPairs.add free_table (x,t) answer;
+      answer
+
+  let fv x t = match fv_aux x t with
+    | Some _ -> false
+    | None -> true
+
+  let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
+    fun to_sexp -> function
+    | A0(_, t) ->
       let s = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0} t in
       let s =
         if String.length s < 2 then s
@@ -127,7 +163,7 @@ module Term = struct
         | `YICES_DISTINCT_TERM -> sexp "distinct" args
         | `YICES_OR_TERM       -> sexp "or" args
         | `YICES_XOR_TERM      -> sexp "xor" args
-        | `YICES_BV_ARRAY      -> sexp "concat" args
+        | `YICES_BV_ARRAY      -> sexp "bool-to-bv" args (* Not official SMTLib syntax *)
       end
     | Bindings{c;vars;body} ->
       let aux v = List[to_sexp v; Type.to_sexp(type_of_term v)] in  
@@ -139,7 +175,7 @@ module Term = struct
         | `YICES_LAMBDA_TERM -> sexp "lambda" [vars; body]
       end
     | App(f,l) ->
-      let f = to_sexp t in
+      let f = to_sexp f in
       let l = List.map to_sexp l in
       begin
         match l with
@@ -160,10 +196,13 @@ module Term = struct
       begin
         match c with
         | `YICES_SELECT_TERM -> sexp "select" [Atom(string_of_int i);t]
-        | `YICES_BIT_TERM    -> sexp "bitextract" [Atom(string_of_int i);t]
+        | `YICES_BIT_TERM    -> sexp "bitextract" [Atom(string_of_int i);t] (* Not official SMTLib syntax *)
       end
     | BV_Sum l ->
-      let width = t |> Term.type_of_term |> Type.bvsize in
+      let width = match l with
+        | (coeff,_)::_ -> List.length coeff
+        | [] -> assert false
+      in
       let one  = Term.BV.bvconst_one ~width in
       let aux (coeff, term) =
         let coeff = Term.BV.bvconst_from_list coeff in
@@ -191,6 +230,390 @@ module Term = struct
       let aux (term, exp) = pow (Unsigned.UInt.to_int exp) (to_sexp term) in
       sexp (if isBV then "bvmul" else "*") (List.map aux l) 
 
+end
+
+module BoolStruct = struct
+
+  type 'a t =
+    | Leaf of 'a
+    | And of 'a t list
+    | Or  of 'a t list
+    | Not of 'a t
+  [@@deriving eq, show]
+
+  let rec compare compare_leaf t1 t2 = match t1, t2 with
+    | Leaf t1, Leaf t2 -> compare_leaf t1 t2
+    | And l1, And l2
+    | Or l1, Or l2 -> List.compare (compare compare_leaf) l1 l2
+    | Not t1, Not t2 -> compare compare_leaf t1 t2
+    | Leaf _, _ -> -1
+    | _, Leaf _ -> 1
+    | Not _, _  -> -1
+    | _, Not _  -> 1
+    | Or _, _   -> -1
+    | _, Or _   -> -1
+
+  let rec map f = function
+    | Leaf a -> Leaf (f a)
+    | And l -> And(List.map (map f) l)
+    | Or l  -> Or(List.map (map f) l)
+    | Not a  -> Not(map f a)
+
+  let rec nnf polarity = function
+    | Leaf _ as l -> if polarity then l else Not l
+    | And l ->
+      let l = List.map (nnf polarity) l in
+      if polarity then And l else Or l
+    | Or l ->
+      let l = List.map (nnf polarity) l in
+      if polarity then Or l else And l
+    | Not a -> nnf (not polarity) a
+
+end
+
+
+module SliceTMP = struct
+
+  type t = { extractee : Term.t;
+             indices   : (int * int) option }
+
+  let build ?indices extractee =
+    assert(Term.is_bitvector extractee);
+    match indices with
+    | Some(lo,hi) when not(Int.equal lo 0 && Int.equal hi (TMP.width extractee)) ->
+      {extractee; indices}
+    | _ -> { extractee; indices = None }
+
+  let to_term {extractee; indices} =
+    match indices with
+    | None -> extractee
+    | Some(lo,hi) -> 
+      Term.BV.bvextract extractee lo (hi-1)
+
+  let to_sexp to_sexp_term {extractee; indices} = 
+    match indices with
+    | Some(lo,hi) ->
+      let f = sexp "_" [Atom "extract"; Atom(string_of_int(hi - 1)); Atom(string_of_int lo)] in
+      List[f; to_sexp_term extractee]
+    | _ -> to_sexp_term extractee
+
+  let width { extractee; indices } = match indices with
+    | None -> TMP.width extractee
+    | Some(lo, hi) -> hi - lo
+
+  let fv x {extractee} = TMP.fv x extractee
+end
+
+(* Terms extended with primitive constructs for
+   bvand, bvor, bvnot, sign-extend, zero-extend, concat, etc *)
+
+module ExtTerm = struct
+
+  type 'a bs = private BS
+  type 'a ts = private TS
+      
+  type (_,_) base =
+    | TermStruct : 'a Types.termstruct -> ('a ts, [`tstruct]) base
+    | T      : Term.t                  -> (_  ts, [`closed] ) base
+    | Bits   : Term.t list             -> ([`bits]  bs, _) base 
+    | Slice  : SliceTMP.t BoolStruct.t -> ([`slice] bs, _) base
+    | Concat : [`block] closed list    -> ([`concat],   _) base
+    | Block  : { block : _ bs closed;
+                 sign_ext  : int; (* Length of sign extension *)
+                 zero_ext  : int; (* Length of zero extension *) } -> ([`block], _) base
+
+  and 'a closed     = ('a, [`closed])  base
+  type 'a termstruct = ('a, [`tstruct]) base
+
+  type 'a bits   = ([`bits]  bs, 'a) base
+  type 'a slice  = ([`slice] bs, 'a) base
+  type 'a concat = ([`concat], 'a) base
+  type 'a block  = ([`block], 'a) base
+
+  type bit_select = Term.t * int [@@deriving eq, ord]
+  type bit_struct = bit_select BoolStruct.t [@@deriving eq, ord]
+
+  let return_block block = Block{block; sign_ext = 0; zero_ext = 0}
+
+  let rec to_term : type a b. (a, b) base -> Term.t = function
+    | TermStruct a   -> Term.build a
+    | T a            -> a
+    | Bits  block    -> Term.BV.bvarray block
+    | Slice slice ->
+      let open BoolStruct in
+      let rec aux = function
+        | Leaf slice -> SliceTMP.to_term slice
+        | And l    -> Term.BV.bvand (List.map aux l)
+        | Or l     -> Term.BV.bvor  (List.map aux l)
+        | Not a    -> Term.BV.bvnot (aux a)
+      in
+      aux slice
+    | Concat l -> Term.BV.bvconcat (List.rev_map to_term l)
+    | Block{block; sign_ext; zero_ext} ->
+      let block = to_term block in
+      let block = if sign_ext = 0 then block else Term.BV.sign_extend block sign_ext in
+      if zero_ext = 0 then block else Term.BV.zero_extend block zero_ext
+
+  let build : type a. a termstruct -> a closed = function
+    | TermStruct a  -> T(Term.build a)
+    | Block b       -> Block b
+    | Bits  _ as t  -> t
+    | Slice _ as t  -> t
+    | Concat _ as t -> t
+
+  let rec width : type a b. (a, b) base -> int = function
+    | TermStruct a -> TMP.(width(build a))
+    | T a          -> TMP.(width a)
+    | Bits l       -> List.length l
+    | Slice slice ->
+      let open BoolStruct in
+      let rec aux = function
+        | Leaf slice -> SliceTMP.width slice
+        | And(a::_) -> aux a
+        | Or (a::_) -> aux a
+        | Not a -> aux a
+        | _ -> assert false
+      in
+      aux slice
+    | Concat l -> List.fold_left (fun sofar block -> sofar + width block) 0 l
+    | Block{block; sign_ext; zero_ext} -> width block + sign_ext + zero_ext
+
+  let rec fv : type a b. Term.t -> (a, b) base -> bool = fun x -> function
+    | TermStruct a -> TMP.fv_termstruct x a
+    | T a          -> TMP.fv x a
+    | Bits a       -> List.exists (TMP.fv x) a
+    | Slice slice ->
+      let open BoolStruct in
+      let rec aux = function
+        | Leaf slice -> SliceTMP.fv x slice
+        | And l      -> List.exists aux l
+        | Or l       -> List.exists aux l
+        | Not a      -> aux a
+      in
+      aux slice
+    | Concat l     -> List.exists (fun (Block{ block }) -> fv x block) l
+    | Block{block} -> fv x block
+
+  let typeof : type a b. (a, b) base -> Type.t = function
+    | TermStruct a -> Term.(type_of_term(build a))
+    | T a          -> Term.(type_of_term a)
+    | other        -> width other |> Type.bv
+
+  let bvarray (type b) bits =
+    let init_slice bstruct =
+      let aux (extractee,i) = SliceTMP.build extractee ~indices:(i, i+1) in
+      Slice(BoolStruct.map aux bstruct)
+    in
+    let init_bits bit = Bits [bit] in
+    let close_slice : type a. a bs closed -> a bs closed = function
+      | Slice slice ->
+        Slice(BoolStruct.nnf true slice)
+      | Bits l      -> Bits(List.rev l)
+    in
+    let open Types in
+    (* Check if bit is t[i] *)
+    let rec analyse bit =
+      let open Option in
+      let open BoolStruct in
+      match Term.reveal bit with
+      | Term(Projection(`YICES_BIT_TERM, i, t)) -> return (Leaf(t, i))
+      | Term(A1(`YICES_NOT_TERM, bit)) ->
+        let+ t = analyse bit in
+        Not t 
+      | Term(Astar(`YICES_OR_TERM, l)) ->
+        let rec aux accu = function
+          | [] -> return accu
+          | head::tail ->
+            let* t = analyse head in
+            aux (t::accu) tail
+        in
+        let+ t = aux [] l in
+        Or(List.fast_sort compare_bit_struct t)
+      | _ -> None
+    in
+    let rec test slice bit =
+      let open Option in
+      let open BoolStruct in
+      match slice, bit with
+      | Leaf SliceTMP.{extractee; indices = Some(lo, hi) }, Leaf(t, i)
+        when hi = i && Term.equal t extractee ->
+        Option.return (Leaf(SliceTMP.build extractee ~indices:(lo, hi+1)))
+      | And l_slice, And l_bit ->
+        let+ slice = aux [] (l_slice, l_bit) in
+        And slice
+      | Or l_slice, Or l_bit ->
+        let+ slice = aux [] (l_slice, l_bit) in
+        Or slice
+      | Not slice, Not bit ->
+        let+ slice = test slice bit in
+        Not slice
+      | _ ->
+        None
+    and aux accu =
+      let open Option in
+      function
+      | [], [] -> Option.return (List.rev accu)
+      | (head_slice::tail_slice), (head_bit::tail_bit) ->
+        let* slice = test head_slice head_bit in
+        aux (slice::accu) (tail_slice, tail_bit)
+      | [], _::_ | _::_, [] -> None
+    in
+
+    let rec prolong_block (Block{ block; sign_ext; zero_ext } as last) ?sign bits accu =
+      match sign, bits with
+      | _, [] ->
+        last::accu |> List.rev  (* we have finished, we push the last block, reversing order *)
+      | Some sign, bit::tail -> (* we have a sign bit and we have a new bit *)
+        if Term.equal sign bit
+        then prolong_block (Block{ block; sign_ext = sign_ext + 1; zero_ext }) ~sign tail accu
+        else prolong_block last bits accu (* Same as our call, minus the optional argument *)
+      | None, bit::tail ->                (* We don't have a sign bit and we have a new bit *)
+        if Term.(equal bit (true0()))
+        then prolong_block (Block{ block; sign_ext; zero_ext = zero_ext + 1 }) tail accu
+        else
+          match analyse bit with
+          | Some s -> prolong_slice (init_slice s)  ~sign:bit tail (last::accu)
+          | None   -> prolong_slice (init_bits bit) ~sign:bit tail (last::accu)
+
+    and prolong_slice : type a.
+      a bs closed -> sign:Term.t -> Term.t list -> b block list -> b block list
+      = fun slice ~sign bits accu ->
+        match bits with
+        | [] ->
+          let block = return_block (close_slice slice) in
+          block::accu |> List.rev (* we have finished, closing last slice, and reversing order *)
+        | bit::tail ->            (* we have a new bit to look at *)
+          match slice, analyse bit with
+          | Slice s, Some b ->
+            begin
+              match test s b with
+              | Some s -> prolong_slice (Slice s) ~sign:bit tail accu
+              | None   -> (* End of the slice; we see whether we have extensions *)
+                let block = return_block(close_slice slice) in
+                prolong_block block ~sign bits accu
+            end
+          | Slice s, None ->
+            let block = return_block(close_slice slice) in
+            prolong_slice (init_bits bit) ~sign:bit tail (block::accu)
+          | Bits l, None   -> prolong_slice (Bits(bit::l)) ~sign:bit tail accu
+          | Bits l, Some b ->
+            let block = return_block(close_slice slice) in
+            prolong_slice (init_slice b) ~sign:bit tail (block::accu)
+    in
+    match bits with
+    | [] -> assert false (* There must be at least one bit! *)
+    | bit::tail ->
+      match analyse bit with
+      | Some b -> prolong_slice (init_slice b) ~sign:bit tail []
+      | None   -> prolong_slice (init_bits bit) ~sign:bit tail []
+
+  module MTerm(M : Monad) = struct
+    open MTerm(M)
+    let (let*) = M.bind
+    let (let+) a f = M.bind a (fun r -> M.return(f r))
+
+    let rec mapList f = function
+      | [] -> M.return []
+      | head::tail ->
+        let* h = f head in
+        let+ t = mapList f tail in
+        h::t
+
+    type update = { apply : 'a. 'a closed -> 'a closed M.t }
+
+    let auxTerm f t  = let+ T t     = f.apply(T t) in t
+    let auxSlice f s = let+ Slice s = f.apply(Slice s) in s
+
+    let mapSlice f = let open BoolStruct in function
+      | Leaf(SliceTMP.{ extractee; indices }) ->
+        let+ extractee = auxTerm f extractee in
+        Leaf(SliceTMP.{ extractee; indices })
+      | And l -> let+ l = mapList (auxSlice f) l in And l
+      | Or l  -> let+ l = mapList (auxSlice f) l in Or l
+      | Not a -> let+ a = auxSlice f a in Not a
+
+    let map : type a. update -> (a, [`tstruct]) base -> (a, [`tstruct]) base M.t =
+      let open M in
+      fun f -> function
+        | TermStruct a  -> let+ a      = map (auxTerm f) a        in TermStruct a
+        | Slice slice   -> let+ slice  = mapSlice f slice         in Slice slice
+        | Bits bits     -> let+ bits   = mapList (auxTerm f) bits in Bits bits
+        | Concat concat -> let+ concat = mapList f.apply concat   in Concat concat
+        | Block{block; sign_ext; zero_ext} ->
+          let+ block = f.apply block in Block{block; sign_ext; zero_ext}
+    
+  end
+  
+  type t  = ExtTerm  : _ closed -> t
+  type yt = YExtTerm : _ termstruct -> yt
+
+  module HReveal = Hashtbl.Make(Term)
+
+  let reveal_table = HReveal.create 500
+
+  let of_yterm : Types.yterm -> yt = function
+    | Term(Astar(`YICES_BV_ARRAY, bits)) -> (* In case of a BV_ARRAY, we preprocess *)
+      begin
+        match bvarray bits with
+        | [Block{ block = Slice _ as slice; sign_ext=0; zero_ext=0}] -> YExtTerm slice
+        | [Block{ block = Bits _  as bits ; sign_ext=0; zero_ext=0}] -> YExtTerm bits
+        | l                                                          -> YExtTerm(Concat l)
+      end
+    | Term a -> YExtTerm(TermStruct a) (* Otherwise we let solve_aux analyse the term structure *)
+
+  let of_term t =
+    match Term.reveal t with
+    | Term(Astar(`YICES_BV_ARRAY, _)) as tt -> (* In case of a BV_ARRAY, we look up the table *)
+      begin
+        match HReveal.find_opt reveal_table t with
+        | Some a -> a
+        | None ->
+          let answer = of_yterm tt in
+          HReveal.replace reveal_table t answer;
+          answer
+      end
+    | tt -> of_yterm tt
+
+  let rec to_sexp : type a b. (a, b) base -> Sexp.t = function
+    | TermStruct a -> TMP.to_sexp_termstruct to_sexp_t a
+    | T a          -> to_sexp_t a
+    | Bits  block  -> sexp "bool-to-bv" (List.map to_sexp_t block)
+    (* Not official SMTLib syntax *)
+    | Slice slice ->
+      let open BoolStruct in
+      let rec aux = function
+        | Leaf slice -> SliceTMP.to_sexp to_sexp_t slice
+        | And l  -> sexp "bvand" (List.map aux l)
+        | Or l   -> sexp "bvor"  (List.map aux l)
+        | Not a  -> sexp "bvnot" [aux a]
+      in
+      aux slice
+    | Concat l    -> sexp "concat" (List.rev_map to_sexp l)
+    | Block{block; sign_ext; zero_ext} ->
+      let block = to_sexp block in
+      let f string i term = List[ sexp "_" [Atom string; Atom(string_of_int i)] ; term ] in
+      let block = if sign_ext = 0 then block else f "sign_extend" sign_ext block in
+      if zero_ext = 0 then block else f "sign_extend" zero_ext block
+
+  and to_sexp_t : Term.t -> Sexp.t = fun t ->
+    let YExtTerm t = of_term t in
+    to_sexp t
+  
+  let pp fmt t = t |> to_sexp |> pp_sexp fmt
+  
+end
+
+module Term = struct
+  include TMP
+  let to_sexp = ExtTerm.to_sexp_t
+  let to_sexp_termstruct t = TMP.to_sexp_termstruct to_sexp t
+  let pp fmt t = to_sexp t |> pp_sexp fmt
+end
+
+module Slice = struct
+  include SliceTMP
+  let to_sexp = to_sexp Term.to_sexp
+  let pp fmt t = to_sexp t |> pp_sexp fmt
 end
 
 module Types = struct
