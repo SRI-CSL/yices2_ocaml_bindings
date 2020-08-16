@@ -607,7 +607,9 @@ module Term = struct
   include TMP
   let to_sexp = ExtTerm.to_sexp_t
   let to_sexp_termstruct t = TMP.to_sexp_termstruct to_sexp t
-  let pp fmt t = to_sexp t |> pp_sexp fmt
+  let pp fmt t = try
+      to_sexp t |> pp_sexp fmt
+    with ExceptionsErrorHandling.YicesException _ -> Format.fprintf fmt "NULL_TERM"
 end
 
 module Slice = struct
@@ -634,10 +636,10 @@ module Types = struct
       badval
       Types.pp_error_code code
       column line
-      (Term.pph 1000) term1
-      (Term.pph 1000) term2
-      (Type.pph 1000) type1
-      (Type.pph 1000) type2
+      Term.pp term1
+      Term.pp term2
+      Type.pp type1
+      Type.pp type2
 end
 
 module Model = struct
