@@ -1,6 +1,6 @@
 opam-version: "2.0"
 name: "yices2_bindings"
-version: "0.1"
+version: "0.2"
 synopsis: "Ocaml bindings for yices2"
 description: "Ocaml bindings for yices2"
 maintainer: "Stephane Graham-Lengrand <stephane.graham-lengrand@csl.sri.com>"
@@ -12,6 +12,7 @@ depends: [
   "ocaml" {>= "4.08"}
   "ocamlbuild" {build}
   "ocamlfind" {build}
+  "containers"  {>= "3.0.0"}
   "ctypes"
   "ctypes-foreign"
   "ppx_deriving"
