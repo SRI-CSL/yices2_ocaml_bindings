@@ -93,7 +93,7 @@ module Session = struct
     let log = Context.to_sexp context in
     let sl = List[Atom "set-logic"; Atom logic] in
     let pp fmt sexplist =
-      Format.fprintf fmt "@[<v>%a@]" (List.pp ~sep:"" pp_sexp) sexplist
+      Format.fprintf fmt "@[<v>%a@]" (List.pp ~pp_sep:Format.unit pp_sexp) sexplist
     in
     Format.to_string pp (sl::log)
 
