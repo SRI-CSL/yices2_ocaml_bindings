@@ -97,6 +97,14 @@ let test () =
   let exists1 = exists vars2 vareq in
   let lambda1 = lambda vars2 vareq in
 
+  let i1 = Arith.int 6 in
+  let i2 = Arith.int 3 in
+  assert(Term.is_int (Arith.division i1 i2));
+  assert(not(Term.is_real (Arith.division i1 i2)));
+  let i2' = new_uninterpreted int_t in
+  let i3 = Arith.division i1 i2' in
+  assert(Term.is_real i3);
+  assert(not(Term.is_int i3));
   let int64_1 = int64(Long.of_int 42) in
   let rat_1   = rational 13 7 in
   let rat32_1 = rational32 (SInt.of_int 13) (UInt.of_int 7) in
