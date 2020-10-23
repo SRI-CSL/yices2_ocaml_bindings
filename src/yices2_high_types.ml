@@ -3144,7 +3144,7 @@ module type API = sig
      
       Since 2.6.2. *)
   val check_formula :
-    ?logic:string -> ?model:bool -> ?delegate:string -> term_t -> smt_status_t * Model.t option
+    ?logic:string -> ?model:bool -> ?delegate:string -> term_t -> smt_status * Model.t option
 
     (** Check whether n formulas are satisfiable.
       - f = array of n Boolean terms
@@ -3156,7 +3156,7 @@ module type API = sig
       Since 2.6.2.  *)
     val check_formulas :
       ?logic:string -> ?model:bool -> ?delegate:string -> term_t list
-      -> smt_status_t * Model.t option
+      -> smt_status * Model.t option
 
     (** Check whether the given delegate is supported
       - return 0 if it's not supported.
@@ -3213,7 +3213,7 @@ module type API = sig
       Since 2.6.2. *)
 
     val export_formula_to_dimacs :
-      term_t -> filename:string -> simplify:bool -> (smt_status_t * bool) eh
+      term_t -> filename:string -> simplify:bool -> (smt_status * bool) eh
     (** Bit-blast n formulas then export the CNF to a file
       - f = array of n Boolean formula (in the QF_BV theory)
       - n = number of formulas in f
@@ -3230,7 +3230,7 @@ module type API = sig
      
       Since 2.6.2. *)
     val export_formulas_to_dimacs :
-      term_t list -> filename:string -> simplify:bool -> (smt_status_t * bool) eh
+      term_t list -> filename:string -> simplify:bool -> (smt_status * bool) eh
 
   module Context : sig
 
