@@ -1288,7 +1288,7 @@ module SafeMake
       else null (ptr model_t)
     in
     let status = yices_check_formula term ??>logic model_ptr ??>delegate in
-    (status, if model then Some !@model_ptr else None)
+    (Conv.smt_status.read status, if model then Some !@model_ptr else None)
 
   let check_formulas ?logic ?(model=false) ?delegate terms =
     let model_ptr =
@@ -1298,21 +1298,21 @@ module SafeMake
     let status =
       (yices_check_formulas |> swap |> ofList1 term_t) terms ??>logic model_ptr ??>delegate
     in
-    (status, if model then Some !@model_ptr else None)
+    (Conv.smt_status.read status, if model then Some !@model_ptr else None)
 
   let has_delegate = yices_has_delegate |> ofString <.> toBool 
 
   let export_formula_to_dimacs term ~filename ~simplify =
     Alloc.(load (yices_export_formula_to_dimacs term ?>filename (Conv.bool.write simplify))
            |> alloc smt_status_t
-           |> check (fun b ((),x) -> !@x,Conv.bool.read b))
+           |> check (fun b ((),x) -> Conv.smt_status.read !@x,Conv.bool.read b))
 
   let export_formulas_to_dimacs terms ~filename ~simplify =
     Alloc.(load
              ((yices_export_formulas_to_dimacs |> swap |> ofList1 term_t)
                 terms ?>filename (Conv.bool.write simplify))
            |> alloc smt_status_t
-           |> check (fun b ((),x) -> !@x,Conv.bool.read b))
+           |> check (fun b ((),x) -> Conv.smt_status.read !@x,Conv.bool.read b))
 
   module Context = struct
     type t = context_t ptr
