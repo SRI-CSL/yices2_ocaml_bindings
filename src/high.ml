@@ -7,14 +7,14 @@ open Ctypes_zarith
 [%%endif]
 open Signed
 open Unsigned
-open Yices2_low
+open Low
 
 (* Abbreviation *)
-module type API = Yices2_high_types.API
+module type API = High_types.API
 
 module Types = struct
-  include Yices2_low.Types
-  include Yices2_high_types.Types
+  include Low.Types
+  include High_types.Types
 end
 
 open Types
@@ -242,7 +242,7 @@ module SumErrorHandling = struct
 end
 
 module SafeMake
-    (L : Yices2_low_types.API with type 'a Types.sintbase = 'a sintbase
+    (L : Low_types.API with type 'a Types.sintbase = 'a sintbase
                                and type 'a Types.uintbase = 'a uintbase)
     (EH: SafeErrorHandling with type 'a checkable := 'a L.checkable) = struct
 
@@ -1354,4 +1354,4 @@ module SafeMake
 
 end
 
-module Make(EH: ErrorHandling) = SafeMake(struct include Yices2_low type 'a checkable = 'a end)(EH)
+module Make(EH: ErrorHandling) = SafeMake(struct include Low type 'a checkable = 'a end)(EH)

@@ -5,7 +5,7 @@
  (action (copy %{gmp} %{targets})))
 
 (library
- (name bindings)
+ (name yices2)
  (public_name yices2_bindings)
  (libraries ctypes ctypes.foreign sexplib containers config)
  (flags (:standard -cclib -lyices))

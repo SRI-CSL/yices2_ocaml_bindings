@@ -3,7 +3,7 @@
 open Signed
 open Unsigned
 open Containers
-open Yices2_high
+open Yices2.High
 
 module EH1 = Make(ExceptionsErrorHandling)
 

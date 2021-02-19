@@ -5,7 +5,7 @@ open Containers
 open Sexplib
 open Type
     
-open Yices2_high
+open High
 open Types
 
 module List = struct

@@ -1,7 +1,7 @@
 open Containers
 open Sexplib
 
-open Yices2_high
+open High
 
 module List : module type of List
   

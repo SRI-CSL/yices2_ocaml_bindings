@@ -3,7 +3,7 @@
 open Ctypes
 open Unsigned
 open Signed
-open Yices2_low.Types
+open Low.Types
 
 module Types = struct
 

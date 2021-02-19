@@ -1,4 +1,4 @@
-open Yices2_low_types
+open Low_types
 
 module type API  = API
 

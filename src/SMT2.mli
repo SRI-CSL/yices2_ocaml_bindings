@@ -1,8 +1,8 @@
 open Sexplib
 
-open Yices2_high
+open High
 open Types
-open Yices2_ext_bindings
+open Ext_bindings
 
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string

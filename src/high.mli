@@ -1,9 +1,9 @@
 open Ctypes_static
 
-module type API = Yices2_high_types.API
+module type API = High_types.API
 
-module LowTypes  := Yices2_low.Types
-module HighTypes := Yices2_high_types.Types
+module LowTypes  := Low.Types
+module HighTypes := High_types.Types
 
 module Types : sig
   include module type of LowTypes

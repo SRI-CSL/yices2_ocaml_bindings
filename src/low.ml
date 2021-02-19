@@ -2,13 +2,13 @@ open Ctypes
 open Signed
 open Unsigned
 
-module type API = Yices2_low_types.API
+module type API = Low_types.API
 
 let (<.>) f g x = g(f x)
 
 module Types = struct
 
-  include Yices2_low_types.BaseTypes
+  include Low_types.BaseTypes
 
   let equal_sint = SInt.equal
   let equal_uint = UInt.equal
@@ -55,7 +55,7 @@ let sintcheck i = Signed.SInt.(compare zero i) <= 0
 let uintcheck i = Unsigned.UInt.(compare zero i) < 0
 let ptrcheck  p = not(is_null p)
 
-include Yices2_header
+include Header
 
 module type Conv64 = sig
   type t
