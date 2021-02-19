@@ -256,7 +256,6 @@ module type API = sig
   val bool_t : bool_t typ
   val type_t : type_t typ
   val term_t : term_t typ
-  val type_t : type_t typ
   val null_term : term_t
   val null_type : type_t
 
@@ -309,7 +308,6 @@ module type API = sig
                   size : (Unsigned.uint, type_vector_t) field > >
   val type_vector_t : type_vector_t typ
 
-  val yval_tag_t : yval_tag_t typ
   val yval_s :
     < ctype : yval_t typ;
       members : < node_id : (Signed.sint, yval_t) field;

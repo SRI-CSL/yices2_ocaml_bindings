@@ -1,0 +1,16 @@
+(rule
+ (targets gmp.mlh)
+ (deps (:gmp ../config/gmp.mlh))
+ (mode (promote (until-clean)))
+ (action (copy %{gmp} %{targets})))
+ 
+(executable
+ (name yices_smt2)
+ (public_name yices_smt2)
+ (libraries ctypes ctypes.foreign sexplib containers bindings)
+ (flags (:standard -open Bindings -cclib -lyices))
+ (preprocess (pps ppx_deriving.std ppx_optcomp))
+)
+
+(env (dev
+        (flags (:standard -warn-error -A))))

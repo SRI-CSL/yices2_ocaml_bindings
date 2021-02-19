@@ -1,4 +1,3 @@
-open Ctypes
 open Ctypes_static
 
 module type API = Yices2_high_types.API

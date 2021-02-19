@@ -1,5 +1,6 @@
+[%%import "gmp.mlh"]
+
 open Containers
-open Ctypes
 
 open Sexplib
 open Type
@@ -109,6 +110,20 @@ module TMP = struct
     | Some _ -> false
     | None -> true
 
+[%%if gmp_present]
+  let sum_aux =
+    let one = Term.Arith.int 1 in
+    fun to_sexp (coeff, term) ->
+    let coeff = Term.Arith.mpq coeff in
+    match term with
+    | Some term ->
+       if Term.equal coeff one then to_sexp term
+       else sexp "*" [to_sexp coeff; to_sexp term]
+    | None -> to_sexp coeff
+[%%else]
+  let sum_aux _ = ExceptionsErrorHandling.raise_error("Term.sum_aux necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+[%%endif]
+
   let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
     fun to_sexp -> function
     | A0(_, t) ->
@@ -217,16 +232,7 @@ module TMP = struct
       sexp "bvadd" (List.map aux l) 
 
     | Sum l ->
-      let one = Term.Arith.int 1 in
-      let aux (coeff, term) =
-        let coeff = Term.Arith.mpq coeff in
-        match term with
-        | Some term ->
-          if Term.equal coeff one then to_sexp term
-          else sexp "*" [to_sexp coeff; to_sexp term]
-        | None -> to_sexp coeff
-      in
-      sexp "+" (List.map aux l) 
+      sexp "+" (List.map (sum_aux to_sexp) l) 
 
     | Product(isBV, l) ->
       let aux (term, exp) = pow (Unsigned.UInt.to_int exp) (to_sexp term) in
@@ -303,7 +309,7 @@ module SliceTMP = struct
     | None -> TMP.width extractee
     | Some(lo, hi) -> hi - lo
 
-  let fv x {extractee} = TMP.fv x extractee
+  let fv x {extractee; _} = TMP.fv x extractee
 end
 
 (* Terms extended with primitive constructs for
@@ -393,8 +399,8 @@ module ExtTerm = struct
         | Not a      -> aux a
       in
       aux slice
-    | Concat l     -> List.exists (fun (Block{ block }) -> fv x block) l
-    | Block{block} -> fv x block
+    | Concat l     -> List.exists (fun (Block{ block; _ }) -> fv x block) l
+    | Block{block; _} -> fv x block
 
   let typeof : type a b. (a, b) base -> Type.t = function
     | TermStruct a -> Term.(type_of_term(build a))
@@ -494,11 +500,11 @@ module ExtTerm = struct
                 let block = return_block(close_slice slice) in
                 prolong_block block ~sign bits accu
             end
-          | Slice s, None ->
+          | Slice _, None ->
             let block = return_block(close_slice slice) in
             prolong_slice (init_bits bit) ~sign:bit tail (block::accu)
           | Bits l, None   -> prolong_slice (Bits(bit::l)) ~sign:bit tail accu
-          | Bits l, Some b ->
+          | Bits _, Some b ->
             let block = return_block(close_slice slice) in
             prolong_slice (init_slice b) ~sign:bit tail (block::accu)
     in
@@ -535,7 +541,6 @@ module ExtTerm = struct
       | Not a -> let+ a = auxSlice f a in Not a
 
     let map : type a. update -> (a, [`tstruct]) base -> (a, [`tstruct]) base M.t =
-      let open M in
       fun f -> function
         | TermStruct a  -> let+ a      = map (auxTerm f) a        in TermStruct a
         | Slice slice   -> let+ slice  = mapSlice f slice         in Slice slice
@@ -654,9 +659,6 @@ end
 
 module Action = struct
 
-  type param = Param.t
-  let pp_param _ _ = ()
-
   type t =
     | DeclareType of string
     | DeclareFun of string * Type.t
@@ -668,8 +670,8 @@ module Action = struct
     | DisableOption of string
     | AssertFormula of Term.t
     | AssertFormulas of Term.t list
-    | Check of param option
-    | CheckWithAssumptions of param option * Term.t list
+    | Check of Param.t option
+    | CheckWithAssumptions of Param.t option * Term.t list
     | Stop
     | GetModel
     | GetUnsatCore
@@ -730,9 +732,9 @@ module Context = struct
     log        : Action.t list ref
   }
 
-  let pp fmt {assertions} = pp_assertions fmt !assertions
+  let pp fmt {assertions; _} = pp_assertions fmt !assertions
 
-  let to_sexp {log} =
+  let to_sexp {log; _} =
     !log |> List.fold_left Action.to_sexp [] 
 
   let malloc ?config () =
@@ -742,7 +744,7 @@ module Context = struct
       options = StringHashtbl.create 10;
       log = ref [] }
 
-  let free   {context} = free context
+  let free   {context; _} = free context
   let status x =
     x.log := Status::!(x.log);
     status x.context
@@ -761,22 +763,22 @@ module Context = struct
     x.log := Pop::!(x.log);
     begin match !(x.assertions) with
       | []     -> assert false
-      | [last] -> raise PopLastLevel
+      | [_last] -> raise PopLastLevel
       | _::tail -> x.assertions := tail
     end;
     pop x.context
 
-  let enable_option {context; options; log} ~option =
+  let enable_option {context; options; log; _} ~option =
     log := EnableOption option::!log;
     enable_option context ~option;
     StringHashtbl.replace options option ()
 
-  let disable_option {context; options; log} ~option =
+  let disable_option {context; options; log; _} ~option =
     log := DisableOption option::!log;
     disable_option context ~option;
     StringHashtbl.remove options option 
 
-  let assert_formula {context; assertions; log} formula =
+  let assert_formula {context; assertions; log; _} formula =
     log := AssertFormula formula::!log;
     begin match !assertions with
       | []     -> assert false
@@ -784,7 +786,7 @@ module Context = struct
     end;
     assert_formula context formula
 
-  let assert_formulas {context; assertions; log} formulas =
+  let assert_formulas {context; assertions; log; _} formulas =
     log := AssertFormulas formulas::!log;
     begin match !assertions with
       | []     -> assert false
@@ -793,34 +795,34 @@ module Context = struct
     end;
     assert_formulas context formulas
 
-  let check ?param {context;log} =
+  let check ?param {context;log; _} =
     log := Check param::!log;
     check ?param context
 
-  let check_with_assumptions ?param {context; log} assumptions =
+  let check_with_assumptions ?param {context; log; _} assumptions =
     log := CheckWithAssumptions(param, assumptions)::!log;
     check_with_assumptions ?param context assumptions
 
-  let stop {context; log} =
+  let stop {context; log; _} =
     log := Stop::!log;
     stop context
-  let get_model {context; log} =
+  let get_model {context; log; _} =
     log := GetModel::!log;
     get_model context
-  let get_unsat_core {context; log} =
+  let get_unsat_core {context; log; _} =
     log := GetUnsatCore::!log;
     get_unsat_core context
 
-  let declare_type {log} s =
+  let declare_type {log; _} s =
     log := DeclareType s::!log
 
-  let declare_fun {log} s t =
+  let declare_fun {log; _} s t =
     log := DeclareFun(s,t)::!log
 
-  let check_with_model ?param {context; log} model terms =
+  let check_with_model ?param {context; log; _} model terms =
     log := CheckWithModel(param, model, terms)::!log;
     check_with_model ?param context model terms
-  let get_model_interpolant {context; log} =
+  let get_model_interpolant {context; log; _} =
     log := GetModelInterpolant::!log;
     get_model_interpolant context
 
@@ -828,5 +830,5 @@ end
 
 module Param = struct
   include Param
-  let default Context.{context} = default context 
+  let default Context.{context; _} = default context 
 end

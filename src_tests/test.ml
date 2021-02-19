@@ -83,14 +83,14 @@ let () =
   try
     Terms_test.test()
   with
-    Yices2_high.ExceptionsErrorHandling.YicesException(error,report) ->
+    Yices2_high.ExceptionsErrorHandling.YicesException _ ->
     print_endline (EH1.ErrorPrint.string())
 [%%if gmp_present]
 let () =
   try
     Terms_test.test_gmp()
   with
-    Yices2_high.ExceptionsErrorHandling.YicesException(error,report) ->
+    Yices2_high.ExceptionsErrorHandling.YicesException _ ->
     print_endline (EH1.ErrorPrint.string())
 [%%else]
 let () = print_endline ""

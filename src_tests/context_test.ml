@@ -43,8 +43,8 @@ let test_context () =
   let () = Context.push ctx in
   let () = Context.pop ctx in
   Context.reset ctx;
-  let () = Context.enable_option ctx "arith-elim" in
-  let () = Context.disable_option ctx "arith-elim" in
+  let () = Context.enable_option ctx ~option:"arith-elim" in
+  let () = Context.disable_option ctx ~option:"arith-elim" in
   let stat = Context.status ctx in
   assert(Types.equal_smt_status stat `STATUS_IDLE);
   Context.reset ctx;

@@ -1,5 +1,4 @@
 open Containers
-open Arg
 
 open Yices2_high
 open Yices2_ext_bindings

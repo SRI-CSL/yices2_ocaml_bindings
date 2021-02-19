@@ -116,8 +116,8 @@ end
    No possibility of error checking in unsigned int conversion *)
 let (!>)  = UInt.of_int
 let (!<)  = UInt.to_int
-let (!>>) = ULong.of_int
-let (!<<) = ULong.to_int
+(* let (!>>) = ULong.of_int *)
+(* let (!<<) = ULong.to_int *)
 
 (* The null pointer for a particular type *)
 let null typ = null |> from_voidp typ
@@ -300,8 +300,10 @@ module SafeMake
 
   (* Useful abbreviations *)
   type 'a vector = ('a, [`Struct]) structured
+[%%if gmp_present]
   type mpz_array = MPZ.t abstract Array.t Array.t
   type mpq_array = MPQ.t abstract Array.t Array.t
+[%%endif]
 
   (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
   module Alloc  : sig

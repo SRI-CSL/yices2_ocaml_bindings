@@ -1,7 +1,4 @@
-open Containers
 open Sexplib
-
-open Ctypes
 
 open Yices2_high
 open Types

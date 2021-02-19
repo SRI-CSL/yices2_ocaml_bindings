@@ -32,7 +32,7 @@ let test () =
   let int_t  = Type.int() in
   let unint_t = Type.new_uninterpreted() in
   assert(not (equal true_ false_));
-  let const1 = constant unint_t 0 in
+  let const1 = constant unint_t ~id:0 in
   let const2 = new_uninterpreted unint_t in
   let bconst1 = new_uninterpreted bool_t in
   let iconst1 = new_uninterpreted int_t in
@@ -172,9 +172,9 @@ let test () =
   let bvconstu64_1 = bvconst_uint64 ~width:8 (ULong.of_int 42) in
   let bvconst32_1 = bvconst_int32 ~width:8 (SInt.of_int 42) in
   let bvconst64_1 = bvconst_int64 ~width:8 (Long.of_int 42) in
-  let bvconstzero_1 = bvconst_zero 16 in
-  let bvconstone_1  = bvconst_one 16 in
-  let bvconstminusone_1 = bvconst_minus_one 32 in
+  let bvconstzero_1 = bvconst_zero ~width:16 in
+  let bvconstone_1  = bvconst_one ~width:16 in
+  let bvconstminusone_1 = bvconst_minus_one ~width:32 in
   let bvconstarray1 = bvconst_from_list [true; false; true; false] in
   let bvvar1 = new_variable bv_t in
   let bvvar2 = new_variable bv_t in
@@ -339,8 +339,8 @@ let test () =
   assert(Bool.equal val_p true);
   let bval = bv_const_value bvconst32_1 in
   assert(List.equal Bool.equal bval [false; true; false; true; false; true; false; false]);
-  let scalar_t = Type.new_scalar 20 in
-  let scalar_c = Term.constant scalar_t 13 in
+  let scalar_t = Type.new_scalar ~card:20 in
+  let scalar_c = Term.constant scalar_t ~id:13 in
   assert(Int.equal (scalar_const_value scalar_c) 13);
   (* value must be an array of eight integers since bvsum has type (bitvector 8) *)
   let value, pterm = bvsum_component bvsum2 1 in

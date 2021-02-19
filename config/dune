@@ -1,0 +1,20 @@
+(rule
+ (targets verif)
+ (action (progn (run ./discover.exe) (write-file verif "GMP status verified"))))
+
+(library
+ (name config)
+ (public_name yices2_bindings.config)
+ (synopsis "Config for Yices2 bindings")
+ (libraries (select gmp.mlh from
+              (ctypes-zarith -> gmp.yes.mlh)
+              (-> gmp.no.mlh)))
+ (modules)
+)
+
+(executable
+ (name discover)
+ (libraries dune-configurator
+            (select gmp.ml from
+              (ctypes-zarith -> gmp.yes.ml)
+              (-> gmp.no.ml))))
