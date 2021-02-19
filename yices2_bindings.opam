@@ -10,17 +10,13 @@ homepage: "https://github.com/SRI-CSL/yices2_ocaml_bindings"
 bug-reports: "https://github.com/SRI-CSL/yices2_ocaml_bindings/issues"
 depends: [
   "ocaml" {>= "4.08"}
-  "ocamlbuild" {build}
+  "dune" {build}
   "ocamlfind" {build}
   "containers"  {>= "3.0.0"}
-  "ctypes"
-  "ctypes-foreign"
   "ppx_deriving"
   "ppx_optcomp"
   "sexplib"
   "sexplib0"
-  "zarith"
-  "ctypes-zarith" {>= "0.2.0"}
 #  "ctypes-of-clang"
 ]
 build: [
