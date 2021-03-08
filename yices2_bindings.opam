@@ -17,6 +17,8 @@ depends: [
   "ppx_optcomp"
   "sexplib"
   "sexplib0"
+  "ctypes"
+  "ctypes-foreign"
 #  "ctypes-of-clang"
 ]
 build: [
