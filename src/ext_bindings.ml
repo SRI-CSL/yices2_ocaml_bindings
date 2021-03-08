@@ -111,9 +111,8 @@ module TMP = struct
     | None -> true
 
 [%%if gmp_present]
-  let sum_aux =
+  let sum_aux to_sexp (coeff, term) =
     let one = Term.Arith.int 1 in
-    fun to_sexp (coeff, term) ->
     let coeff = Term.Arith.mpq coeff in
     match term with
     | Some term ->

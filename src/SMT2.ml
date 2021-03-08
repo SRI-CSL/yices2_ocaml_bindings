@@ -181,14 +181,22 @@ module ParseTerm = struct
        | _ when Variables.mem env.variables s -> Variables.find env.variables s
        | "true"  -> Term.true0()
        | "false" -> Term.false0()
-       | _ -> 
-         match String.sub s 0 2 with
-         | "#b" -> Term.BV.parse_bvbin (String.sub s 2 (String.length s -2))
-         | "#x" -> Term.BV.parse_bvhex (String.sub s 2 (String.length s -2))
-         | _ ->
-           try Term.Arith.parse_rational s
-           with ExceptionsErrorHandling.YicesException _
-             -> Term.Arith.parse_float s)
+       | _ ->
+          let aux s = 
+            try
+              Term.Arith.parse_rational s
+            with _ ->
+                  try Term.Arith.parse_float s
+                  with ExceptionsErrorHandling.YicesException _
+                       -> raise (Yices_SMT2_exception "s is not a declared symbol, nor a bitvector/rational/float constant")
+          in
+          if String.length s < 2 then aux s
+          else
+            match String.sub s 0 2 with
+            | "#b" -> Term.BV.parse_bvbin (String.sub s 2 (String.length s -2))
+            | "#x" -> Term.BV.parse_bvhex (String.sub s 2 (String.length s -2))
+            | _ -> aux s
+      )
 
   let rec right_assoc env op = function
     | [x; y] ->
@@ -302,14 +310,8 @@ module ParseTerm = struct
           | "-", _::_::_    -> left_assoc env Arith.sub l
           | "+", _::_::_    -> left_assoc env Arith.add l
           | "*", _::_::_    -> left_assoc env Arith.mul l
-          | "div", a::_::_  ->
-            let* ya = parse_rec env a in
-            begin
-              match Term.type_of_term ya |> Type.reveal with
-              | Int  -> left_assoc_aux env ya Arith.idiv l
-              | Real -> left_assoc_aux env ya Arith.division l
-              | _ -> raise (Yices_SMT2_exception "div should apply to Int or Real")
-            end
+          | "div", _::_::_  -> left_assoc env Arith.idiv l
+          | "/",   _::_::_  -> left_assoc env Arith.division l
           | "mod", [a;b]  -> binary env Arith.(%.) a b
           | "abs", [a]    -> unary env Arith.abs a
           | "<=", l   -> let* l = chainable env Arith.leq l in return !&l
@@ -353,7 +355,7 @@ module ParseTerm = struct
           | "bvsle",  [x; y] -> binary env BV.bvsle x y
           | "bvsgt",  [x; y] -> binary env BV.bvsgt x y
           | "bvsge",  [x; y] -> binary env BV.bvsge x y
-          | "_", [Atom s; Atom x] when String.equal (String.sub s 0 2) "bv" ->
+          | "_", [Atom s; Atom x] when String.length s >= 2 && String.equal (String.sub s 0 2) "bv" ->
             let width = int_of_string x in
             let x = Unsigned.ULong.of_string(String.sub s 2 (String.length s - 2)) in
             return(BV.bvconst_uint64 ~width x)

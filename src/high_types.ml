@@ -2785,6 +2785,7 @@ module type API = sig
         ( *val ) or in ( *num )/( *den ).  *)
     val val_get_int32      : t -> yval_t ptr -> sint eh
     val val_get_int64      : t -> yval_t ptr -> long eh
+    val val_get_int        : t -> yval_t ptr -> int eh
     val val_get_rational32 : t -> yval_t ptr -> (sint*uint) eh
     val val_get_rational64 : t -> yval_t ptr -> (long*ulong) eh
 

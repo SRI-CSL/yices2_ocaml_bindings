@@ -259,7 +259,7 @@ module SafeMake
   let (|+>) x f            = let+ x = x in f x
   let (<+>) f g x1         = let+ x = f x1 in g x
   let (<++>) f g x1 x2     = let+ x = f x1 x2 in g x
-  let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x
+  (* let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x *)
 
   (* Monadic fold and map *)
   open MList(EH)
@@ -267,8 +267,8 @@ module SafeMake
   (* Conversions to/from bools *)
   let toBool  x     = let<= x = x in return(Conv.bool.read x)
   let toBool1 f a   = f a       |> toBool
-  let toBool2 f a b = f a b     |> toBool
-  let toBool3 f a b c = f a b c |> toBool
+  (* let toBool2 f a b = f a b     |> toBool
+   * let toBool3 f a b c = f a b c |> toBool *)
 
   (* Conversions to/from strings *)
   (* Mnemotechnic: ? represents Ocaml's string, / represents freeing memory *)
@@ -296,7 +296,7 @@ module SafeMake
   let toIntu x = let/= x = x in return(Conv.uint.read x)
 
   (* Turn list into size+pointer; t specifies the type of elements *)
-  let carray t l = Array.(let c = of_list t l in !>(length c), start c)
+  (* let carray t l = Array.(let c = of_list t l in !>(length c), start c) *)
 
   (* Useful abbreviations *)
   type 'a vector = ('a, [`Struct]) structured
@@ -309,7 +309,7 @@ module SafeMake
   module Alloc  : sig
     type ('a,'b) t
     val load : 'b -> (unit,'b) t
-    val apply  : ('a, 'b -> 'c) t -> 'b -> ('a, 'c) t
+    (* val apply  : ('a, 'b -> 'c) t -> 'b -> ('a, 'c) t *)
     val alloc  :
       'b typ
       -> ?finalise: ('b ptr -> unit)
@@ -337,7 +337,7 @@ module SafeMake
     type ('a,'b) t = 'a * 'b
 
     let load f = (),f
-    let apply (y,f) x = y,f x
+    (* let apply (y,f) x = y,f x *)
 
     let aux alloc preproc (y,f) =
       let x = alloc () in
