@@ -21,7 +21,8 @@ true: debug, optimize(3), unbox_closures
           package(sexplib),\
           package(containers),\
           package(ppx_deriving.std),\
-          package(ppx_optcomp)
+          package(ppx_optcomp),\
+          thread
 
 <src_tests/*> : tests,\
                 package(ctypes),\
