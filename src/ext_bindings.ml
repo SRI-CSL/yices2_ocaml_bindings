@@ -65,12 +65,14 @@ module TMP = struct
     with _ -> Format.fprintf fmt "null_term"
 
   let pow i t = 
-    if i = 0 then t
+    if i <= 0 then ExceptionsErrorHandling.raise_error "Exponent should be positive in a power product"
     else
-      let rec aux i accu =
-        if i = 0 then accu else aux (i-1) (t::accu) 
-      in
-      sexp "*" (aux i [])
+      if i = 1 then t
+      else
+        let rec aux i accu =
+          if i = 0 then accu else aux (i-1) (t::accu) 
+        in
+        sexp "*" (aux i [])
 
   (* For bitvector terms *)
   let width y = Type.bvsize(Term.type_of_term y)
@@ -119,23 +121,45 @@ module TMP = struct
        if Term.equal coeff one then to_sexp term
        else sexp "*" [to_sexp coeff; to_sexp term]
     | None -> to_sexp coeff
+
+  let sexp_gmpz z =
+    if Z.lt z Z.zero then sexp "-" [Atom(Z.(z |> abs |> to_string))]
+    else Atom(Z.to_string z)
+    
+  let sexp_gmpq q =
+    let q = Term.rational_const_value q in
+    let num = Q.num q in
+    let den = Q.den q in
+    if Z.equal den Z.one then sexp_gmpz num
+    else
+      sexp "/" [sexp_gmpz num; sexp_gmpz den]
+
 [%%else]
   let sum_aux _ = ExceptionsErrorHandling.raise_error("Term.sum_aux necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+  let sexp_gmpq _ = ExceptionsErrorHandling.raise_error("Term.sexp_gmpq necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
 [%%endif]
 
   let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
-    fun to_sexp -> function
-    | A0(_, t) ->
-      let s = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0} t in
-      let s =
-        if String.length s < 2 then s
-        else
-          match String.sub s 0 2 with
-          | "0b" -> "#b"^String.sub s 2 (String.length s -2)
-          | "0x" -> "#x"^String.sub s 2 (String.length s -2)
-          | _ -> s
-      in
-      Atom s
+    fun to_sexp ->
+    function
+    | A0(c, t) ->
+       let s () = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0} t in
+       begin match c with
+       | `YICES_BV_CONSTANT ->
+          let s = s() in
+          let s =
+            if String.length s < 2 then ExceptionsErrorHandling.raise_error("bv constant as a string should have at least 2 characters")
+            else
+              match String.sub s 0 2 with
+              | "0b" -> "#b"^String.sub s 2 (String.length s -2)
+              | "0x" -> "#x"^String.sub s 2 (String.length s -2)
+              | _ -> s
+          in
+          Atom s
+       | `YICES_ARITH_CONSTANT ->
+          (try sexp_gmpq t with ExceptionsErrorHandling.YicesBindingsException _ -> Atom(s()))
+       | _ -> Atom(s())
+       end
 
     | A1(c,t) ->
       let t = [to_sexp t] in
@@ -166,7 +190,7 @@ module TMP = struct
         | `YICES_DIVIDES_ATOM  -> sexp "divides_atom" args
         | `YICES_IDIV          -> sexp "div" args
         | `YICES_IMOD          -> sexp "mod" args
-        | `YICES_RDIV          -> sexp "div" args
+        | `YICES_RDIV          -> sexp "/" args
       end
     | ITE(c, tb, eb) ->
       let args = List.map to_sexp [c;tb;eb] in 
@@ -229,6 +253,9 @@ module TMP = struct
         | None -> to_sexp coeff
       in
       sexp "bvadd" (List.map aux l) 
+
+    | Sum [a] ->
+      sum_aux to_sexp a 
 
     | Sum l ->
       sexp "+" (List.map (sum_aux to_sexp) l) 
