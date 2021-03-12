@@ -1,5 +1,0 @@
-PKG ocamlbuild str
-S .
-S ./_build/src
-S ./src
-B ./_build/src

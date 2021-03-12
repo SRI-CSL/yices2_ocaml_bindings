@@ -17,12 +17,12 @@ module StringHashtbl = CCHashtbl.Make(String)
 
 exception PopLastLevel
 
-let pp_string c fmt () = Format.string fmt c
+let pp_sep fmt () = Format.fprintf fmt "@ "
 
 let sexp f arg = List(Atom f::arg)
 let rec pp_sexp fmt = function
   | Atom s -> Format.fprintf fmt "@[%s@]" s
-  | List l -> Format.fprintf fmt "@[<hv 1>(%a)@]" (List.pp ~pp_sep:(pp_string " ") pp_sexp) l
+  | List l -> Format.fprintf fmt "@[<hov1>(%a)@]" (List.pp ~pp_sep pp_sexp) l
 
 include Make(ExceptionsErrorHandling)
 
@@ -68,7 +68,7 @@ module TMP = struct
     if i = 0 then t
     else
       let rec aux i accu =
-        if i = 0 then accu else aux i (t::accu) 
+        if i = 0 then accu else aux (i-1) (t::accu) 
       in
       sexp "*" (aux i [])
 
