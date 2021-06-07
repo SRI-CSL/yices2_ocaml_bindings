@@ -561,7 +561,11 @@ module ParseInstruction = struct
         let interpolant = Context.get_model_interpolant env.context in
         print 0 "%a@," Term.pp interpolant
 
-      | _ -> raise (Yices_SMT2_exception("Not part of SMT2 "^head));
+      | _, args, _ ->
+         let msg = Format.sprintf
+                     "@[<v>Not part of SMT2:@,head is@, @[%s@]@,with arguments@, @[<v>%a@]@]"
+                     head (List.pp Sexp.pp_hum) args in
+         raise (Yices_SMT2_exception msg);
       end
       
     | Atom _ 
@@ -575,10 +579,25 @@ module SMT2 = struct
 
   let load_file filename = 
     let ic = open_in filename in
-    let l = Sexp.input_sexps ic in
+    let bytes = IO.read_all_bytes ic in
     close_in ic;
-    l
-
+    let is_in_string = ref false in
+    let is_escaped = ref false in
+    let aux i = function
+      | _ when !is_escaped -> is_escaped := false; ()
+      | '\\' -> is_escaped := true; ()
+      | '|' -> is_in_string := not !is_in_string; Bytes.set bytes i '"'
+      | '"' when !is_in_string -> Bytes.set bytes i '|'
+      | _ -> ()
+    in
+    let () = Bytes.iteri aux bytes in
+    let str = bytes |> Bytes.unsafe_to_string in
+    let rec parse ?parse_pos accu =
+    match Sexp.parse ?parse_pos str with
+    | Done(sexp, parse_pos) -> parse ~parse_pos (sexp::accu)
+    | _ -> accu
+    in parse [] |> List.rev
+        
   let process_all session l =
     let open Session in
     let aux sexp =
