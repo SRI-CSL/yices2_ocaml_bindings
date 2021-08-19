@@ -19,6 +19,7 @@ depends: [
   "sexplib0"
   "ctypes"
   "ctypes-foreign"
+  "ctypes-zarith"
 #  "ctypes-of-clang"
 ]
 build: [
