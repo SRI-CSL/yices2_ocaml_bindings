@@ -10,19 +10,29 @@ We provide two layers of abstraction that wrap the yices C functions:
 
 ## Building and Installing From Source
 
-Technically you don't need yices to build and install the library: the yices binary code is not in the library itself.
-But you should have yices for linking.
-
 #### Using opam (needs 2.0 or higher, needs gmp)
 
 In the directory of this `README.md`, build and install (in findlib) with the following command:
+
 ```
-opam pin add yices2_bindings .
+opam install .
+```
+This expects the yices library (and the libraries it depends on) to be present in the relevant paths (like `/usr/local/lib`). If for some reason these libraries are not in the usual paths, you can specify their paths by setting 
+the environment variables `LDFLAGS` (for the yices library) and `LD_LIBRARY_PATH` (for its dependencies, like libpoly or cudd), e.g.:
+
+```
+export LD_LIBRARY_PATH=[UNCONVENTIONAL_PATHS]:/usr/local/lib
+export LDFLAGS="-L[UNCONVENTIONAL_PATH]"
 ```
 
 #### Without opam (gmp not mandatory, but it provides additional yices bindings)
 
-The dependencies you need are listed in `src/META_gmp` (if you have gmp) or `src/META_nogmp` (if you do not have gmp). These are the findlib libraries that are / would be installed by the opam dependencies (listed in file `yices2_bindings.opam`), namely ocamlbuild, ctypes, ctypes-foreign, ppx_deriving, ppx_optcomp, sexplib, sexplib0, and, in presence of gmp, zarith, and ctypes-zarith.
+Besides Yices and its dependencies, the bindings need some OCaml dependencies, that are listed in `yices2_bindings.opam`. These are the findlib libraries that are / would be installed by opam, and that you can still install automatically with
+
+```
+opam install . --deps-only
+```
+These dependencies are namely: `ocamlbuild`, `ctypes`, `ctypes-foreign`, `ppx_deriving`, `ppx_optcomp`, `sexplib`, `sexplib0`, and, for gmp support, `zarith`, and `ctypes-zarith`.
 
 To build, run the following command:
 ```
@@ -30,6 +40,7 @@ make
 ```
 in the directory of this `README.md`. The build should automatically detect whether you have gmp and add the extra yices bindings if you do.
 If for some weird reason you want the non-gmp version of the bindings even though you do have it, run this before `make`:
+
 ```
 echo "[%%define gmp_present false]" > src/gmp.mlh
 echo "[%%define gmp_present false]" > src_tests/gmp.mlh
@@ -50,12 +61,8 @@ In the directory of this `README.md`, run the following command:
 make test
 ```
 Whether the tests pass is rather self-explanatory.
-This step involves linking and you therefore need the Yices library installed in your system.
-If Yices is not installed in a standard location (e.g., `/usr/local/lib`), you can specify the directory by setting the following environment variable:
-```
-LDFLAGS="-Lyour_path_to_yices_library"
-```
 
+Again, if the non-OCaml dependencies are not installed in conventional directories, make sure you set `LDFLAGS` and `LD_LIBRARY_PATH` correctly as described above.
 
 #### Wrapping Yices as an SMTLib2 solver (experimental)
 
@@ -71,6 +78,7 @@ The code in `src_test` and in the `src_smt2/yices_smt2.ml` file give examples on
 #### Building the documentation (this is broken at the moment, as ocamldoc does not seem to handle the latest ocaml features)
 
 In the top-level directory, run the following command:
+
 ```
 ocamlbuild -use-ocamlfind 'src/yices2_bindings.docdir/index.html'
 ```
