@@ -96,3 +96,6 @@ let () =
 let () = print_endline ""
 let () = print_endline "Warning: gmp not present; so gmp-dependent tests were skipped."
 [%%endif]
+
+let () = print_endline ""
+let () = Experiments.test()
