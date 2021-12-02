@@ -135,7 +135,7 @@ module Term : sig
   val fv                 : t -> TermSet.t
 
   (** For bitvector terms *)
-  val width : t -> int
+  val width_of_term : t -> int
 
   (** All uninterpreted terms *)
   val all_uninterpreted  : unit -> t list

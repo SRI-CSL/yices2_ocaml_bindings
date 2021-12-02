@@ -92,7 +92,7 @@ module TermTMP = struct
         sexp "*" (aux i [])
 
   (* For bitvector terms *)
-  let width y = Type.bvsize(Term.type_of_term y)
+  let width_of_term y = Type.bvsize(Term.type_of_term y)
 
   (*************************)
   (* Free Variable testing *)
@@ -340,7 +340,7 @@ module SliceTMP = struct
   let build ?indices extractee =
     assert(Term.is_bitvector extractee);
     match indices with
-    | Some(lo,hi) when not(Int.equal lo 0 && Int.equal hi (TermTMP.width extractee)) ->
+    | Some(lo,hi) when not(Int.equal lo 0 && Int.equal hi (TermTMP.width_of_term extractee)) ->
        {extractee; indices}
     | _ -> { extractee; indices = None }
 
@@ -358,7 +358,7 @@ module SliceTMP = struct
     | _ -> to_sexp_term extractee
 
   let width { extractee; indices } = match indices with
-    | None -> TermTMP.width extractee
+    | None -> TermTMP.width_of_term extractee
     | Some(lo, hi) -> hi - lo
 
   let is_free ~var {extractee; _} = TermTMP.is_free ~var extractee
@@ -423,8 +423,8 @@ module ExtTerm = struct
     | Concat _ as t -> t
 
   let rec width : type a b. (a, b) base -> int = function
-    | TermStruct a -> TermTMP.(width(build a))
-    | T a          -> TermTMP.(width a)
+    | TermStruct a -> TermTMP.(width_of_term(build a))
+    | T a          -> TermTMP.(width_of_term a)
     | Bits l       -> List.length l
     | Slice slice ->
        let open BoolStruct in
