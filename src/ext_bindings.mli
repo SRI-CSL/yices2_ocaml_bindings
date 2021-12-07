@@ -45,20 +45,25 @@ module Context : sig
 
   val assert_blocking_clause : Context.t -> unit
 
-  type assertions = Term.t list list
+  type assertions =
+    private {
+        list  : Term.t list list; (* List of assertions at each level *)
+        level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
+      }
   val pp_assertions : assertions Format.printer
 
   type options
   val pp_options : options Format.printer
 
-  type t = {
-      config     : Config.t option;
-      context    : Context.t; (* Raw context as in yices2_high *)
-      assertions : assertions ref;
-      options    : options;
-      log        : Action.t list ref;
-      is_alive   : bool ref
-    }
+  type t =
+    private {
+        config     : Config.t option; (* In case a config was used at creation *)
+        context    : Context.t;       (* Raw context as in yices2_high *)
+        assertions : assertions ref;  (* Structure of assertions and level *)
+        options    : options;         (* Set options *)
+        log        : Action.t list ref; (* Everything that happened to that context *)
+        is_alive   : bool ref         (* If the raw context wasn't freed *)
+      }
 
   val pp : t Format.printer
 
@@ -75,22 +80,26 @@ module Context : sig
   val free : t -> unit
   val status : t -> Types.smt_status
   val reset  : t -> unit
-  val push   : t -> unit
-  val pop    : t -> unit
+  val push   : t -> unit        (* Open new level and go there *)
+  val pop    : t -> unit        (* Go back 1 level *)
+  val goto   : t -> int -> unit (* Go to level *)
   val enable_option   : t -> option:string -> unit
   val disable_option  : t -> option:string -> unit
-  val assert_formula  : t -> Term.t -> unit
-  val assert_formulas : t -> Term.t list -> unit
+  val assert_formula  : t -> ?level:int -> Term.t -> unit
+  val assert_formulas : t -> ?level:int -> Term.t list -> unit
   val check                  : ?param:Param.t -> t -> Types.smt_status
   val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
-  val stop : t -> unit
-  val get_model : t -> keep_subst:bool -> Model.t
-  val get_unsat_core : t -> Term.t list
-  val declare_type : t -> string -> unit    
-  val declare_fun  : t -> string -> Type.t -> unit
-
+  val stop             : t -> unit
+  val get_model        : t -> keep_subst:bool -> Model.t
+  val get_unsat_core   : t -> Term.t list
   val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
   val get_model_interpolant : t -> Term.t
+
+  (* The next two functions are just adding declarations to the log,
+     they do not actually introduce new Yices types and terms *)
+  val declare_type   : t -> string -> unit    
+  val declare_fun    : t -> string -> Type.t -> unit
+
 end
 
 module Type := Type

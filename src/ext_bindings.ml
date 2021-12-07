@@ -128,6 +128,7 @@ module TermTMP = struct
 
   let rec fv_termstruct : type a. a termstruct -> TermSet.t = function
     | A0(`YICES_UNINTERPRETED_TERM,t) -> TermSet.singleton t
+    | A0 _ -> TermSet.empty
     | a -> map (fun a -> a, fv a) a |> snd
   and fv t =
     match HTerms.find_opt fv_table t with
@@ -768,10 +769,18 @@ let reset_global_log() = global_log := []
 module Context = struct
   include Context
 
-  type assertions = Term.t list list
+  type assertions = {
+      list  : Term.t list list; (* never empty *)
+      level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
+    }
+
+  let init = {
+      list = [[]];
+      level = 0;
+    }
 
   let pp_assertions fmt assertions = 
-    Format.fprintf fmt "@[<v>%a@]" (TermSexp.pp |> List.pp |> List.pp) assertions
+    Format.fprintf fmt "@[<v>%a@]" (TermSexp.pp |> List.pp |> List.pp) assertions.list
 
   type options = unit StringHashtbl.t
 
@@ -798,7 +807,7 @@ module Context = struct
     let context = 
       { config  = config;
         context = malloc ?config ();
-        assertions = ref [[]];
+        assertions = ref init;
         options = StringHashtbl.create 10;
         log = ref !global_log;
         is_alive = ref true }
@@ -819,22 +828,33 @@ module Context = struct
   let reset x =
     action Reset x;
     reset x.context;
-    x.assertions := [[]]
+    x.assertions := init
 
   let push x =
     action Push x;
-    x.assertions := []::!(x.assertions);
+    let {list; level} = !(x.assertions) in
+    x.assertions := {
+        list = []::list;
+        level = level+1;
+      };
     push x.context
 
   let pop x =
     action Pop x;
-    begin match !(x.assertions) with
+    let {list; level} = !(x.assertions) in
+    begin match list with
     | []     -> assert false
     | [_last] -> raise PopLastLevel
-    | _::tail -> x.assertions := tail
+    | _::tail -> x.assertions := { list = tail; level = level -1 }
     end;
     pop x.context
 
+  let goto x level =
+    let diff = !(x.assertions).level - level in
+    if diff > 0
+    then for _ = 1 to diff do pop x done
+    else for _ = 1 to diff do push x done
+    
   let enable_option ({context; options; _} as x) ~option =
     action (EnableOption option) x;
     enable_option context ~option;
@@ -845,20 +865,28 @@ module Context = struct
     disable_option context ~option;
     StringHashtbl.remove options option 
 
-  let assert_formula ({context; assertions; _} as x) formula =
+  let assert_formula ({context; assertions; _} as x) ?level formula =
+    match level with
+    | Some level -> goto x level
+    | None -> ();
     action (AssertFormula formula) x;
-    begin match !assertions with
+    let {list; level} = !(x.assertions) in
+    begin match list with
     | []     -> assert false
-    | last::tail -> assertions := (formula::last)::tail
+    | last::tail -> assertions := { list = (formula::last)::tail; level }
     end;
     assert_formula context formula
 
-  let assert_formulas ({context; assertions; _} as x) formulas =
+  let assert_formulas ({context; assertions; _} as x) ?level formulas =
+    match level with
+    | Some level -> goto x level
+    | None -> ();
     action (AssertFormulas formulas) x;
-    begin match !assertions with
+    let {list; level} = !(x.assertions) in
+    begin match list with
     | []     -> assert false
     | last::tail ->
-       assertions := (List.rev_append (List.rev formulas) last)::tail
+       assertions := { list = (List.rev_append (List.rev formulas) last)::tail; level }
     end;
     assert_formulas context formulas
 
