@@ -28,6 +28,7 @@ module Action : sig
     | DisableOption of string
     | AssertFormula of Term.t
     | AssertFormulas of Term.t list
+    | AssertBlockingClause
     | Check of Param.t option
     | CheckWithAssumptions of Param.t option * Term.t list
     | Stop
@@ -43,14 +44,18 @@ end
 
 module Context : sig
 
-  val assert_blocking_clause : Context.t -> unit
-
   type assertions =
     private {
-        list  : Term.t list list; (* List of assertions at each level *)
+        list  : Term.t list option list; (* List of assertions at each level. None at some level
+                                            if a blocking clause has been asserted there *)
         level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
       }
   val pp_assertions : assertions Format.printer
+
+  exception BlockingClauseUsage
+  val assertions : assertions -> Term.t list (* flattens all levels into a list of assertions
+                                                raises BlockingClauseUsage
+                                                if None is found at any level *)
 
   type options
   val pp_options : options Format.printer
@@ -67,13 +72,14 @@ module Context : sig
 
   val pp : t Format.printer
 
+
   (** Turns the log into list of S-expressions.
       The first executed action ends up as the head of the list. *)
   val to_sexp : t -> Sexplib.Type.t list
 
   val malloc : ?config:Config.t -> unit -> t
 
-  (** All contextx ever created *)
+  (** All contexts ever created *)
   val all  : unit -> t list
 
   (** Free does not free the config field (which could be shared with other contexts) *)
@@ -85,8 +91,9 @@ module Context : sig
   val goto   : t -> int -> unit (* Go to level *)
   val enable_option   : t -> option:string -> unit
   val disable_option  : t -> option:string -> unit
-  val assert_formula  : t -> ?level:int -> Term.t -> unit
-  val assert_formulas : t -> ?level:int -> Term.t list -> unit
+  val assert_formula  : t -> Term.t -> unit
+  val assert_formulas : t -> Term.t list -> unit
+  val assert_blocking_clause : t -> unit
   val check                  : ?param:Param.t -> t -> Types.smt_status
   val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
   val stop             : t -> unit

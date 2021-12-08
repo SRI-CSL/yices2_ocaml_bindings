@@ -722,6 +722,7 @@ module Action = struct
     | DisableOption of string
     | AssertFormula of Term.t
     | AssertFormulas of Term.t list
+    | AssertBlockingClause
     | Check of Param.t option
     | CheckWithAssumptions of Param.t option * Term.t list
     | Stop
@@ -744,6 +745,7 @@ module Action = struct
     | AssertFormula t -> sexp "assert" [TermSexp.to_sexp t] ::accu
     | AssertFormulas l ->
        List.fold_left (fun sofar t -> sexp "assert" [TermSexp.to_sexp t]::sofar) accu l
+    | AssertBlockingClause -> sexp "assert-blocking-clause" [] ::accu
     | Check _param -> sexp "check-sat" [] ::accu 
     | CheckWithAssumptions(_param,l) ->
        sexp "check-sat-assuming" (List.map TermSexp.to_sexp l) ::accu
@@ -770,17 +772,32 @@ module Context = struct
   include Context
 
   type assertions = {
-      list  : Term.t list list; (* never empty *)
+      list  : Term.t list option list; (* never empty *)
       level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
     }
 
   let init = {
-      list = [[]];
+      list = [Some []];
       level = 0;
     }
 
+  exception BlockingClauseUsage
+
+  let assertions x =
+    let aux sofar = function
+      | None -> raise BlockingClauseUsage
+      | Some list -> List.rev_append list sofar
+    in
+    List.fold_left aux [] x.list
+           
+  let pp_level fmt = function
+    | None ->
+       Format.fprintf fmt "@[<v>??@]"
+    | Some assertions ->
+       Format.fprintf fmt "@[<v>%a@]" (List.pp TermSexp.pp) assertions
+
   let pp_assertions fmt assertions = 
-    Format.fprintf fmt "@[<v>%a@]" (TermSexp.pp |> List.pp |> List.pp) assertions.list
+    Format.fprintf fmt "@[<v>%a@]" (List.pp pp_level) assertions.list
 
   type options = unit StringHashtbl.t
 
@@ -834,7 +851,7 @@ module Context = struct
     action Push x;
     let {list; level} = !(x.assertions) in
     x.assertions := {
-        list = []::list;
+        list = Some []::list;
         level = level+1;
       };
     push x.context
@@ -845,50 +862,51 @@ module Context = struct
     begin match list with
     | []     -> assert false
     | [_last] -> raise PopLastLevel
-    | _::tail -> x.assertions := { list = tail; level = level -1 }
+    | _::tail -> x.assertions := { list = tail; level = level - 1 }
     end;
     pop x.context
 
   let goto x level =
-    let diff = !(x.assertions).level - level in
+    let diff = level - !(x.assertions).level in
     if diff > 0
-    then for _ = 1 to diff do pop x done
-    else for _ = 1 to diff do push x done
+    then for _ = 1 to diff do push x done
+    else for _ = 1 to -diff do pop x done
     
-  let enable_option ({context; options; _} as x) ~option =
+  let enable_option x ~option =
     action (EnableOption option) x;
-    enable_option context ~option;
-    StringHashtbl.replace options option ()
+    enable_option x.context ~option;
+    StringHashtbl.replace x.options option ()
 
-  let disable_option ({context; options; _} as x) ~option =
+  let disable_option x ~option =
     action (DisableOption option) x;
-    disable_option context ~option;
-    StringHashtbl.remove options option 
+    disable_option x.context ~option;
+    StringHashtbl.remove x.options option 
 
-  let assert_formula ({context; assertions; _} as x) ?level formula =
-    match level with
-    | Some level -> goto x level
-    | None -> ();
-    action (AssertFormula formula) x;
+  let assert_formula x formula =
     let {list; level} = !(x.assertions) in
     begin match list with
-    | []     -> assert false
-    | last::tail -> assertions := { list = (formula::last)::tail; level }
+    | []         -> assert false
+    | last::tail -> x.assertions := { list = (Option.map (List.cons formula) last)::tail; level }
     end;
-    assert_formula context formula
+    assert_formula x.context formula
 
-  let assert_formulas ({context; assertions; _} as x) ?level formulas =
-    match level with
-    | Some level -> goto x level
-    | None -> ();
-    action (AssertFormulas formulas) x;
+  let assert_formulas x formulas =
     let {list; level} = !(x.assertions) in
     begin match list with
-    | []     -> assert false
+    | []         -> assert false
     | last::tail ->
-       assertions := { list = (List.rev_append (List.rev formulas) last)::tail; level }
+       x.assertions := { list = (Option.map (List.rev_append (List.rev formulas)) last)::tail;
+                         level }
     end;
-    assert_formulas context formulas
+    assert_formulas x.context formulas
+
+  let assert_blocking_clause x =
+    let {list; level} = !(x.assertions) in
+    begin match list with
+    | []         -> assert false
+    | _::tail -> x.assertions := { list = None::tail; level }
+    end;
+    assert_blocking_clause x.context
 
   let check ?param x =
     action (Check param) x;
