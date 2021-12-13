@@ -645,10 +645,15 @@ module TMP =
           | `CTX_SCALAR_NOT_SUPPORTED -> 318L
           | `CTX_TUPLE_NOT_SUPPORTED -> 319L
           | `CTX_UTYPE_NOT_SUPPORTED -> 320L
+          | `CTX_HIGH_ORDER_FUN_NOT_SUPPORTED -> 321L
           | `CTX_INVALID_OPERATION -> 400L
           | `CTX_OPERATION_NOT_SUPPORTED -> 401L
           | `CTX_UNKNOWN_DELEGATE -> 420L
           | `CTX_DELEGATE_NOT_AVAILABLE -> 421L
+          | `CTX_EF_ASSERTIONS_CONTAIN_UF -> 440L 
+          | `CTX_EF_NOT_EXISTS_FORALL -> 441L
+          | `CTX_EF_HIGH_ORDER_VARS -> 442L
+          | `CTX_EF_INTERNAL_ERROR -> 443L
           | `CTX_INVALID_CONFIG -> 500L
           | `CTX_UNKNOWN_PARAMETER -> 501L
           | `CTX_INVALID_PARAMETER_VALUE -> 502L
@@ -667,13 +672,16 @@ module TMP =
           | `MDL_DUPLICATE_VAR -> 702L
           | `MDL_FTYPE_NOT_ALLOWED -> 703L
           | `MDL_CONSTRUCTION_FAILED -> 704L
+          | `MDL_NONNEG_INT_REQUIRED -> 705L
           | `YVAL_INVALID_OP -> 800L
           | `YVAL_OVERFLOW -> 801L
           | `YVAL_NOT_SUPPORTED -> 802L
           | `MDL_GEN_TYPE_NOT_SUPPORTED -> 900L
           | `MDL_GEN_NONLINEAR -> 901L
           | `MDL_GEN_FAILED -> 902L
+          | `MDL_GEN_UNSUPPORTED_TERM -> 903L
           | `MCSAT_ERROR_UNSUPPORTED_THEORY -> 1000L
+          | `MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED -> 1001L
           | `OUTPUT_ERROR -> 9000L
           | `INTERNAL_EXCEPTION -> 9999L),
           (function
@@ -760,10 +768,15 @@ module TMP =
            | 318L -> `CTX_SCALAR_NOT_SUPPORTED
            | 319L -> `CTX_TUPLE_NOT_SUPPORTED
            | 320L -> `CTX_UTYPE_NOT_SUPPORTED
+           | 321L -> `CTX_HIGH_ORDER_FUN_NOT_SUPPORTED
            | 400L -> `CTX_INVALID_OPERATION
            | 401L -> `CTX_OPERATION_NOT_SUPPORTED
            | 420L -> `CTX_UNKNOWN_DELEGATE 
            | 421L -> `CTX_DELEGATE_NOT_AVAILABLE
+           | 440L -> `CTX_EF_ASSERTIONS_CONTAIN_UF
+           | 441L -> `CTX_EF_NOT_EXISTS_FORALL
+           | 442L -> `CTX_EF_HIGH_ORDER_VARS
+           | 443L -> `CTX_EF_INTERNAL_ERROR
            | 500L -> `CTX_INVALID_CONFIG
            | 501L -> `CTX_UNKNOWN_PARAMETER
            | 502L -> `CTX_INVALID_PARAMETER_VALUE
@@ -782,12 +795,14 @@ module TMP =
            | 702L -> `MDL_DUPLICATE_VAR
            | 703L -> `MDL_FTYPE_NOT_ALLOWED
            | 704L -> `MDL_CONSTRUCTION_FAILED
+           | 705L -> `MDL_NONNEG_INT_REQUIRED
            | 800L -> `YVAL_INVALID_OP
            | 801L -> `YVAL_OVERFLOW
            | 802L -> `YVAL_NOT_SUPPORTED
            | 900L -> `MDL_GEN_TYPE_NOT_SUPPORTED
            | 901L -> `MDL_GEN_NONLINEAR
            | 902L -> `MDL_GEN_FAILED
+           | 903L -> `MDL_GEN_UNSUPPORTED_TERM
            | 1000L -> `MCSAT_ERROR_UNSUPPORTED_THEORY
            | 9000L -> `OUTPUT_ERROR
            | 9999L -> `INTERNAL_EXCEPTION
@@ -1847,12 +1862,106 @@ module TMP =
     let yices_free_model =
       Foreign.foreign "yices_free_model"
         (Ctypes.(@->) (Ctypes.ptr model_t) (Ctypes.returning Ctypes.void))
+    let yices_new_model =
+      Foreign.foreign "yices_new_model"
+        (Ctypes.(@->) Ctypes.void (Ctypes.returning (Ctypes.ptr model_t)))
     let yices_model_from_map =
       Foreign.foreign "yices_model_from_map"
         (Ctypes.(@->) uint32_t
            (Ctypes.(@->) (Ctypes.ptr term_t)
               (Ctypes.(@->) (Ctypes.ptr term_t)
                  (Ctypes.returning (Ctypes.ptr model_t)))))
+
+    let yices_model_set_bool =
+      Foreign.foreign "yices_model_set_bool"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int32_t
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_int32 =
+      Foreign.foreign "yices_model_set_int32"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int32_t
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_int64 =
+      Foreign.foreign "yices_model_set_int64"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int64_t
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_rational32 =
+      Foreign.foreign "yices_model_set_rational32"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int32_t
+                 (Ctypes.(@->) uint32_t
+                    (Ctypes.returning int32_t)))))
+    let yices_model_set_rational64 =
+      Foreign.foreign "yices_model_set_rational64"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int64_t
+                 (Ctypes.(@->) uint64_t
+                    (Ctypes.returning int32_t)))))
+
+[%%if gmp_present]
+    let yices_model_set_mpz =
+      Foreign.foreign "yices_model_set_mpz"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) MPZ.t_ptr
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_mpq =
+      Foreign.foreign "yices_model_set_mpq"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) MPQ.t_ptr
+                 (Ctypes.returning int32_t))))
+[%%endif]
+
+    let yices_model_set_bv_int32 =
+      Foreign.foreign "yices_model_set_bv_int32"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int32_t
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_bv_int64 =
+      Foreign.foreign "yices_model_set_bv_int64"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) int64_t
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_bv_uint32 =
+      Foreign.foreign "yices_model_set_bv_uint32"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) uint32_t
+                 (Ctypes.returning int32_t))))
+    let yices_model_set_bv_uint64 =
+      Foreign.foreign "yices_model_set_bv_uint64"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) uint64_t
+                 (Ctypes.returning int32_t))))
+
+[%%if gmp_present]
+    let yices_model_set_bv_mpz =
+      Foreign.foreign "yices_model_set_bv_mpz"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) MPZ.t_ptr
+                 (Ctypes.returning int32_t))))
+[%%endif]
+
+    let yices_model_set_bv_from_array =
+      Foreign.foreign "yices_model_set_bv_from_array"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) uint32_t
+                 (Ctypes.(@->) (Ctypes.ptr int32_t)
+                    (Ctypes.returning int32_t)))))
+
     let yices_model_collect_defined_terms =
       Foreign.foreign "yices_model_collect_defined_terms"
         (Ctypes.(@->) (Ctypes.ptr model_t)

@@ -395,6 +395,7 @@ typedef enum error_code {
   CTX_SCALAR_NOT_SUPPORTED,   // added 2015/03/26
   CTX_TUPLE_NOT_SUPPORTED,    // added 2015/03/26
   CTX_UTYPE_NOT_SUPPORTED,    // added 2015/03/26
+  CTX_HIGH_ORDER_FUN_NOT_SUPPORTED, // added 2021/06/29
 
 
   /*
@@ -410,6 +411,15 @@ typedef enum error_code {
    */
   CTX_UNKNOWN_DELEGATE = 420,
   CTX_DELEGATE_NOT_AVAILABLE,
+
+  /*
+   * Error codes for exists/forall solver & quantifiers
+   * (since 2021/03/01)
+   */
+  CTX_EF_ASSERTIONS_CONTAIN_UF = 440,
+  CTX_EF_NOT_EXISTS_FORALL = 441,
+  CTX_EF_HIGH_ORDER_VARS = 442,
+  CTX_EF_INTERNAL_ERROR = 443,
 
   /*
    * Errors in context configurations and search parameter settings
@@ -440,6 +450,7 @@ typedef enum error_code {
   MDL_DUPLICATE_VAR,
   MDL_FTYPE_NOT_ALLOWED,
   MDL_CONSTRUCTION_FAILED,
+  MDL_NONNEG_INT_REQUIRED,
 
   /*
    * Error codes in DAG/node queries
@@ -454,11 +465,13 @@ typedef enum error_code {
   MDL_GEN_TYPE_NOT_SUPPORTED = 900,
   MDL_GEN_NONLINEAR,
   MDL_GEN_FAILED,
+  MDL_GEN_UNSUPPORTED_TERM,
 
   /*
    * MCSAT error codes
    */
   MCSAT_ERROR_UNSUPPORTED_THEORY = 1000,
+  MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED = 1001,
 
   /*
    * Input/output and system errors
@@ -517,9 +530,9 @@ typedef enum error_code {
  *  TYPE_MISMATCH              term1, type1
  *  INCOMPATIBLE_TYPES         term1, type1, term2, type2
  *  DUPLICATE_VARIABLE         term1
- *  INCOMPATIBLE_BVSIZES       term1, type1, term2, type2
+ *  INCOMPATIBLE_BVSIZES       none
  *  EMPTY_BITVECTOR            none
- *  ARITHCONSTANT_REQUIRED    term1
+ *  ARITHCONSTANT_REQUIRED     term1
  *  INVALID_MACRO              badval
  *  TOO_MANY_MACRO_PARAMS      badval
  *  TYPE_VAR_REQUIRED          type1
@@ -617,5 +630,17 @@ typedef struct error_report_s {
   type_t type2;
   int64_t badval;
 } error_report_t;
+
+/*
+ * A context for interpolation. It consists of two regular context objects
+ * ctx_A and ctx_B. The ctx_A context should be a context with MCSAT enabled
+ * and model interpolation enabled.
+ */
+typedef struct interpolation_context_s {
+  context_t *ctx_A;
+  context_t *ctx_B;
+  term_t interpolant;
+  model_t *model;
+} interpolation_context_t;
 
 #endif  /* YICES_TYPES_H */

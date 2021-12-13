@@ -83,7 +83,7 @@ extern "C" {
 
 #define __YICES_VERSION            2
 #define __YICES_VERSION_MAJOR      6
-#define __YICES_VERSION_PATCHLEVEL 2
+#define __YICES_VERSION_PATCHLEVEL 4
 
 
 /*
@@ -1449,6 +1449,10 @@ __YICES_DLLSPEC__ extern term_t yices_bvconst_minus_one(uint32_t n);
  * bit i of the constant is 0 if a[i] == 0
  * bit i of the constant is 1 if a[i] != 0
  *
+ * The input is interpreted little-endian:
+ * a[0] = low-order bit (least significant)
+ * a[n-1] = high-order bit (most significant)
+ *
  * Error report:
  * if n = 0
  *    code = POS_INT_REQUIRED
@@ -1994,8 +1998,9 @@ __YICES_DLLSPEC__ extern term_t yices_parse_term(const char *s);
  * - map must be an array of n terms
  * - the type of map[i] must be a subtype of var[i]'s type
  * - every occurrence of var[i] in t is replaced by map[i]
- * - if a variable occurs several times in v, the last occurrence
- *   counts. (e.g., if v[i] = x and v[j] = x with i < j, and
+ * - if an uninterpreted term / variable occurs several times in v,
+ *   the last occurrence counts.
+ *   (e.g., if v[i] = x and v[j] = x with i < j, and
  *   there are no other occurrences of x in v, then x is
  *   replaced by map[j]).
  *
@@ -2786,7 +2791,9 @@ __YICES_DLLSPEC__ extern void yices_free_config(ctx_config_t *config);
  *                    | "LIA"               |  linear integer arithmetic
  *                    | "LRA"               |  linear real arithmetic
  *                    | "LIRA"              |  mixed linear arithmetic (real + integer variables)
- *
+ *   ----------------------------------------------------------------------------------------
+ *   "model-interpolation" | "false"        | don't enable model interpolation (default)
+ *                         | "true"         | enable model interpolation
  *
  *
  * The function returns -1 if there's an error, 0 otherwise.
@@ -3013,7 +3020,9 @@ __YICES_DLLSPEC__ extern int32_t yices_pop(context_t *ctx);
  * unless you really know what you're doing.
  *
  * The following functions selectively enable/disable a preprocessing
- * option. The current options include:
+ * option. In the description below we use "variable" for what should be
+ * "uninterpreted term" (in the sense of Yices), to stick to standard
+ * terminology. The current options include:
  *
  *   var-elim: whether to eliminate variables by substitution
  *
@@ -3102,8 +3111,9 @@ __YICES_DLLSPEC__ extern int32_t yices_assert_formulas(context_t *ctx, uint32_t 
 
 
 /*
- * Check satisfiability: check whether the assertions stored in ctx
- * are satisfiable.
+ * Check satisfiability
+ *
+ * Check whether the assertions stored in ctx are satisfiable.
  * - params is an optional structure that stores heuristic parameters.
  * - if params is NULL, default parameter settings are used.
  *
@@ -3141,8 +3151,9 @@ __YICES_DLLSPEC__ extern smt_status_t yices_check_context(context_t *ctx, const 
 
 
 /*
- * Check satisfiability under assumptions: check whether the
- * assertions stored in ctx conjoined with n assumptions is
+ * Check satisfiability under assumptions.
+ *
+ * Check whether the assertions stored in ctx conjoined with n assumptions are
  * satisfiable.
  * - params is an optional structure to store heuristic parameters
  * - if params is NULL, default parameter settings are used.
@@ -3150,15 +3161,89 @@ __YICES_DLLSPEC__ extern smt_status_t yices_check_context(context_t *ctx, const 
  * - t = array of n assumptions
  * - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
  *
- * It behaves the same as the previous function.
- *
- * If this function returns STATUS_UNSAT, then one can construct an unsat core by
+ * This function behaves the same as the previous function.
+ * If it returns STATUS_UNSAT, then one can construct an unsat core by
  * calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
  * that's inconsistent with ctx.
  */
 __YICES_DLLSPEC__ extern smt_status_t yices_check_context_with_assumptions(context_t *ctx, const param_t *params,
 									   uint32_t n, const term_t t[]);
 
+/*
+ * Check satisfiability modulo a model.
+ *
+ * Check whether the assertions stored in ctx conjoined with a model are satisfiable.
+ * - ctx must be a context initialized with support for MCSAT
+ *   (see yices_new_context, yices_new_config, yices_set_config).
+ * - params is an optional structure to store heuristic parameters
+ *   if params is NULL, default parameter settings are used.
+ * - mdl is a model
+ * - t is an array of n terms
+ * - the terms t[0] ... t[n-1] must all be uninterpreted terms
+ *
+ * This function checks statisfiability of the constraints in ctx conjoined with
+ * a conjunction of equalities defined by t[i] and the model, namely,
+ *
+ *    t[0] == v_0 /\ .... /\ t[n-1] = v_{n-1}
+ *
+ * where v_i is the value of t[i] in mdl.
+ *
+ * NOTE: if t[i] does not have a value in mdl, then a default value is picked for v_i.
+ *
+ * If this function returns STATUS_UNSAT and the context supports
+ * model interpolation, then one can construct a model interpolant by
+ * calling function yices_get_model_interpolant.
+ *
+ * Error codes:
+ *
+ * if one of the terms t[i] is not an uninterpreted term
+ *   code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
+ *
+ * If the context does not have the MCSAT solver enabled
+ *   code = CTX_OPERATION_NOT_SUPPORTED
+ *
+ * If the resulting status is STATUS_SAT and context does not support multichecks
+ *   code = CTX_OPERATION_NOT_SUPPORTED
+ *
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern smt_status_t yices_check_context_with_model(context_t *ctx, const param_t *params,
+								     model_t *mdl, uint32_t n, const term_t t[]);
+
+/*
+ * Check satisfiability and compute interpolant.
+ *
+ * Check whether the combined assertions stored in ctx are satisfiable. If they are
+ * not, compute an interpolant (whose uninterpreted terms are common to both contexts).
+ * - params is an optional structure to store heuristic parameters
+ * - if params is NULL, default parameter settings are used.
+ *
+ * The interpolation_context is a structure with four components defined as follows:
+ *
+ *  typedef  struct interpolation_context_s {
+ *     context_t *ctx_A;
+ *     context_t *ctx_B;
+ *     term_t interpolant;
+ *     model_t *model;
+ *  } interpolation_context_t;
+ *
+ * To call this function:
+ * - ctx->ctx_A must be a context initialized with support for MCSAT and interpolation.
+ * - ctx->ctx_B can be another context (not necessarily with MCSAT support)
+ *
+ * If this function returns STATUS_UNSAT, then an interpolant is returned in ctx->interpolant.
+ *
+ * If this function returns STATUS_SAT and build_model is true, then
+ * a model is returned in ctx->model. This model must be freed when no-longer needed by
+ * calling yices_free_model.
+ *
+ * If something is wrong, the function returns STATUS_ERROR and sets the yices error report
+ * (code = CTX_INVALID_OPERATION).
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern smt_status_t yices_check_context_with_interpolation(interpolation_context_t *ctx, const param_t *params, int32_t build_model);
 
 /*
  * Add a blocking clause: this is intended to help enumerate different models
@@ -3278,6 +3363,28 @@ __YICES_DLLSPEC__ extern void yices_free_param_record(param_t *param);
 __YICES_DLLSPEC__ extern int32_t yices_get_unsat_core(context_t *ctx, term_vector_t *v);
 
 
+/*
+ * Construct and return a model interpolant.
+ *
+ * If ctx status is unsat and the ctx was configured with model-interpolation,
+ * this function returns a model interpolant.
+ * Otherwise, it sets an error code and return NULL_TERM.
+ *
+ * This is intended to be used after a call to
+ * yices_check_context_with_model that returned STATUS_UNSAT. In this
+ * case, the function builds an model interpolant. The model
+ * interpolant is a clause implied by the current context that is
+ * false in the model provides to yices_check_context_with_model.
+ *
+ * Error code:
+ * - CTX_OPERATION_NOT_SUPPORTED if the context is not configured with model interpolation
+ * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern term_t yices_get_model_interpolant(context_t *ctx);
+
+
 
 /**************
  *   MODELS   *
@@ -3286,7 +3393,7 @@ __YICES_DLLSPEC__ extern int32_t yices_get_unsat_core(context_t *ctx, term_vecto
 /*
  * Build a model from ctx
  * - keep_subst indicates whether the model should include
- *   the eliminated variables:
+ *   the uninterpreted terms that have been eliminated by simplification:
  *   keep_subst = 0 means don't keep substitutions,
  *   keep_subst != 0 means keep them
  * - ctx status must be STATUS_SAT or STATUS_UNKNOWN
@@ -3295,9 +3402,9 @@ __YICES_DLLSPEC__ extern int32_t yices_get_unsat_core(context_t *ctx, term_vecto
  * and sets an error report (code = CTX_INVALID_OPERATION).
  *
  * When assertions are added to the context, the simplifications may
- * eliminate variables (cf. simplification options above).  The flag
- * 'keep_subst' indicates whether the model should keep track of these
- * eliminated variables and include their value.
+ * eliminate some uninterpreted terms (cf. simplification options above).
+ * The flag 'keep_subst' indicates whether the model should keep track
+ * of these eliminated terms and include their value.
  *
  * Example: after the following assertions
  *
@@ -3305,15 +3412,15 @@ __YICES_DLLSPEC__ extern int32_t yices_get_unsat_core(context_t *ctx, term_vecto
  *    (bv-gt y 0b000)
  *    (bg-gt z 0b000)
  *
- * variable 'x' gets eliminated. Then a call to 'check_context' will
+ * uninterpreted term 'x' gets eliminated. Then a call to 'check_context' will
  * return STATUS_SAT and we can ask for a model 'M'
  * - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
  * - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
  *   based on the value of 'y' and 'z' in 'M'.
  *
  * It's always better to set 'keep_subst' true. The only exceptions
- * are some of the large SMT_LIB benchmarks where millions of variables
- * are eliminated.  In such cases, it saves memory to set 'keep_subst'
+ * are some of the large SMT_LIB benchmarks where millions of uninterpreted 
+ * terms are eliminated.  In such cases, it saves memory to set 'keep_subst'
  * false, and model construction is faster too.
  */
 __YICES_DLLSPEC__ extern model_t *yices_get_model(context_t *ctx, int32_t keep_subst);
@@ -3323,6 +3430,13 @@ __YICES_DLLSPEC__ extern model_t *yices_get_model(context_t *ctx, int32_t keep_s
  * Delete model mdl
  */
 __YICES_DLLSPEC__ extern void yices_free_model(model_t *mdl);
+
+/*
+ * Build an empty model: no error.
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern model_t *yices_new_model(void);
 
 
 /*
@@ -3350,6 +3464,106 @@ __YICES_DLLSPEC__ extern model_t *yices_model_from_map(uint32_t n, const term_t 
 
 
 /*
+ * The following functions extend a model by assigning a value to an uninterpreted term
+ * - var must be an uninterpreted term
+ * - var must not have a value in model
+ *
+ * All functions return -1 if there's an error and set the error report.
+ * They return 0 otherwise.
+ *
+ * Error report:
+ * - code = INVALID_TERM if var is not valid
+ * - code = MDL_UNINT_REQUIRED if var is not uninterpreted
+ * - code = TYPE_MISMATCH if the uninterpreted term and the value don't have compatible types.
+ * - code = MDL_DUPLICATE_VAR if var already has a value in model
+ */
+
+/*
+ * Assign a value to a Boolean uninterpreted term
+ * - val 0 means false, anything else means true.
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bool(model_t *model, term_t var, int32_t val);
+
+/*
+ * Assign a value to a numerical uninterpreted term.  The value can be given as
+ * an integer, a GMP integer, a GMP rational, or an algebraic number.
+ *
+ * The assignment fails (TYPE_MISMATCH) is the uninterpreted term has integer type
+ * and the value is not an integer.
+ *
+ * For functions yices_model_set_rational32 and
+ * yices_model_set_rational64, the value is num/den.  These two
+ * functions fail and report DIVISION_BY_ZERO if den is zero.
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern int32_t yices_model_set_int32(model_t *model, term_t var, int32_t val);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_int64(model_t *model, term_t var, int64_t val);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_rational32(model_t *model, term_t var, int32_t num, uint32_t den);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_rational64(model_t *model, term_t var, int64_t num, uint64_t den);
+
+#ifdef __GMP_H__
+__YICES_DLLSPEC__ extern int32_t yices_model_set_mpz(model_t *model, term_t var, mpz_t val);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_mpq(model_t *model, term_t var, mpq_t val);
+#endif
+
+#ifdef LIBPOLY_VERSION
+__YICES_DLLSPEC__ extern int32_t yices_model_set_algebraic_number(model_t *model, term_t var, const lp_algebraic_number_t *val);
+#endif
+
+
+/*
+ * Assign an integer value to a bitvector uninterpreted term.
+ *
+ * Rules for truncation and zero/sign extension:
+ * - let n be the number of bits in var
+ * - if val has more than n bits then it is truncated. The n least significant bits are used.
+ *   Other bits are ignored.
+ * - if val has fewer than n bits, the value is obtained by zero or sign extension, depending
+ *   on the function:
+ *     yices_model_set_bv_int32:  sign extension
+ *     yices_model_set_bv_int64:  sign extension
+ *     yices_model_set_bv_uint32: zero extension
+ *     yices_model_set_bv_uint64: zero extension
+ *     yices_model_set_bv_mpz:    sign extension
+ *
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bv_int32(model_t *model, term_t var, int32_t val);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bv_int64(model_t *model, term_t var, int64_t val);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bv_uint32(model_t *model, term_t var, uint32_t val);
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bv_uint64(model_t *model, term_t var, uint64_t val);
+
+#ifdef __GMP_H__
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bv_mpz(model_t *model, term_t var, mpz_t val);
+#endif
+
+
+/*
+ * Assign a bitvector value to a bitvector uninterpreted term, using an array of bits.
+ * - var = bitvector uninterpreted term
+ * - a = array of n bits
+ * - var must be an uninterpreted term of type (bitvector n)
+ *   (and var must not have a value in model).
+ *
+ * Elements of a are interpreted as in yices_bvconst_from_array:
+ * - bit i is 0 if a[i] == 0 and bit i is 1 if a[i] != 0
+ * - a[0] is the low-order bit
+ * - a[n-1] is the high-order bit
+ *
+ *
+ * Since 2.6.4.
+ */
+__YICES_DLLSPEC__ extern int32_t yices_model_set_bv_from_array(model_t *model, term_t var, uint32_t n, const int32_t a[]);
+
+
+
+
+
+/*
  * Collect all the uninterpreted terms that have a value in model mdl.
  * - these terms are returned in vector v
  * - v must be an initialized term_vector
@@ -3367,7 +3581,7 @@ __YICES_DLLSPEC__ extern model_t *yices_model_from_map(uint32_t n, const term_t 
  *
  *   (assert (> y 0))
  *
- * then variable 'x' does not occur in the simplified assertions and will
+ * then uninterpreted term 'x' does not occur in the simplified assertions and will
  * not be included in vector 'v'.
  */
 __YICES_DLLSPEC__ extern void yices_model_collect_defined_terms(model_t *mdl, term_vector_t *v);
@@ -3751,7 +3965,7 @@ __YICES_DLLSPEC__ extern void yices_reset_yval_vector(yval_vector_t *v);
 /*
  * Value of term t as a node descriptor.
  *
- * The function returns 0 it t's value can be computed, -1 otherwise.
+ * The function returns 0 if t's value can be computed, -1 otherwise.
  * If t's value can be computed, the corresponding node descriptor is
  * returned in *val.
  *
@@ -4134,7 +4348,10 @@ __YICES_DLLSPEC__ extern int32_t yices_implicant_for_formulas(model_t *mdl, uint
  * MODEL GENERALIZATION
  */
 
-/*
+/* In the description below we use "variable" for what should be
+ * "uninterpreted term" (in the sense of Yices), to stick to standard
+ * terminology.
+ *
  * Given a model mdl for a formula F(X, Y). The following generalization functions
  * eliminate variables Y from F(X, Y) in a way that is guided by the model.
  *
