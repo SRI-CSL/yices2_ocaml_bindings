@@ -146,7 +146,6 @@ let test_ext_context cfg =
   assert(Types.equal_smt_status smt_stat `STATUS_UNSAT);
   Context.goto ctx 0;
   let smt_stat = Context.check ctx in
-  print_endline(Types.show_smt_status smt_stat);
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
   test_context (module Context) ctx;
   Context.free ctx;

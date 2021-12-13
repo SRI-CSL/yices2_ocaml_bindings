@@ -109,6 +109,9 @@ module Context : sig
 
 end
 
+val use_type_names : bool ref
+val use_term_names : bool ref
+
 module Type := Type
 module Type : sig
   include module type of Type
@@ -236,6 +239,18 @@ module Model : sig
 
   (** Print with height 1000 *)
   val pp : t Format.printer
+end
+
+(* Supported models *)
+module SModel : sig
+
+  type t = { support : Term.t list;
+             model   : Model.t }
+  val of_model : Model.t -> t
+  val pp :
+    ?pp_start:unit Format.printer ->
+    ?pp_stop:unit Format.printer ->
+    ?pp_sep:unit Format.printer -> unit -> t Format.printer
 end
 
 module Param := Param

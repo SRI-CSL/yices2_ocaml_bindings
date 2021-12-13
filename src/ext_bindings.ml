@@ -27,6 +27,17 @@ let rec pp_sexp fmt = function
 include Make(ExceptionsErrorHandling)
 module HTerms = Hashtbl.Make(Term)
 
+let use_type_names = ref true
+let use_term_names = ref true
+
+let match_names use_ref get t =
+  if !use_ref then
+    match get t with
+    | s -> Some s
+    | exception _ -> None
+  else
+    None
+  
 (* Type but with S-expression export *)
 
 module TypeSexp = struct
@@ -39,19 +50,22 @@ module TypeSexp = struct
     with _ -> Format.fprintf fmt "null_type"
 
   let rec to_sexp typ =
-    match reveal typ with
-    | Bool -> Atom "Bool"
-    | Int  -> Atom "Int"
-    | Real -> Atom "Real"
-    | BV i -> List[Atom "_"; Atom "BitVec"; Atom(string_of_int i)]
-    | Scalar _
-    | Uninterpreted _ -> Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
-    | Tuple l -> l |> List.map to_sexp |> sexp "tuple"
-    | Fun { dom; codom } ->
-      let dom = List.map to_sexp dom in
-      match dom with
-      | [dom] -> sexp "Array" [dom; to_sexp codom]
-      | _ -> sexp "Array" [ List dom; to_sexp codom]
+    match match_names use_type_names Type.Names.to_name typ with
+    | Some s -> Atom s
+    | None ->
+       match reveal typ with
+       | Bool -> Atom "Bool"
+       | Int  -> Atom "Int"
+       | Real -> Atom "Real"
+       | BV i -> List[Atom "_"; Atom "BitVec"; Atom(string_of_int i)]
+       | Scalar _
+         | Uninterpreted _ -> Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
+       | Tuple l -> l |> List.map to_sexp |> sexp "tuple"
+       | Fun { dom; codom } ->
+          let dom = List.map to_sexp dom in
+          match dom with
+          | [dom] -> sexp "Array" [dom; to_sexp codom]
+          | _ -> sexp "Array" [ List dom; to_sexp codom]
 
   let pp fmt t = t |> to_sexp |> pp_sexp fmt
 
@@ -161,10 +175,10 @@ module TermTMP = struct
     else
       sexp "/" [sexp_gmpz num; sexp_gmpz den]
 
-        [%%else]
+[%%else]
   let sum_aux _ = ExceptionsErrorHandling.raise_error("Term.sum_aux necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
   let sexp_gmpq _ = ExceptionsErrorHandling.raise_error("Term.sexp_gmpq necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
-                      [%%endif]
+[%%endif]
 
   let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
     fun to_sexp ->
@@ -676,8 +690,11 @@ module ExtTerm = struct
        if zero_ext = 0 then block else f "sign_extend" zero_ext block
 
   and to_sexp_t : Term.t -> Sexp.t = fun t ->
-    let YExtTerm t = of_term t in
-    to_sexp t
+    match match_names use_term_names Term.Names.to_name t with
+    | Some s -> Atom s
+    | None ->
+       let YExtTerm t = of_term t in
+       to_sexp t
     
   let pp fmt t = t |> to_sexp |> pp_sexp fmt
                
@@ -707,6 +724,34 @@ module Model = struct
     t |> PP.model_string ~display:Types.{ width = 100; height; offset=0}
     |> Format.fprintf fmt "%s"
   let pp = pph 1000
+
+end
+
+(* Supported models *)
+module SModel = struct
+
+  type t = {
+    support : Term.t list;
+    model   : Model.t
+  }
+
+  let of_model model = {
+      support = Model.collect_defined_terms model |> List.sort Term.compare;
+      model }
+
+  let pp ?pp_start ?pp_stop ?pp_sep () fmt {support;model} =
+    let aux fmt u =
+      try
+        let v = Model.get_value_as_term model u in
+        Format.fprintf fmt "@[%a := %a@]" TermSexp.pp u TermSexp.pp v
+      with
+        _ ->
+        Format.fprintf fmt "@[%a := ALG @]" TermSexp.pp u
+    in
+    match support with
+    | [] -> Format.fprintf fmt "[]"
+    | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
+
 end
 
 module Action = struct
