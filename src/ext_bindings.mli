@@ -15,6 +15,29 @@ module Types : sig
   val pp_error_report : error_report Format.printer
 end
 
+module Model := Model
+module Model : sig
+  include module type of Model
+
+  (** Print with specific height *)
+  val pph : int -> t Format.printer
+
+  (** Print with height 1000 *)
+  val pp : t Format.printer
+end
+
+(* Supported models *)
+module SModel : sig
+
+  type t = { support : Term.t list;
+             model   : Model.t }
+  val of_model : Model.t -> t
+  val pp :
+    ?pp_start:unit Format.printer ->
+    ?pp_stop:unit Format.printer ->
+    ?pp_sep:unit Format.printer -> unit -> t Format.printer
+end
+
 module Action : sig
 
   type t =
@@ -99,7 +122,8 @@ module Context : sig
   val stop             : t -> unit
   val get_model        : t -> keep_subst:bool -> Model.t
   val get_unsat_core   : t -> Term.t list
-  val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
+  val check_with_model  : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
+  val check_with_smodel : ?param:Param.t -> t -> SModel.t -> Types.smt_status
   val get_model_interpolant : t -> Term.t
 
   (* The next two functions are just adding declarations to the log,
@@ -108,6 +132,13 @@ module Context : sig
   val declare_fun    : t -> string -> Type.t -> unit
 
 end
+
+module Param := Param
+module Param : sig
+  include module type of Param
+  val default : Context.t -> t -> unit
+end
+
 
 val use_type_names : bool ref
 val use_term_names : bool ref
@@ -230,33 +261,5 @@ module ExtTerm : sig
 
 end
 
-module Model := Model
-module Model : sig
-  include module type of Model
-
-  (** Print with specific height *)
-  val pph : int -> t Format.printer
-
-  (** Print with height 1000 *)
-  val pp : t Format.printer
-end
-
-(* Supported models *)
-module SModel : sig
-
-  type t = { support : Term.t list;
-             model   : Model.t }
-  val of_model : Model.t -> t
-  val pp :
-    ?pp_start:unit Format.printer ->
-    ?pp_stop:unit Format.printer ->
-    ?pp_sep:unit Format.printer -> unit -> t Format.printer
-end
-
-module Param := Param
-module Param : sig
-  include module type of Param
-  val default : Context.t -> t -> unit
-end
 
 module Global : module type of Global
