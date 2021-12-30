@@ -979,7 +979,12 @@ module Context = struct
 
   let check_with_model ?param x model terms =
     action (CheckWithModel(param, model, terms)) x;
-    check_with_model ?param x.context model terms
+    Context.check_with_model ?param x.context model terms
+
+  let check_with_smodel ?param x SModel.{ model ; support } =
+    action (CheckWithModel(param, model, support)) x;
+    Context.check_with_model ?param x.context model support
+
   let get_model_interpolant x =
     action GetModelInterpolant x;
     get_model_interpolant x.context
