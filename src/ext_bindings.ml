@@ -25,7 +25,7 @@ let rec pp_sexp fmt = function
   | List l -> Format.fprintf fmt "@[<hov1>(%a)@]" (List.pp ~pp_sep pp_sexp) l
 
 include Make(ExceptionsErrorHandling)
-module HTerms = Hashtbl.Make(Term)
+module HTerms = CCHashtbl.Make(Term)
 
 let use_type_names = ref true
 let use_term_names = ref true
@@ -199,7 +199,7 @@ module TermTMP = struct
        HTerms.add fv_table t answer;
        answer
          
-         [%%if gmp_present]
+[%%if gmp_present]
   let sum_aux to_sexp (coeff, term) =
     let one = Term.Arith.int 1 in
     let coeff = Term.Arith.mpq coeff in

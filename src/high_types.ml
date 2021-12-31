@@ -589,6 +589,7 @@ module type API = sig
 
     val reveal : type_t -> ytype eh
     val build  : ytype -> type_t eh
+    val map    : (type_t -> type_t eh) -> ytype -> ytype eh
 
     (** Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
         - convert an input string s to a type or term.

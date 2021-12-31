@@ -53,6 +53,22 @@ module MList(M : Monad) = struct
     List.rev l |> fold aux (return [])
 end
 
+(* Monadic map on types *)
+module MType(M : Monad) = struct
+  open M
+  let (let+) = bind
+  open MList(M)
+
+  let map f = function
+    | Tuple list         -> let+ list = map f list in return(Tuple list) 
+    | Fun { dom; codom } ->
+       let+ dom = map f dom in
+       let+ codom = f codom in
+       return(Fun{dom; codom})
+    | ty -> return ty
+
+end
+
 (* Monadic map on terms *)
 module MTerm(M : Monad) = struct
   open M
@@ -71,7 +87,7 @@ module MTerm(M : Monad) = struct
 
   let map : type a. (term_t -> term_t M.t) -> a termstruct -> a termstruct M.t =
     fun f -> function
-      | A0(c,t)     -> let+ t = f t in return (A0(c,t))
+      | A0 _ as t   -> return t
       | A1(c,t)     -> let+ t = f t in return (A1(c,t))
       | A2(c,t1,t2) ->
         let+ t1 = f t1 in
@@ -656,6 +672,8 @@ module SafeMake
       | Uninterpreted self -> return self
       | Tuple l -> tuple l
       | Fun{dom; codom} -> func dom codom
+
+    include MType(EH)
 
   end
 

@@ -23,6 +23,10 @@ module MList(M : Monad) : sig
     val map : ('a -> 'b M.t) -> 'a list -> 'b list M.t
 end
 
+module MType(M : Monad) : sig
+    val map : (type_t -> type_t M.t) -> ytype -> ytype M.t
+end
+
 module MTerm(M : Monad) : sig
     val map : (term_t -> term_t M.t) -> 'a termstruct -> 'a termstruct M.t
 end
