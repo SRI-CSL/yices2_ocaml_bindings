@@ -9,6 +9,16 @@ val pp_sexp : Sexp.t Format.printer
 
 include API with type 'a eh := 'a
 
+module Config : sig
+  type t
+  val malloc : unit -> t
+  val free : t -> unit
+  val set : t -> name:string -> value:string -> unit
+  val default : ?logic:string -> t -> unit
+  val get     : t -> String.t -> String.t
+  val options : t -> (String.t * String.t) list
+end
+
 module Types := Types
 module Types : sig
   include module type of Types
@@ -31,13 +41,30 @@ module SModel : sig
 
   type t = { support : Term.t list;
              model   : Model.t }
-  val of_model : Model.t -> t
+  val make : ?support:Term.t list -> Model.t -> t
   val pp :
     ?pp_start:unit Format.printer ->
     ?pp_stop:unit Format.printer ->
     ?pp_sep:unit Format.printer -> unit -> t Format.printer
 end
 
+module Assertions : sig
+  type t =
+    private {
+        list  : Term.t list option list; (* List of assertions at each level. None at some level
+                                            if a blocking clause has been asserted there *)
+        level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
+      }
+  val init : t
+
+  exception BlockingClauseUsage
+  val assertions : t -> Term.t list (* flattens all levels into a list of assertions
+                                       raises BlockingClauseUsage
+                                       if None is found at any level *)
+  val to_sexp : t -> Sexp.t
+  val pp : t Format.printer
+end
+     
 module Action : sig
 
   type t =
@@ -53,11 +80,16 @@ module Action : sig
     | AssertFormulas of Term.t list
     | AssertBlockingClause
     | Check of Param.t option
-    | CheckWithAssumptions of Param.t option * Term.t list
+    | CheckWithAssumptions of { param : Param.t option; assumptions : Term.t list }
     | Stop
     | GetModel
     | GetUnsatCore
-    | CheckWithModel of Param.t option * Model.t * Term.t list
+    | CheckWithModel of { param : Param.t option; smodel : SModel.t }
+    | CheckWithInterpolation of { param : Param.t option;
+                                  build_model : bool;
+                                  is_first    : bool;
+                                  other_assertions : Assertions.t;
+                                  other_log : t list }
     | GetModelInterpolant
 
   (** Appends the action sexp(s) on top of input list *)
@@ -67,19 +99,6 @@ end
 
 module Context : sig
 
-  type assertions =
-    private {
-        list  : Term.t list option list; (* List of assertions at each level. None at some level
-                                            if a blocking clause has been asserted there *)
-        level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
-      }
-  val pp_assertions : assertions Format.printer
-
-  exception BlockingClauseUsage
-  val assertions : assertions -> Term.t list (* flattens all levels into a list of assertions
-                                                raises BlockingClauseUsage
-                                                if None is found at any level *)
-
   type options
   val pp_options : options Format.printer
 
@@ -87,14 +106,14 @@ module Context : sig
     private {
         config     : Config.t option; (* In case a config was used at creation *)
         context    : Context.t;       (* Raw context as in yices2_high *)
-        assertions : assertions ref;  (* Structure of assertions and level *)
+        assertions : Assertions.t ref;(* Structure of assertions and level *)
         options    : options;         (* Set options *)
         log        : Action.t list ref; (* Everything that happened to that context *)
-        is_alive   : bool ref         (* If the raw context wasn't freed *)
+        is_alive   : bool ref;        (* If the raw context wasn't freed *)
+        mcsat      : bool
       }
 
   val pp : t Format.printer
-
 
   (** Turns the log into list of S-expressions.
       The first executed action ends up as the head of the list. *)
@@ -107,6 +126,7 @@ module Context : sig
 
   (** Free does not free the config field (which could be shared with other contexts) *)
   val free : t -> unit
+
   val status : t -> Types.smt_status
   val reset  : t -> unit
   val push   : t -> unit        (* Open new level and go there *)
@@ -124,6 +144,8 @@ module Context : sig
   val get_unsat_core   : t -> Term.t list
   val check_with_model  : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
   val check_with_smodel : ?param:Param.t -> t -> SModel.t -> Types.smt_status
+  val check_with_interpolation  :
+    ?build_model:bool -> ?param:Param.t -> t -> t -> Types.smt_status * Term.t option * Model.t option
   val get_model_interpolant : t -> Term.t
 
   (* The next two functions are just adding declarations to the log,

@@ -37,6 +37,52 @@ let match_names use_ref get t =
     | exception _ -> None
   else
     None
+
+(* Configs but with settings available *)
+
+module Config = struct
+
+  type options = String.t StringHashtbl.t
+
+  type t = {
+      config : Config.t;
+      options: options;
+      mcsat : bool ref
+    }
+
+  let malloc () = {
+      config  = Config.malloc();
+      options = StringHashtbl.create 10;
+      mcsat  = ref false
+    }
+
+  let free t = Config.free t.config
+  let set t ~name ~value =
+    StringHashtbl.replace t.options name value;
+    if String.equal name "solver-type"
+    then t.mcsat := String.equal value "mcsat";
+    Config.set t.config ~name ~value
+
+  let mcsat_logics = StringHashtbl.create 10
+
+  let () =
+    StringHashtbl.replace mcsat_logics "QF_NRA" ();
+    StringHashtbl.replace mcsat_logics "QF_NIA" ();
+    StringHashtbl.replace mcsat_logics "QF_UFNRA" ();
+    StringHashtbl.replace mcsat_logics "QF_UFNIA" ()
+    
+  let default ?logic t =
+    let () = match logic with
+      | Some logic when StringHashtbl.mem mcsat_logics logic -> t.mcsat := true
+      | _ -> t.mcsat := false
+    in
+    Config.default ?logic t.config
+
+  let get t     = StringHashtbl.find t.options
+  let options t = StringHashtbl.to_list t.options
+
+end
+  
   
 (* Type but with S-expression export *)
 
@@ -735,9 +781,31 @@ module SModel = struct
     model   : Model.t
   }
 
-  let of_model model = {
-      support = Model.collect_defined_terms model |> List.sort Term.compare;
-      model }
+  let make ?support model =
+    let support = match support with
+      | None -> Model.collect_defined_terms model |> List.sort Term.compare
+      | Some support -> support
+    in
+    { support; model }
+
+  let to_sexp smodel =
+    let aux t =
+      let ty = TypeSexp.to_sexp(Term.type_of_term t) in
+      let vars, body =
+        try
+          let v = Model.get_value_as_term smodel.model t in
+          match Term.reveal v with
+          | Term(Bindings { vars; body; _ }) ->
+             let aux v = List[TermSexp.to_sexp v; TypeSexp.to_sexp(Term.type_of_term v)] in  
+             Sexp.List(List.map aux vars), TermSexp.to_sexp body
+          | _ -> Sexp.List [], TermSexp.to_sexp v
+        with
+          _ -> Sexp.List [], Sexp.Atom "ALG"
+      in
+      sexp "define-fun" [TermSexp.to_sexp t; vars; ty; body]
+    in
+    Sexp.List(smodel.support |> List.rev |> List.rev_map aux)
+
 
   let pp ?pp_start ?pp_stop ?pp_sep () fmt {support;model} =
     let aux fmt u =
@@ -751,6 +819,44 @@ module SModel = struct
     match support with
     | [] -> Format.fprintf fmt "[]"
     | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
+
+end
+
+module Assertions = struct
+
+  type t = {
+      list  : Term.t list option list; (* never empty *)
+      level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
+    }
+
+  let init = {
+      list = [Some []];
+      level = 0;
+    }
+
+  exception BlockingClauseUsage
+
+  let assertions x =
+    let aux sofar = function
+      | None -> raise BlockingClauseUsage
+      | Some list -> List.rev_append list sofar
+    in
+    List.fold_left aux [] x.list
+
+  let level_to_sexp = function
+    | None -> Sexp.Atom "BlockingClauseUsage"
+    | Some assertions -> Sexp.List (List.map TermSexp.to_sexp assertions)
+
+  let to_sexp { list; _ } = Sexp.List (List.map level_to_sexp list)
+    
+  let pp_level fmt = function
+    | None ->
+       Format.fprintf fmt "@[<v>??@]"
+    | Some assertions ->
+       Format.fprintf fmt "@[<v>%a@]" (List.pp TermSexp.pp) assertions
+
+  let pp fmt assertions = 
+    Format.fprintf fmt "@[<v>%a@]" (List.pp pp_level) assertions.list
 
 end
 
@@ -769,11 +875,16 @@ module Action = struct
     | AssertFormulas of Term.t list
     | AssertBlockingClause
     | Check of Param.t option
-    | CheckWithAssumptions of Param.t option * Term.t list
+    | CheckWithAssumptions of { param : Param.t option; assumptions : Term.t list }
     | Stop
     | GetModel
     | GetUnsatCore
-    | CheckWithModel of Param.t option * Model.t * Term.t list
+    | CheckWithModel of { param : Param.t option; smodel : SModel.t }
+    | CheckWithInterpolation of { param : Param.t option;
+                                  build_model : bool;
+                                  is_first    : bool;
+                                  other_assertions : Assertions.t;
+                                  other_log : t list }
     | GetModelInterpolant
 
   let to_sexp accu = function
@@ -792,20 +903,18 @@ module Action = struct
        List.fold_left (fun sofar t -> sexp "assert" [TermSexp.to_sexp t]::sofar) accu l
     | AssertBlockingClause -> sexp "assert-blocking-clause" [] ::accu
     | Check _param -> sexp "check-sat" [] ::accu 
-    | CheckWithAssumptions(_param,l) ->
-       sexp "check-sat-assuming" (List.map TermSexp.to_sexp l) ::accu
+    | CheckWithAssumptions{ assumptions; _ } ->
+       sexp "check-sat-assuming" (List.map TermSexp.to_sexp assumptions) ::accu
     | Stop     -> sexp "stop" [] ::accu
     | GetModel -> sexp "get-model" [] ::accu
     | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
-    | CheckWithModel(_param, model, terms) ->
-       let aux (varl,vall) t =
-         let v = Model.get_value_as_term model t in
-         let t = TermSexp.to_sexp t in
-         let v = TermSexp.to_sexp v in
-         t::varl, v::vall
-       in
-       let varl,vall = terms |> List.rev |> List.fold_left aux ([],[]) in
-       sexp "check-sat-assuming-model" [List varl; List vall] ::accu
+    | CheckWithModel{ smodel; _} ->
+       sexp "check-sat-assuming-model" [SModel.to_sexp smodel] ::accu
+    | CheckWithInterpolation{ build_model; is_first; other_assertions; _} ->
+       let build_model = Atom(if build_model then "build_model" else "no_build_model") in
+       let is_first    = Atom(if is_first then "is_first" else "is_second") in
+       sexp "check-sat-with-interpolation"
+         [build_model; is_first; Assertions.to_sexp other_assertions] ::accu
     | GetModelInterpolant -> sexp "get-unsat-model-interpolant" [] ::accu
 
 end
@@ -814,35 +923,6 @@ let global_log = ref []
 let reset_global_log() = global_log := []
 
 module Context = struct
-  include Context
-
-  type assertions = {
-      list  : Term.t list option list; (* never empty *)
-      level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
-    }
-
-  let init = {
-      list = [Some []];
-      level = 0;
-    }
-
-  exception BlockingClauseUsage
-
-  let assertions x =
-    let aux sofar = function
-      | None -> raise BlockingClauseUsage
-      | Some list -> List.rev_append list sofar
-    in
-    List.fold_left aux [] x.list
-           
-  let pp_level fmt = function
-    | None ->
-       Format.fprintf fmt "@[<v>??@]"
-    | Some assertions ->
-       Format.fprintf fmt "@[<v>%a@]" (List.pp TermSexp.pp) assertions
-
-  let pp_assertions fmt assertions = 
-    Format.fprintf fmt "@[<v>%a@]" (List.pp pp_level) assertions.list
 
   type options = unit StringHashtbl.t
 
@@ -851,65 +931,71 @@ module Context = struct
 
   type nonrec t = {
       config     : Config.t option;
-      context    : t;
-      assertions : assertions ref;
+      context    : Context.t;
+      assertions : Assertions.t ref;
       options    : options;
       log        : Action.t list ref;
-      is_alive   : bool ref
+      is_alive   : bool ref;
+      mcsat      : bool
     }
 
   let all = ref []
   let all_reset() = all := []
 
-  let pp fmt {assertions; _} = pp_assertions fmt !assertions
+  let pp fmt {assertions; _} = Assertions.pp fmt !assertions
 
   let to_sexp {log; _} = !log |> List.fold_left Action.to_sexp [] 
 
   let malloc ?config () =
+    let yconfig = Option.map (fun config -> Config.(config.config)) config in
     let context = 
       { config  = config;
-        context = malloc ?config ();
-        assertions = ref init;
+        context = Context.malloc ?config:yconfig ();
+        assertions = ref Assertions.init;
         options = StringHashtbl.create 10;
-        log = ref !global_log;
-        is_alive = ref true }
+        log     = ref !global_log;
+        is_alive = ref true;
+        mcsat   = match config with
+                  | Some config -> !(config.mcsat)
+                  | None -> false
+      }
     in
     all := context::!all;
     context
 
   let all() = !all
 
-  let free {context; is_alive; _ } = free context; is_alive := false
+  let free {context; is_alive; _ } = Context.free context; is_alive := false
 
   let action a x = x.log := a::!(x.log)
-                 
+
   let status x =
     action Status x;
-    status x.context
+    Context.status x.context
 
   let reset x =
     action Reset x;
-    reset x.context;
-    x.assertions := init
+    Context.reset x.context;
+    x.assertions := Assertions.init
 
   let push x =
     action Push x;
-    let {list; level} = !(x.assertions) in
+    let Assertions.{list; level} = !(x.assertions) in
     x.assertions := {
         list = Some []::list;
         level = level+1;
       };
-    push x.context
+    Context.push x.context
 
   let pop x =
     action Pop x;
-    let {list; level} = !(x.assertions) in
+    let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []     -> assert false
     | [_last] -> raise PopLastLevel
     | _::tail -> x.assertions := { list = tail; level = level - 1 }
     end;
-    pop x.context
+    Context.pop x.context
 
   let goto x level =
     let diff = level - !(x.assertions).level in
@@ -919,57 +1005,57 @@ module Context = struct
     
   let enable_option x ~option =
     action (EnableOption option) x;
-    enable_option x.context ~option;
+    Context.enable_option x.context ~option;
     StringHashtbl.replace x.options option ()
 
   let disable_option x ~option =
     action (DisableOption option) x;
-    disable_option x.context ~option;
+    Context.disable_option x.context ~option;
     StringHashtbl.remove x.options option 
 
   let assert_formula x formula =
-    let {list; level} = !(x.assertions) in
+    let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []         -> assert false
     | last::tail -> x.assertions := { list = (Option.map (List.cons formula) last)::tail; level }
     end;
-    assert_formula x.context formula
+    Context.assert_formula x.context formula
 
   let assert_formulas x formulas =
-    let {list; level} = !(x.assertions) in
+    let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []         -> assert false
     | last::tail ->
        x.assertions := { list = (Option.map (List.rev_append (List.rev formulas)) last)::tail;
                          level }
     end;
-    assert_formulas x.context formulas
+    Context.assert_formulas x.context formulas
 
   let assert_blocking_clause x =
-    let {list; level} = !(x.assertions) in
+    let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []         -> assert false
     | _::tail -> x.assertions := { list = None::tail; level }
     end;
-    assert_blocking_clause x.context
+    Context.assert_blocking_clause x.context
 
   let check ?param x =
     action (Check param) x;
-    check ?param x.context
+    Context.check ?param x.context
 
   let check_with_assumptions ?param x assumptions =
-    action (CheckWithAssumptions(param, assumptions)) x;
-    check_with_assumptions ?param x.context assumptions
+    action (CheckWithAssumptions{param; assumptions}) x;
+    Context.check_with_assumptions ?param x.context assumptions
 
   let stop x =
     action Stop x;
-    stop x.context
+    Context.stop x.context
   let get_model x =
     action GetModel x;
-    get_model x.context
+    Context.get_model x.context
   let get_unsat_core x =
     action GetUnsatCore x;
-    get_unsat_core x.context
+    Context.get_unsat_core x.context
 
   let declare_type x s =
     action (DeclareType s) x
@@ -977,17 +1063,30 @@ module Context = struct
   let declare_fun x s t =
     action (DeclareFun(s,t)) x
 
-  let check_with_model ?param x model terms =
-    action (CheckWithModel(param, model, terms)) x;
-    Context.check_with_model ?param x.context model terms
-
-  let check_with_smodel ?param x SModel.{ model ; support } =
-    action (CheckWithModel(param, model, support)) x;
+  let check_with_model ?param x model support =
+    action (CheckWithModel{param; smodel = SModel.make ~support model}) x;
     Context.check_with_model ?param x.context model support
+
+  let check_with_smodel ?param x smodel =
+    action (CheckWithModel{param; smodel = smodel}) x;
+    Context.check_with_model ?param x.context smodel.model smodel.support
+
+  let check_with_interpolation ?(build_model=true) ?param ctx_A ctx_B =
+    action
+      (CheckWithInterpolation{param; build_model; is_first = true;
+                              other_assertions = !(ctx_B.assertions);
+                              other_log        = !(ctx_B.log)})
+      ctx_A;
+    action
+      (CheckWithInterpolation{param; build_model; is_first = false;
+                              other_assertions = !(ctx_A.assertions);
+                              other_log        = !(ctx_A.log)})
+      ctx_B;
+    Context.check_with_interpolation ~build_model ?param ctx_A.context ctx_B.context
 
   let get_model_interpolant x =
     action GetModelInterpolant x;
-    get_model_interpolant x.context
+    Context.get_model_interpolant x.context
 
 end
 

@@ -35,7 +35,8 @@ let test_config () =
 module type Context = sig
   open EH1
   type t
-  val malloc : ?config:Config.t -> unit -> t
+  type config
+  val malloc : ?config:config -> unit -> t
   val free : t -> unit
   val status : t -> Types.smt_status
   val reset  : t -> unit
@@ -56,7 +57,9 @@ module type Context = sig
   val get    : t -> EH1.Context.t
 end
 
-let test_context (type a) (module Context : Context with type t = a) (ctx : a) =
+let test_context (type a) (type c)
+      (module Context : Context with type t = a and type config = c)
+      (ctx : a) =
   let module Type = EH1.Type in
   let module Term = EH1.Term in
   let module Param = EH1.Param in
@@ -125,6 +128,7 @@ let test_native_context cfg =
   let ctx = Context.malloc ~config:cfg () in
   let module Context = struct
       include Context
+      type config = Config.t
       let get x = x
     end
   in
@@ -137,6 +141,7 @@ let test_ext_context cfg =
   let ctx = Context.malloc ~config:cfg () in
   let module Context = struct
       include Context
+      type config = Config.t
       let get x = x.context
     end
   in
@@ -155,8 +160,7 @@ let test_ext_context cfg =
 let test_regular_context () =
   print_endline "Regular context tests";
   let open EH1 in
-  let open Global in
-  init();
+  Global.init();
   let cfg = Config.malloc () in
   let ctx = Context.malloc ~config:cfg () in
   Context.assert_formula ctx Term.(new_uninterpreted (Type.real()) === (Arith.zero()));
@@ -171,8 +175,7 @@ let test_regular_context () =
 let test_mcsat_context () =
   print_endline "MCSAT contexts tests";
   let open EH1 in
-  let open Global in
-  init();
+  Global.init();
   let cfg = Config.malloc () in
   Config.set cfg ~name:"solver-type" ~value:"mcsat";
   Config.set cfg ~name:"model-interpolation" ~value:"true";
@@ -182,9 +185,8 @@ let test_mcsat_context () =
 
 let test_regular_ext_context () =
   print_endline "Regular extended context tests";
-  let open EH1 in
-  let open Global in
-  init();
+  let open Yices2.Ext_bindings in
+  Global.init();
   let cfg = Config.malloc () in
   let ctx = Context.malloc ~config:cfg () in
   Context.assert_formula ctx Term.(new_uninterpreted (Type.real()) === (Arith.zero()));
@@ -198,9 +200,8 @@ let test_regular_ext_context () =
          
 let test_mcsat_ext_context () =
   print_endline "MCSAT extended contexts tests";
-  let open EH1 in
-  let open Global in
-  init();
+  let open Yices2.Ext_bindings in
+  Global.init();
   let cfg = Config.malloc () in
   Config.set cfg ~name:"solver-type" ~value:"mcsat";
   Config.set cfg ~name:"model-interpolation" ~value:"true";
