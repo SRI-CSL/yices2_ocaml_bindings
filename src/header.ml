@@ -82,6 +82,14 @@ module TMP =
       let (_ctype : [ `error_report_s ] Ctypes.structure Ctypes.typ) =
         Ctypes.structure "error_report_s" in
       _ctype
+
+    (* Hand-written *)
+    let interpolation_context_s_0 =
+      let (_ctype : [ `interpolation_context_s ] Ctypes.structure Ctypes.typ) =
+        Ctypes.structure "interpolation_context_s" in
+      _ctype
+
+
     let __u_char = Ctypes.typedef Ctypes.uchar "__u_char"
     let __u_short = Ctypes.typedef Ctypes.ushort "__u_short"
     let __u_int = Ctypes.typedef Ctypes.uint "__u_int"
@@ -838,6 +846,28 @@ module TMP =
           end
       end
     let error_report_t = Ctypes.typedef error_report_s_0 "error_report_t"
+
+    (* Hand-written *)
+    let interpolation_context_s =
+      let field_0 = Ctypes.field interpolation_context_s_0 "ctx_A" (Ctypes.ptr context_t) in
+      let field_1 = Ctypes.field interpolation_context_s_0 "ctx_B" (Ctypes.ptr context_t) in
+      let field_2 = Ctypes.field interpolation_context_s_0 "interpolant" term_t in
+      let field_3 = Ctypes.field interpolation_context_s_0 "model" (Ctypes.ptr model_t) in
+      let () = Ctypes.seal interpolation_context_s_0 in
+      object
+        method ctype = interpolation_context_s_0
+        method members =
+          object
+            method ctx_A = field_0
+            method ctx_B = field_1
+            method interpolant = field_2
+            method model = field_3
+          end
+      end
+    let interpolation_context_t =
+      Ctypes.typedef interpolation_context_s_0 "interpolation_context_t"
+
+
     let yices_version =
       Foreign.foreign_value "yices_version" (Ctypes.ptr Ctypes.char)
     let yices_build_arch =
@@ -1824,6 +1854,15 @@ module TMP =
                  (Ctypes.(@->) uint32_t
                     (Ctypes.(@->) (Ctypes.ptr term_t)
                        (Ctypes.returning smt_status_t))))))
+
+    (* Hand-written *)
+    let yices_check_context_with_interpolation =
+      Foreign.foreign "yices_check_context_with_interpolation"
+        (Ctypes.(@->) (Ctypes.ptr interpolation_context_t)
+           (Ctypes.(@->) (Ctypes.ptr param_t)
+              (Ctypes.(@->) int32_t
+                 (Ctypes.returning smt_status_t))))
+      
     let yices_assert_blocking_clause =
       Foreign.foreign "yices_assert_blocking_clause"
         (Ctypes.(@->) (Ctypes.ptr context_t) (Ctypes.returning int32_t))

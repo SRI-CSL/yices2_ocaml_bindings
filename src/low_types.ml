@@ -22,6 +22,7 @@ module BaseTypes = struct
   type yval_t         = [ `yval_s ] structure
   type yval_vector_t  = [ `yval_vector_s ] structure
   type error_report_t = [ `error_report_s ] structure
+  type interpolation_context_t = [ `interpolation_context_s ] structure
 
   type smt_status = 
     [ `STATUS_ERROR
@@ -341,6 +342,14 @@ module type API = sig
                   type1 : (type_t, error_report_t) field;
                   type2 : (type_t, error_report_t) field > >
   val error_report_t : error_report_t typ
+
+  val interpolation_context_s :
+    < ctype : interpolation_context_t typ;
+      members : < ctx_A       : (context_t ptr, interpolation_context_t) field;
+                  ctx_B       : (context_t ptr, interpolation_context_t) field;
+                  interpolant : (term_t,        interpolation_context_t) field;
+                  model       : (model_t ptr,   interpolation_context_t) field > >
+  val interpolation_context_t : interpolation_context_t typ
 
   type 'a checkable    
   val sintcheck : _ sintbase checkable -> bool (* The said checking operation *)
@@ -1452,7 +1461,7 @@ module type API = sig
    * if n > YICES_MAX_BVSIZE
    *    code = MAX_BVSIZE_EXCEEDED
    *    badval = n *)
-  val yices_bvconst_from_array : uint -> sint ptr -> term_t checkable
+  val yices_bvconst_from_array : uint -> bool_t ptr -> term_t checkable
 
   (* Parsing from a string of characters '0' and '1'
    * First character = high-order bit
@@ -2317,7 +2326,7 @@ module type API = sig
    * if t is not of the right kind
    *    code = INVALID_TERM_OP *)
   val yices_bool_const_value   : term_t -> bool_t ptr -> unit_t checkable
-  val yices_bv_const_value     : term_t -> sint ptr -> unit_t checkable
+  val yices_bv_const_value     : term_t -> bool_t ptr -> unit_t checkable
   val yices_scalar_const_value : term_t -> sint ptr -> unit_t checkable
 [%%if gmp_present]
   val yices_rational_const_value : term_t -> MPQ.t abstract ptr -> unit_t checkable
@@ -2342,7 +2351,7 @@ module type API = sig
    *    code = INVALID_TERM_OP *)
   val yices_sum_component : term_t -> sint -> MPQ.t abstract ptr -> term_t ptr -> unit_t checkable
 [%%endif]
-  val yices_bvsum_component : term_t -> sint -> sint ptr -> term_t ptr -> unit_t checkable
+  val yices_bvsum_component : term_t -> sint -> bool_t ptr -> term_t ptr -> unit_t checkable
 
   (* Component of power product t
    * - i = index (must be between 0 and t's arity - 1)
@@ -2458,7 +2467,7 @@ module type API = sig
    *    the set of roots.
    *
    * The function silently ignores any term t[i] or any type tau[j] that's not valid. *)
-  val yices_garbage_collect : term_t ptr -> uint -> type_t ptr -> uint -> sint -> unit
+  val yices_garbage_collect : term_t ptr -> uint -> type_t ptr -> uint -> bool_t -> unit
 
 
   (****************************
@@ -3008,8 +3017,8 @@ module type API = sig
    * (code = CTX_INVALID_OPERATION).
    *
    * Since 2.6.4.
-   * TODO
    *)
+  val yices_check_context_with_interpolation : interpolation_context_t ptr -> param_t ptr -> bool_t -> smt_status_t
 
                                                                      
   (* Add a blocking clause: this is intended to help enumerate different models
@@ -3216,7 +3225,7 @@ module type API = sig
    *
    * Since 2.6.4.
    *)
-  val yices_model_set_bool : model_t ptr -> term_t -> sint -> sint checkable
+  val yices_model_set_bool : model_t ptr -> term_t -> bool_t -> unit_t checkable
 
   (*
    * Assign a value to a numerical uninterpreted term.  The value can be given as
@@ -3231,14 +3240,14 @@ module type API = sig
    *
    * Since 2.6.4.
    *)
-  val yices_model_set_int32 : model_t ptr -> term_t -> sint -> sint checkable
-  val yices_model_set_int64 : model_t ptr -> term_t -> long -> sint checkable
-  val yices_model_set_rational32 : model_t ptr -> term_t -> sint -> uint -> sint checkable
-  val yices_model_set_rational64 : model_t ptr -> term_t -> long -> ulong -> sint checkable
+  val yices_model_set_int32 : model_t ptr -> term_t -> sint -> unit_t checkable
+  val yices_model_set_int64 : model_t ptr -> term_t -> long -> unit_t checkable
+  val yices_model_set_rational32 : model_t ptr -> term_t -> sint -> uint -> unit_t checkable
+  val yices_model_set_rational64 : model_t ptr -> term_t -> long -> ulong -> unit_t checkable
 
 [%%if gmp_present]
-  val yices_model_set_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> sint checkable
-  val yices_model_set_mpq : model_t ptr -> term_t -> MPQ.t abstract ptr -> sint checkable
+  val yices_model_set_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
+  val yices_model_set_mpq : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
 [%%endif]
 
   (* #ifdef LIBPOLY_VERSION
@@ -3264,13 +3273,13 @@ module type API = sig
    *
    * Since 2.6.4.
    *)
-  val yices_model_set_bv_int32 : model_t ptr -> term_t -> sint -> sint checkable
-  val yices_model_set_bv_int64 : model_t ptr -> term_t -> long -> sint checkable
-  val yices_model_set_bv_uint32 : model_t ptr -> term_t -> uint -> sint checkable
-  val yices_model_set_bv_uint64 : model_t ptr -> term_t -> ulong -> sint checkable
+  val yices_model_set_bv_int32 : model_t ptr -> term_t -> sint -> unit_t checkable
+  val yices_model_set_bv_int64 : model_t ptr -> term_t -> long -> unit_t checkable
+  val yices_model_set_bv_uint32 : model_t ptr -> term_t -> uint -> unit_t checkable
+  val yices_model_set_bv_uint64 : model_t ptr -> term_t -> ulong -> unit_t checkable
 
 [%%if gmp_present]
-  val yices_model_set_bv_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> sint checkable
+  val yices_model_set_bv_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
 [%%endif]
 
 
@@ -3289,7 +3298,7 @@ module type API = sig
    *
    * Since 2.6.4.
    *)
-  val yices_model_set_bv_from_array : model_t ptr -> term_t -> uint -> sint ptr -> sint checkable
+  val yices_model_set_bv_from_array : model_t ptr -> term_t -> uint -> bool_t ptr -> unit_t checkable
   
   (* Collect all the uninterpreted terms that have a value in model mdl.
    * - these terms are returned in vector v

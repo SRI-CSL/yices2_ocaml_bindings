@@ -305,36 +305,51 @@ module SafeMake
   type mpq_array = MPQ.t abstract Array.t Array.t
 [%%endif]
 
-  (* Malloc memory cell(s) for function f to place its result; t specifies type of cell. *)
+  (* Malloc memory cell(s) for a C function to place its result. *)
   module Alloc  : sig
-    type ('a,'b) t
+
+    type ('a,'b) t (* Implemented as a pair of 'a and 'b; we hide this for safety. *)
+
     val load : 'b -> (unit,'b) t
     (* val apply  : ('a, 'b -> 'c) t -> 'b -> ('a, 'c) t *)
-    val alloc  :
-      'b typ
-      -> ?finalise: ('b ptr -> unit)
-      -> ('a, 'b ptr -> 'c) t
-      -> ('a * 'b ptr, 'c) t
-    val allocN :
-      int
-      -> 'b typ
-      -> ?finalise: ('b Array.t -> unit)
-      -> ('a, 'b Array.t -> 'c) t
-      -> ('a * 'b Array.t, 'c) t
+
+    (* This is the interesting type:
+       a function of type ('a,'b,'c) apply
+       takes as input a pair of a value v:'a and a function f : 'b -> 'c,
+       where f encapsulates a C function
+       and 'b is some sort of C-allocated pointer that the C function will use to write an output;
+       the function of type ('a,'b,'c) apply allocates memory for that 'b output and call f on it.
+       The result is v:'a, the allocated 'b pointer, and the functional result of type 'c.
+       The value v:'a does not really play a role in the call, it is there as an accumulator,
+       as functions of type ('a,'b,'c) apply are chained.
+       Note that the C function actually doing the writes may be called at the end of the chain. 
+    *)
+    type ('a, 'b, 'c) alloc = ('a, 'b -> 'c) t -> ('a * 'b, 'c) t
+
+    val alloc   :        'b typ -> ?finalise: ('b ptr     -> unit) -> ('a, 'b ptr,     'c) alloc
+    val allocN  : int -> 'b typ -> ?finalise: ('b Array.t -> unit) -> ('a, 'b Array.t, 'c) alloc
 [%%if gmp_present]
-    val allocZ : ('a, MPZ.ptr -> 'c) t -> ('a * MPZ.ptr, 'c) t
-    val allocQ : ('a, MPQ.ptr -> 'c) t -> ('a * MPQ.ptr, 'c) t
-    val allocZn : int -> ('a, mpz_array -> 'c) t -> ('a * mpz_array, 'c) t
-    val allocQn : int -> ('a, mpq_array -> 'c) t -> ('a * mpq_array, 'c) t
+    val allocZ  :        ('a, MPZ.ptr,   'c) alloc
+    val allocQ  :        ('a, MPQ.ptr,   'c) alloc
+    val allocZn : int -> ('a, mpz_array, 'c) alloc
+    val allocQn : int -> ('a, mpq_array, 'c) alloc
 [%%endif]
+
+    (* For vectors, things are a bit different:
+       the first argument is the make function, producing a vector,
+       but the C function expects a pointer.
+     *)
     val allocV : (unit -> 'b vector) -> ('a, 'b vector ptr -> 'c) t -> ('a * 'b vector, 'c) t
-    val nocheck: ('c -> 'a -> 'b) -> ('a, 'c) t -> 'b
+
+    (* What to do at the end of the chain: we recover the results and we can do some checking *)
+    val nocheck: ('c -> 'a -> 'b)          -> ('a, 'c) t -> 'b
     val check  : ('c sintbase -> 'a -> 'b) -> ('a, 'c sintbase checkable) t -> 'b EH.t
-    val check1 : ('a -> 'b) -> (unit*'a, unit_t checkable) t -> 'b EH.t
+    val check1 : ('a -> 'b)                -> (unit*'a, unit_t checkable) t -> 'b EH.t
     val check2 : ('a1 -> 'a2 -> 'b) -> ((unit*'a1)*'a2, unit_t checkable) t -> 'b EH.t
   end = struct
     
     type ('a,'b) t = 'a * 'b
+    type ('a, 'b, 'c) alloc = ('a, 'b -> 'c) t -> ('a * 'b, 'c) t
 
     let load f = (),f
     (* let apply (y,f) x = y,f x *)
@@ -591,7 +606,7 @@ module SafeMake
       match name with
       | Some name -> let+ () = Names.set r name in return r
       | None -> return r
-               
+
     let tuple = ofList1 type_t yices_tuple_type     <.> return_sint
     let func  = ofList1 type_t yices_function_type <..> return_sint
 
@@ -661,6 +676,9 @@ module SafeMake
 
     let true0  = yices_true  <.> return_sint
     let false0 = yices_false <.> return_sint
+    let bool = function
+      | true -> true0()
+      | false -> false0()
     let constant t ~id = yices_constant t (SInt.of_int id) |> return_sint
     let new_uninterpreted ?name typ =
       let+ r = yices_new_uninterpreted_term typ |> return_sint in
@@ -815,9 +833,10 @@ module SafeMake
       let bvconst_zero   ~width = yices_bvconst_zero   !> width |> return_sint
       let bvconst_one    ~width = yices_bvconst_one    !> width |> return_sint
       let bvconst_minus_one ~width = yices_bvconst_minus_one !> width |> return_sint
-      let bvconst_from_list l =
-        let l = List.map (fun b -> if b then Signed.SInt.one else Signed.SInt.zero) l in
-        ofList1 sint yices_bvconst_from_array l |> return_sint
+      let bvconst_from_list =
+        List.map Conv.bool.write
+        <.> ofList1 bool_t yices_bvconst_from_array
+        <.> return_sint
       let parse_bvbin = ofString yices_parse_bvbin <.> return_sint
       let parse_bvhex = ofString yices_parse_bvhex <.> return_sint
       let bvadd = yices_bvadd <..> return_sint
@@ -919,13 +938,11 @@ module SafeMake
              |> check2 cont)
 [%%endif]
 
-    let sint2bool = List.map (fun x -> if SInt.(equal x one) then true else false)
-
     let bvsum_component term i =
-      let cont carray t = Array.to_list carray |> sint2bool, term_ptr2term_opt (!@ t) in
+      let cont carray t = Array.to_list carray |> List.map Conv.bool.read, term_ptr2term_opt (!@ t) in
       let+ bitwidth = bitsize term in
       Alloc.(load (Array.start <.> (SInt.of_int <.> yices_bvsum_component term) i)
-             |> allocN bitwidth sint 
+             |> allocN bitwidth bool_t 
              |> alloc term_t
              |> check2 cont)
 
@@ -1144,7 +1161,7 @@ module SafeMake
                            <+> (Conv.bool.read <.> return)
     let bv_const_value t =
       let+ n = bitsize t in
-      t |> yices_bv_const_value |> allocL ~n sint |+> (sint2bool <.> return)
+      t |> yices_bv_const_value |> allocL ~n bool_t |+> (List.map Conv.bool.read <.> return)
 
     let scalar_const_value   = yices_scalar_const_value
                                <.> alloc1 sint
@@ -1166,8 +1183,8 @@ module SafeMake
     let num_posref_types = yices_num_posref_types <.> UInt.to_int
     let garbage_collect =
       yices_garbage_collect |> swap |> ofList1 term_t
-                                       <.> swap <.> ofList1 type_t
-                                       <..> (fun f b -> if b then f SInt.one else f SInt.zero)
+      <.> swap <.> ofList1 type_t
+      <..> (fun f -> Conv.bool.write <.> f)
   end
 
   module Config = struct
@@ -1187,6 +1204,35 @@ module SafeMake
       Alloc.(load (yices_model_collect_defined_terms m)
              |> allocV TermVector.make
              |> nocheck (fun () ((),x) -> TermVector.to_list x))
+
+    let empty = yices_new_model <.> return_ptr
+
+    let set_bool model x = Conv.bool.write <.> yices_model_set_bool model x <.> toUnit
+    let set_int32        = yices_model_set_int32 <...> toUnit
+    let set_int64        = yices_model_set_int64 <...> toUnit
+    let set_int model x  = Long.of_int <.> set_int64 model x
+    let set_rational32 model = yices_model_set_rational32 model <...> toUnit
+    let set_rational64 model = yices_model_set_rational64 model <...> toUnit
+    let set_rational model x n d = set_rational64 model x (Long.of_int n) (ULong.of_int d)
+[%%if gmp_present]
+    let set_mpz model x = yices_model_set_mpz model x |> ofZ <.> toUnit
+    let set_mpq model x = yices_model_set_mpq model x |> ofQ <.> toUnit
+[%%endif]
+
+    let set_bv_int32       = yices_model_set_bv_int32 <...> toUnit
+    let set_bv_int64       = yices_model_set_bv_int64 <...> toUnit
+    let set_bv_int model x = Long.of_int <.> set_bv_int64 model x
+    let set_bv_uint32      = yices_model_set_bv_uint32 <...> toUnit
+    let set_bv_uint64      = yices_model_set_bv_uint64 <...> toUnit
+[%%if gmp_present]
+    let set_bv_mpz model x = yices_model_set_bv_mpz model x |> ofZ <.> toUnit
+[%%endif]
+
+    let set_bv_from_list model x =
+      List.map Conv.bool.write
+      <.> ofList1 bool_t (yices_model_set_bv_from_array model x)
+      <.> toUnit
+
 
     let get_bool_value  = yices_get_bool_value
                           <..> alloc1 bool_t
@@ -1338,6 +1384,36 @@ module SafeMake
     let check_with_model ?param ctx model =
       let param = opt_ptr param_t (fun x->x) param in
       yices_check_context_with_model ctx param model |> ofList1 term_t <.> Conv.smt_status.read
+
+    let check_with_interpolation ?(build_model=true) ?param ctx_A ctx_B =
+      let param = opt_ptr param_t (fun x->x) param in
+      let extract status ((),interpolation_context) =
+        let status = Conv.smt_status.read status in
+        match status with
+        | `STATUS_UNSAT ->
+           let interpolant =
+             getf !@interpolation_context (interpolation_context_s#members#interpolant)
+           in
+           status, Some interpolant, None
+        | `STATUS_SAT when build_model ->
+           let model =
+             getf !@interpolation_context (interpolation_context_s#members#model)
+           in
+           status, None, Some model
+        | _ -> status, None, None
+      in
+      let to_load interpolation_context =
+        setf !@interpolation_context (interpolation_context_s#members#ctx_A) ctx_A;
+        setf !@interpolation_context (interpolation_context_s#members#ctx_B) ctx_B;
+        yices_check_context_with_interpolation
+          interpolation_context
+          param
+          (Conv.bool.write build_model)
+      in
+      Alloc.(load to_load
+             |> alloc interpolation_context_t
+             |> nocheck extract)
+
     let stop                     = yices_stop_search
     let get_model m ~keep_subst  = yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
     let get_unsat_core context   = yices_get_unsat_core context |> TermVector.toList

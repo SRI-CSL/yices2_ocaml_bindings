@@ -628,6 +628,7 @@ module type API = sig
 
     val true0  : unit -> term_t eh
     val false0 : unit -> term_t eh
+    val bool   : bool -> term_t eh
 
     (** Constant of type tau and id = index
         - tau must be a scalar type or an uninterpreted type
@@ -1365,6 +1366,10 @@ module type API = sig
        * bvconst_one: set low-order bit to 1, all the other bits to 0
        * bvconst_minus_one: set all bits to 1
        *
+       * The input is interpreted little-endian:
+       * a[0] = low-order bit (least significant)
+       * a[n-1] = high-order bit (most significant)
+       *
        * Error report:
        * if n = 0
        *    code = POS_INT_REQUIRED
@@ -1829,10 +1834,11 @@ module type API = sig
         - map must be an array of n terms
         - the type of map[i] must be a subtype of var[i]'s type
         - every occurrence of var[i] in t is replaced by map[i]
-        - if a variable occurs several times in v, the last occurrence
-          counts. (e.g., if v[i] = x and v[j] = x with i < j, and
-          there are no other occurrences of x in v, then x is
-          replaced by map[j]).
+        - if an uninterpreted term / variable occurs several times in v,
+        the last occurrence counts.
+        (e.g., if v[i] = x and v[j] = x with i < j, and
+        there are no other occurrences of x in v, then x is
+        replaced by map[j]).
 
         Return the resulting term or NULL_TERM if there's an error.
 
@@ -2384,7 +2390,9 @@ module type API = sig
                           | "LIA"               |  linear integer arithmetic
                           | "LRA"               |  linear real arithmetic
                           | "LIRA"              |  mixed linear arithmetic (real + integer variables)
-
+         ----------------------------------------------------------------------------------------
+         "model-interpolation" | "false"        | don't enable model interpolation (default)
+                               | "true"         | enable model interpolation
 
 
         The function returns -1 if there's an error, 0 otherwise.
@@ -2521,10 +2529,115 @@ module type API = sig
 
          (assert (> y 0))
 
-        then variable 'x' does not occur in the simplified assertions and will
+        then uninterpreted term 'x' does not occur in the simplified assertions and will
         not be included in vector 'v'.  *)
     val collect_defined_terms : t -> term_t list
 
+    (**
+     * Build an empty model: no error.
+     *
+     * Since 2.6.4.
+     *)
+    val empty : unit -> t eh
+
+    (**
+     * The following functions extend a model by assigning a value to an uninterpreted term
+     * - var must be an uninterpreted term
+     * - var must not have a value in model
+     *
+     * All functions return -1 if there's an error and set the error report.
+     * They return 0 otherwise.
+     *
+     * Error report:
+     * - code = INVALID_TERM if var is not valid
+     * - code = MDL_UNINT_REQUIRED if var is not uninterpreted
+     * - code = TYPE_MISMATCH if the uninterpreted term and the value don't have compatible types.
+     * - code = MDL_DUPLICATE_VAR if var already has a value in model
+     *)
+
+    (**
+     * Assign a value to a Boolean uninterpreted term
+     * - val 0 means false, anything else means true.
+     *
+     * Since 2.6.4.
+     *)
+    val set_bool : t -> term_t -> bool -> unit eh
+
+    (**
+     * Assign a value to a numerical uninterpreted term.  The value can be given as
+     * an integer, a GMP integer, a GMP rational, or an algebraic number.
+     *
+     * The assignment fails (TYPE_MISMATCH) is the uninterpreted term has integer type
+     * and the value is not an integer.
+     *
+     * For functions yices_model_set_rational32 and
+     * yices_model_set_rational64, the value is num/den.  These two
+     * functions fail and report DIVISION_BY_ZERO if den is zero.
+     *
+     * Since 2.6.4.
+     *)
+    val set_int32      : t -> term_t -> sint -> unit eh
+    val set_int64      : t -> term_t -> long -> unit eh
+    val set_int        : t -> term_t -> int  -> unit eh
+    val set_rational32 : t -> term_t -> sint -> uint -> unit eh
+    val set_rational64 : t -> term_t -> long -> ulong -> unit eh
+    val set_rational   : t -> term_t -> int -> int -> unit eh
+
+[%%if gmp_present]
+    val set_mpz : t -> term_t -> Z.t -> unit eh
+    val set_mpq : t -> term_t -> Q.t -> unit eh
+[%%endif]
+
+    (* #ifdef LIBPOLY_VERSION
+     * __YICES_DLLSPEC__ extern int32_t set_algebraic_number(model_t *model, term_t var, const
+     * lp_algebraic_number_t *val);
+     * #endif *)
+
+    (**
+     * Assign an integer value to a bitvector uninterpreted term.
+     *
+     * Rules for truncation and zero/sign extension:
+     * - let n be the number of bits in var
+     * - if val has more than n bits then it is truncated. The n least significant bits are used.
+     *   Other bits are ignored.
+     * - if val has fewer than n bits, the value is obtained by zero or sign extension, depending
+     *   on the function:
+     *     set_bv_int32:  sign extension
+     *     set_bv_int64:  sign extension
+     *     set_bv_uint32: zero extension
+     *     set_bv_uint64: zero extension
+     *     set_bv_mpz:    sign extension
+     *
+     *
+     * Since 2.6.4.
+     *)
+    val set_bv_int32 : t -> term_t -> sint -> unit eh
+    val set_bv_int64 : t -> term_t -> long -> unit eh
+    val set_bv_int   : t -> term_t -> int -> unit eh
+    val set_bv_uint32 : t -> term_t -> uint -> unit eh
+    val set_bv_uint64 : t -> term_t -> ulong -> unit eh
+
+[%%if gmp_present]
+    val set_bv_mpz : t -> term_t -> Z.t -> unit eh
+[%%endif]
+
+
+    (**
+     * Assign a bitvector value to a bitvector uninterpreted term, using an array of bits.
+     * - var = bitvector uninterpreted term
+     * - a = array of n bits
+     * - var must be an uninterpreted term of type (bitvector n)
+     *   (and var must not have a value in model).
+     *
+     * Elements of a are interpreted as in yices_bvconst_from_array:
+     * - bit i is 0 if a[i] == 0 and bit i is 1 if a[i] != 0
+     * - a[0] is the low-order bit
+     * - a[n-1] is the high-order bit
+     *
+     *
+     * Since 2.6.4.
+     *)
+    val set_bv_from_list : t -> term_t -> bool list -> unit eh
 
 
     (** ********************
@@ -3348,7 +3461,9 @@ module type API = sig
         unless you really know what you're doing.
 
         The following functions selectively enable/disable a preprocessing
-        option. The current options include:
+        option. In the description below we use "variable" for what should be
+        "uninterpreted term" (in the sense of Yices), to stick to standard
+        terminology. The current options include:
 
          var-elim: whether to eliminate variables by substitution
 
@@ -3447,8 +3562,9 @@ module type API = sig
           code = CTX_OPERATION_NOT_SUPPORTED  *)
     val assert_blocking_clause : t -> unit eh
 
-    (** Check satisfiability: check whether the assertions stored in ctx
-        are satisfiable.
+    (** Check satisfiability:
+
+        Check whether the assertions stored in ctx are satisfiable.
         - params is an optional structure that stores heuristic parameters.
         - if params is NULL, default parameter settings are used.
 
@@ -3482,8 +3598,9 @@ module type API = sig
           it also sets the yices error report (code = CTX_INVALID_OPERATION).  *)
     val check : ?param:param_t ptr -> t -> smt_status
 
-    (** Check satisfiability under assumptions: check whether the
-        assertions stored in ctx conjoined with n assumptions is
+    (** Check satisfiability under assumptions:
+
+        Check whether the assertions stored in ctx conjoined with n assumptions are
         satisfiable.
         - params is an optional structure to store heuristic parameters
         - if params is NULL, default parameter settings are used.
@@ -3491,27 +3608,90 @@ module type API = sig
         - t = array of n assumptions
         - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
 
-        It behaves the same as the previous function.
-
-        If this function returns STATUS_UNSAT, then one can construct an unsat core by
+        This function behaves the same as the previous function.
+        If it returns STATUS_UNSAT, then one can construct an unsat core by
         calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
-        that's inconsistent with ctx.  *)
+        that's inconsistent with ctx. *)
     val check_with_assumptions : ?param:param_t ptr -> t -> term_t list -> smt_status
 
-    (** Check satisfiability under model: check whether the assertions stored in ctx
-     * conjoined with the assignment of the model is satisfiable.
+    (**
+     * Check satisfiability modulo a model.
      *
+     * Check whether the assertions stored in ctx conjoined with a model are satisfiable.
+     * - ctx must be a context initialized with support for MCSAT
+     *   (see yices_new_context, yices_new_config, yices_set_config).
      * - params is an optional structure to store heuristic parameters
-     * - if params is NULL, default parameter settings are used.
-     * - model = model to assume
-     * - t = variables to use, i.e., we check context && t = mdl(t)
+     *   if params is NULL, default parameter settings are used.
+     * - mdl is a model
+     * - t is an array of n terms
+     * - the terms t[0] ... t[n-1] must all be uninterpreted terms
      *
-     * It behaves the same as the previous function.
+     * This function checks statisfiability of the constraints in ctx conjoined with
+     * a conjunction of equalities defined by t[i] and the model, namely,
      *
-     * If this function returns STATUS_UNSAT, then one can construct a model interpolant by
-     * calling function yices_get_model_interpolant. *)
+     *    t[0] == v_0 /\ .... /\ t[n-1] = v_{n-1}
+     *
+     * where v_i is the value of t[i] in mdl.
+     *
+     * NOTE: if t[i] does not have a value in mdl, then a default value is picked for v_i.
+     *
+     * If this function returns STATUS_UNSAT and the context supports
+     * model interpolation, then one can construct a model interpolant by
+     * calling function yices_get_model_interpolant.
+     *
+     * Error codes:
+     *
+     * if one of the terms t[i] is not an uninterpreted term
+     *   code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
+     *
+     * If the context does not have the MCSAT solver enabled
+     *   code = CTX_OPERATION_NOT_SUPPORTED
+     *
+     * If the resulting status is STATUS_SAT and context does not support multichecks
+     *   code = CTX_OPERATION_NOT_SUPPORTED
+     *
+     *
+     * Since 2.6.4.
+     *)
     val check_with_model : ?param:param_t ptr -> t -> Model.t -> term_t list -> smt_status
 
+    (**
+     * Check satisfiability and compute interpolant.
+     *
+     * Check whether the combined assertions stored in ctx are satisfiable. If they are
+     * not, compute an interpolant (whose uninterpreted terms are common to both contexts).
+     * - params is an optional structure to store heuristic parameters
+     * - if params is NULL, default parameter settings are used.
+     *
+     * The interpolation_context is a structure with four components defined as follows:
+     *
+     *  typedef  struct interpolation_context_s {
+     *     context_t *ctx_A;
+     *     context_t *ctx_B;
+     *     term_t interpolant;
+     *     model_t *model;
+     *  } interpolation_context_t;
+     *
+     * To call this function:
+     * - ctx->ctx_A must be a context initialized with support for MCSAT and interpolation.
+     * - ctx->ctx_B can be another context (not necessarily with MCSAT support)
+     *
+     * If this function returns STATUS_UNSAT, then an interpolant is returned in ctx->interpolant.
+     *
+     * If this function returns STATUS_SAT and build_model is true, then
+     * a model is returned in ctx->model. This model must be freed when no-longer needed by
+     * calling yices_free_model.
+     *
+     * If something is wrong, the function returns STATUS_ERROR and sets the yices error report
+     * (code = CTX_INVALID_OPERATION).
+     *
+     * Since 2.6.4.
+     *
+     * build_model is true by default.
+     *)
+    val check_with_interpolation : ?build_model:bool -> ?param:param_t ptr
+      -> t -> t -> smt_status * Term.t option * Model.t option
+      
     (** Interrupt the search:
         - this can be called from a signal handler to stop the search,
           after a call to yices_check_context to interrupt the solver.
@@ -3521,36 +3701,36 @@ module type API = sig
     val stop : t -> unit
 
     (** Build a model from ctx
-        - keep_subst indicates whether the model should include
-          the eliminated variables:
-          keep_subst = 0 means don't keep substitutions,
-          keep_subst != 0 means keep them
-        - ctx status must be STATUS_SAT or STATUS_UNKNOWN
-
-        The function returns NULL if the status isn't SAT or STATUS_UNKNOWN
-        and sets an error report (code = CTX_INVALID_OPERATION).
-
-        When assertions are added to the context, the simplifications may
-        eliminate variables (cf. simplification options above).  The flag
-        'keep_subst' indicates whether the model should keep track of these
-        eliminated variables and include their value.
-
-        Example: after the following assertions
-
-          (= x (bv-add y z))
-          (bv-gt y 0b000)
-          (bg-gt z 0b000)
-
-        variable 'x' gets eliminated. Then a call to 'check_context' will
-        return STATUS_SAT and we can ask for a model 'M'
-        - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
-        - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
-          based on the value of 'y' and 'z' in 'M'.
-
-        It's always better to set 'keep_subst' true. The only exceptions
-        are some of the large SMT_LIB benchmarks where millions of variables
-        are eliminated.  In such cases, it saves memory to set 'keep_subst'
-        false, and model construction is faster too.  *)
+     * - keep_subst indicates whether the model should include
+     *   the uninterpreted terms that have been eliminated by simplification:
+     *   keep_subst = 0 means don't keep substitutions,
+     *   keep_subst != 0 means keep them
+     * - ctx status must be STATUS_SAT or STATUS_UNKNOWN
+     *
+     * The function returns NULL if the status isn't SAT or STATUS_UNKNOWN
+     * and sets an error report (code = CTX_INVALID_OPERATION).
+     *
+     * When assertions are added to the context, the simplifications may
+     * eliminate some uninterpreted terms (cf. simplification options above).
+     * The flag 'keep_subst' indicates whether the model should keep track
+     * of these eliminated terms and include their value.
+     *
+     * Example: after the following assertions
+     *
+     *    (= x (bv-add y z))
+     *    (bv-gt y 0b000)
+     *    (bg-gt z 0b000)
+     *
+     * uninterpreted term 'x' gets eliminated. Then a call to 'check_context' will
+     * return STATUS_SAT and we can ask for a model 'M'
+     * - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
+     * - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
+     *   based on the value of 'y' and 'z' in 'M'.
+     *
+     * It's always better to set 'keep_subst' true. The only exceptions
+     * are some of the large SMT_LIB benchmarks where millions of uninterpreted
+     * terms are eliminated.  In such cases, it saves memory to set 'keep_subst'
+     * false, and model construction is faster too. *)
     val get_model : t -> keep_subst:bool -> Model.t eh
 
     (** *************
@@ -3573,19 +3753,25 @@ module type API = sig
         - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.  *)
     val get_unsat_core : t -> term_t list eh
 
-    (** Construct and return a model interpolant.
+    (**
+     * Construct and return a model interpolant.
      *
-     * If ctx status is unsat, this function returns a model interpolant.
-     * Otherwise, it sets an error core an NULL_TERM.
+     * If ctx status is unsat and the ctx was configured with model-interpolation,
+     * this function returns a model interpolant.
+     * Otherwise, it sets an error code and return NULL_TERM.
      *
      * This is intended to be used after a call to
-     * yices_check_context_with_model that returned STATUS_UNSAT. In
-     * this case, the function builds an model interpolant. The model interpolant
-     * is a clause implied by the current context that is false in the model provides
-     * to yices_check_context_with_model.
+     * yices_check_context_with_model that returned STATUS_UNSAT. In this
+     * case, the function builds an model interpolant. The model
+     * interpolant is a clause implied by the current context that is
+     * false in the model provides to yices_check_context_with_model.
      *
      * Error code:
-     * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT. *)
+     * - CTX_OPERATION_NOT_SUPPORTED if the context is not configured with model interpolation
+     * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.
+     *
+     * Since 2.6.4.
+     *)
     val get_model_interpolant : t -> term_t eh
 
   end
