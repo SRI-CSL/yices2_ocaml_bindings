@@ -3732,7 +3732,7 @@ module type API = sig
      * are some of the large SMT_LIB benchmarks where millions of uninterpreted
      * terms are eliminated.  In such cases, it saves memory to set 'keep_subst'
      * false, and model construction is faster too. *)
-    val get_model : t -> keep_subst:bool -> Model.t eh
+    val get_model : ?keep_subst:bool -> t -> Model.t eh
 
     (** *************
         UNSAT CORE  *

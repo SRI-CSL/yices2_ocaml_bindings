@@ -50,12 +50,21 @@ module type Context = sig
   val check : ?param:Param.t -> t -> Types.smt_status
   val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
   val stop      : t -> unit
-  val get_model : t -> keep_subst:bool -> Model.t
+  val get_model : ?keep_subst:bool -> t -> Model.t
   val get_unsat_core   : t -> Term.t list
   val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
   val get_model_interpolant : t -> Term.t
-  val get    : t -> EH1.Context.t
+
+  module Param : sig
+    type context := t
+    type t = EH1.Param.t
+    val malloc : unit -> t
+    val free : t -> unit
+    val set : t -> name:string -> value:string -> unit
+    val default : context -> t -> unit
+  end
 end
+
 
 let test_context (type a) (type c)
       (module Context : Context with type t = a and type config = c)
@@ -103,8 +112,9 @@ let test_context (type a) (type c)
   let smt_stat = Context.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
   Context.stop ctx;
+  let module Param = Context.Param in
   let param = Param.malloc () in
-  Param.default (Context.get ctx) param;
+  Param.default ctx param;
   let () = Param.set param ~name:"dyn-ack" ~value:"true" in
   begin
     try Param.set param ~name:"foo" ~value:"bar";
@@ -129,7 +139,7 @@ let test_native_context cfg =
   let module Context = struct
       include Context
       type config = Config.t
-      let get x = x
+      module Param = Param
     end
   in
   test_context (module Context) ctx;
@@ -142,7 +152,7 @@ let test_ext_context cfg =
   let module Context = struct
       include Context
       type config = Config.t
-      let get x = x.context
+      module Param = Param
     end
   in
   Context.goto ctx 5;

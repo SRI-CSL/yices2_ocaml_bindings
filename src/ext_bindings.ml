@@ -820,6 +820,12 @@ module SModel = struct
     | [] -> Format.fprintf fmt "[]"
     | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
 
+  let as_assumptions smodel =
+    let aux t =
+      Model.get_value_as_term smodel.model t |> Term.eq t
+    in
+    List.rev_map aux smodel.support
+    
 end
 
 module Assertions = struct
@@ -877,7 +883,7 @@ module Action = struct
     | Check of Param.t option
     | CheckWithAssumptions of { param : Param.t option; assumptions : Term.t list }
     | Stop
-    | GetModel
+    | GetModel of { keep_subst : bool }
     | GetUnsatCore
     | CheckWithModel of { param : Param.t option; smodel : SModel.t }
     | CheckWithInterpolation of { param : Param.t option;
@@ -905,8 +911,8 @@ module Action = struct
     | Check _param -> sexp "check-sat" [] ::accu 
     | CheckWithAssumptions{ assumptions; _ } ->
        sexp "check-sat-assuming" (List.map TermSexp.to_sexp assumptions) ::accu
-    | Stop     -> sexp "stop" [] ::accu
-    | GetModel -> sexp "get-model" [] ::accu
+    | Stop         -> sexp "stop" [] ::accu
+    | GetModel _   -> sexp "get-model" [] ::accu
     | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
     | CheckWithModel{ smodel; _} ->
        sexp "check-sat-assuming-model" [SModel.to_sexp smodel] ::accu
@@ -924,20 +930,29 @@ let reset_global_log() = global_log := []
 
 module Context = struct
 
-  type options = unit StringHashtbl.t
-
   let pp_options fmt options =
     Format.fprintf fmt "@[<v>%a@]" (StringHashtbl.pp String.pp Format.silent) options
+
+  let pp_config_options fmt config_options =
+    Format.fprintf fmt "@[<v>%a@]" (StringHashtbl.pp String.pp String.pp) config_options
 
   type nonrec t = {
       config     : Config.t option;
       context    : Context.t;
       assertions : Assertions.t ref;
-      options    : options;
+      options    : unit StringHashtbl.t;
       log        : Action.t list ref;
       is_alive   : bool ref;
+      config_options : String.t StringHashtbl.t;
       mcsat      : bool
     }
+
+  let assertions ctx = !(ctx.assertions)
+  let options ctx = StringHashtbl.copy ctx.options
+  let config_options ctx = StringHashtbl.copy ctx.config_options
+  let log ctx = !(ctx.log)
+  let is_alive ctx = !(ctx.is_alive)
+  let is_mcsat ctx = ctx.mcsat
 
   let all = ref []
   let all_reset() = all := []
@@ -948,6 +963,11 @@ module Context = struct
 
   let malloc ?config () =
     let yconfig = Option.map (fun config -> Config.(config.config)) config in
+    let config_options =
+      match config with
+      | Some config -> StringHashtbl.copy config.options
+      | None -> StringHashtbl.create 1
+    in
     let context = 
       { config  = config;
         context = Context.malloc ?config:yconfig ();
@@ -955,6 +975,7 @@ module Context = struct
         options = StringHashtbl.create 10;
         log     = ref !global_log;
         is_alive = ref true;
+        config_options;
         mcsat   = match config with
                   | Some config -> !(config.mcsat)
                   | None -> false
@@ -1050,9 +1071,9 @@ module Context = struct
   let stop x =
     action Stop x;
     Context.stop x.context
-  let get_model x =
-    action GetModel x;
-    Context.get_model x.context
+  let get_model ?(keep_subst=true) x =
+    action (GetModel{ keep_subst }) x;
+    Context.get_model ~keep_subst x.context
   let get_unsat_core x =
     action GetUnsatCore x;
     Context.get_unsat_core x.context
@@ -1069,7 +1090,11 @@ module Context = struct
 
   let check_with_smodel ?param x smodel =
     action (CheckWithModel{param; smodel = smodel}) x;
-    Context.check_with_model ?param x.context smodel.model smodel.support
+    if x.mcsat
+    then
+      Context.check_with_model ?param x.context smodel.model smodel.support
+    else
+      smodel |> SModel.as_assumptions |> Context.check_with_assumptions ?param x.context
 
   let check_with_interpolation ?(build_model=true) ?param ctx_A ctx_B =
     action

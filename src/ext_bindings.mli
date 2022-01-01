@@ -49,6 +49,7 @@ module SModel : sig
     ?pp_start:unit Format.printer ->
     ?pp_stop:unit Format.printer ->
     ?pp_sep:unit Format.printer -> unit -> t Format.printer
+  val as_assumptions : t -> Term.t list
 end
 
 module Assertions : sig
@@ -85,7 +86,7 @@ module Action : sig
     | Check of Param.t option
     | CheckWithAssumptions of { param : Param.t option; assumptions : Term.t list }
     | Stop
-    | GetModel
+    | GetModel of { keep_subst : bool }
     | GetUnsatCore
     | CheckWithModel of { param : Param.t option; smodel : SModel.t }
     | CheckWithInterpolation of { param : Param.t option;
@@ -102,19 +103,17 @@ end
 
 module Context : sig
 
-  type options
-  val pp_options : options Format.printer
+  val pp_options        : unit StringHashtbl.t Format.printer
+  val pp_config_options : string StringHashtbl.t Format.printer
 
-  type t =
-    private {
-        config     : Config.t option; (* In case a config was used at creation *)
-        context    : Context.t;       (* Raw context as in yices2_high *)
-        assertions : Assertions.t ref;(* Structure of assertions and level *)
-        options    : options;         (* Set options *)
-        log        : Action.t list ref; (* Everything that happened to that context *)
-        is_alive   : bool ref;        (* If the raw context wasn't freed *)
-        mcsat      : bool
-      }
+  type t
+
+  val assertions     : t -> Assertions.t (* Structure of assertions and level *)
+  val options        : t -> unit StringHashtbl.t   (* Set options (hashtbl copy) *)
+  val config_options : t -> string StringHashtbl.t (* Set config options (hashtbl copy) *)
+  val log            : t -> Action.t list   (* Everything that happened to that context *)
+  val is_alive       : t -> bool            (* Whether the raw context wasn't freed *)
+  val is_mcsat       : t -> bool            (* Whether the context uses mcsat *)
 
   val pp : t Format.printer
 
@@ -143,7 +142,7 @@ module Context : sig
   val check                  : ?param:Param.t -> t -> Types.smt_status
   val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
   val stop             : t -> unit
-  val get_model        : t -> keep_subst:bool -> Model.t
+  val get_model        : ?keep_subst:bool -> t -> Model.t
   val get_unsat_core   : t -> Term.t list
   val check_with_model  : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
   val check_with_smodel : ?param:Param.t -> t -> SModel.t -> Types.smt_status

@@ -1433,7 +1433,8 @@ module SafeMake
              |> nocheck extract)
 
     let stop                     = yices_stop_search
-    let get_model m ~keep_subst  = yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
+    let get_model ?(keep_subst=true) m =
+      yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
     let get_unsat_core context   = yices_get_unsat_core context |> TermVector.toList
     let get_model_interpolant    = yices_get_model_interpolant <.> return_sint
   end
