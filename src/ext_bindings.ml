@@ -25,18 +25,32 @@ let rec pp_sexp fmt = function
   | List l -> Format.fprintf fmt "@[<hov1>(%a)@]" (List.pp ~pp_sep pp_sexp) l
 
 include Make(ExceptionsErrorHandling)
+module HTypes = CCHashtbl.Make(Type)
 module HTerms = CCHashtbl.Make(Term)
 
 let use_type_names = ref true
 let use_term_names = ref true
+let use_type_notations = ref true
+let use_term_notations = ref true
 
-let match_names use_ref get t =
+let match_n use_ref get t =
   if !use_ref then
     match get t with
     | s -> Some s
     | exception _ -> None
   else
     None
+
+let match_nn use_notation get_notation use_names get_names t =
+  match match_n use_notation get_notation t with
+  | None -> match_n use_names get_names t
+  | (Some _) as s -> s
+
+let notation replace hooks t =
+  let aux cont =
+    replace hooks t (lazy (Format.sprintf "\"%t\"" cont))
+  in
+  Format.kdprintf aux
 
 (* Configs but with settings available *)
 
@@ -95,8 +109,14 @@ module TypeSexp = struct
       |> Format.fprintf fmt "%s"
     with _ -> Format.fprintf fmt "null_type"
 
+
+  let hooks          = HTypes.create 100
+  let reset()        = HTypes.reset hooks
+  let notation t     = notation HTypes.replace hooks t
+  let get_notation t = HTypes.find hooks t |> Lazy.force
+
   let rec to_sexp typ =
-    match match_names use_type_names Type.Names.to_name typ with
+    match match_nn use_type_notations get_notation use_type_names Type.Names.to_name typ with
     | Some s -> Atom s
     | None ->
        match reveal typ with
@@ -714,6 +734,11 @@ module ExtTerm = struct
        end
     | tt -> of_yterm tt
 
+  let hooks          = HTerms.create 100
+  let reset()        = reset(); HTerms.reset hooks
+  let notation t     = notation HTerms.replace hooks t
+  let get_notation t = HTerms.find hooks t |> Lazy.force
+
   let rec to_sexp : type a b. (a, b) base -> Sexp.t = function
     | TermStruct a -> TermTMP.to_sexp_termstruct to_sexp_t a
     | T a          -> to_sexp_t a
@@ -736,7 +761,7 @@ module ExtTerm = struct
        if zero_ext = 0 then block else f "sign_extend" zero_ext block
 
   and to_sexp_t : Term.t -> Sexp.t = fun t ->
-    match match_names use_term_names Term.Names.to_name t with
+    match match_nn use_type_notations get_notation use_type_names Term.Names.to_name t with
     | Some s -> Atom s
     | None ->
        let YExtTerm t = of_term t in
@@ -750,6 +775,7 @@ end
 
 module TermSexp = struct
   include TermTMP
+  let notation = ExtTerm.notation
   let to_sexp = ExtTerm.to_sexp_t
   let to_sexp_termstruct t = TermTMP.to_sexp_termstruct to_sexp t
   let pp fmt t = try
@@ -1147,7 +1173,9 @@ module Type = struct
 
   let count = ref 0
   let all_uninterpreted = ref []
-  let reset() = all_uninterpreted := []; count := 0
+  let reset() =
+    reset();
+    all_uninterpreted := []; count := 0
 
   let new_uninterpreted ?contexts ?name () =
     let name = match name with

@@ -10,7 +10,8 @@ val pp_sexp : Sexp.t Format.printer
 
 include API with type 'a eh := 'a
 
-module HTerms        : CCHashtbl.S with type key = Term.t
+module HTypes : CCHashtbl.S with type key = Type.t
+module HTerms : CCHashtbl.S with type key = Term.t
 
 module Config : sig
   type t
@@ -163,13 +164,18 @@ module Param : sig
   val default : Context.t -> t -> unit
 end
 
-
+(** Default is true: *)
 val use_type_names : bool ref
 val use_term_names : bool ref
+val use_type_notations : bool ref
+val use_term_notations : bool ref
 
 module Type := Type
 module Type : sig
   include module type of Type
+
+  (** Introduce a notation for pretty-printing a type (Notation computed lazily) *)
+  val notation : t -> ('a, Format.formatter, unit) format -> 'a
 
   val new_uninterpreted  : ?contexts:Context.t list -> ?name:string -> unit -> t
 
@@ -193,6 +199,9 @@ module Term : sig
   include module type of Term
 
   val new_uninterpreted  : ?contexts:Context.t list -> ?name:string -> Type.t -> t
+
+  (** Introduce a notation for pretty-printing a term (Notation computed lazily) *)
+  val notation : t -> ('a, Format.formatter, unit) format -> 'a
 
   (** Print with specific height *)
   val pph : int -> t Format.printer
