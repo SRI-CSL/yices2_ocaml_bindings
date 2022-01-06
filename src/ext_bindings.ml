@@ -1137,7 +1137,11 @@ module Context = struct
 
   let get_model_interpolant x =
     action GetModelInterpolant x;
-    Context.get_model_interpolant x.context
+    if x.mcsat
+    then
+      Context.get_model_interpolant x.context
+    else
+      Context.get_unsat_core x.context |> Term.andN |> Term.not1
 
 end
 
