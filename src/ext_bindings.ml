@@ -1061,6 +1061,7 @@ module Context = struct
     StringHashtbl.remove x.options option 
 
   let assert_formula x formula =
+    action (AssertFormula formula) x;
     let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []         -> assert false
@@ -1069,6 +1070,7 @@ module Context = struct
     Context.assert_formula x.context formula
 
   let assert_formulas x formulas =
+    action (AssertFormulas formulas) x;
     let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []         -> assert false
@@ -1079,6 +1081,7 @@ module Context = struct
     Context.assert_formulas x.context formulas
 
   let assert_blocking_clause x =
+    action AssertBlockingClause x;
     let Assertions.{list; level} = !(x.assertions) in
     begin match list with
     | []         -> assert false
