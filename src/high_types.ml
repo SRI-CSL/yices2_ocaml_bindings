@@ -217,6 +217,11 @@ module type API = sig
 
   type 'a eh
 
+  [%%if gmp_present]
+  [%%else]
+  val raise_gmp : string -> _ eh
+  [%%endif]
+
   module type Names = sig
 
     (** *********

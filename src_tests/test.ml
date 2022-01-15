@@ -71,15 +71,9 @@ let _ =
   SumErrorHandling.return()
 
 let () = print_endline ""
-let () = Context_test.test_config()
+let () = Context_test.test_context()
 let () = print_endline ""
-let () = Context_test.test_regular_context()
-let () = print_endline ""
-let () = Context_test.test_mcsat_context()
-let () = print_endline ""
-let () = Context_test.test_regular_ext_context()
-let () = print_endline ""
-let () = Context_test.test_mcsat_ext_context()
+let () = Context_test.test_ext_context()
 let () = print_endline ""
 let () = Error_test.test()
 let () = print_endline ""

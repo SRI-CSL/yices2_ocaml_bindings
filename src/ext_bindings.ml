@@ -162,7 +162,8 @@ module TermTMP = struct
     with _ -> Format.fprintf fmt "null_term"
 
   let pow i t = 
-    if i <= 0 then ExceptionsErrorHandling.raise_error "Exponent should be positive in a power product"
+    if i <= 0 then ExceptionsErrorHandling.raise_bindings_error
+                     "Exponent should be positive in a power product"
     else
       if i = 1 then t
       else
@@ -242,8 +243,8 @@ module TermTMP = struct
       sexp "/" [sexp_gmpz num; sexp_gmpz den]
 
 [%%else]
-  let sum_aux _ = ExceptionsErrorHandling.raise_error("Term.sum_aux necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
-  let sexp_gmpq _ = ExceptionsErrorHandling.raise_error("Term.sexp_gmpq necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+  let sum_aux   _ = raise_gmp "Term.sum_aux"
+  let sexp_gmpq _ = raise_gmp "Term.sexp_gmpq"
 [%%endif]
 
   let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
@@ -255,7 +256,9 @@ module TermTMP = struct
        | `YICES_BV_CONSTANT ->
           let s = s() in
           let s =
-            if String.length s < 2 then ExceptionsErrorHandling.raise_error("bv constant as a string should have at least 2 characters")
+            if String.length s < 2
+            then ExceptionsErrorHandling.raise_bindings_error
+                   "bv constant as a string should have at least 2 characters"
             else
               match String.sub s 0 2 with
               | "0b" -> "#b"^String.sub s 2 (String.length s -2)

@@ -217,7 +217,8 @@ end
 module type SafeErrorHandling = sig
   type 'a checkable
   type 'a t
-  val raise_error : string -> _ t
+  val raise_yices_error    : unit -> _ t
+  val raise_bindings_error : string -> _ t
   val return_sint : 'a sintbase checkable -> 'a sintbase t
   val return_uint : 'a uintbase checkable -> 'a uintbase t
   val return_ptr  : 'a ptr checkable -> 'a ptr t
@@ -231,10 +232,14 @@ module ExceptionsErrorHandling = struct
   type 'a t = 'a
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
-  let raise_error s = raise(YicesBindingsException s)
-  let aux check t =
-    if check t then t
-    else raise(YicesException(Error.code(),Error.report()))
+  let raise_yices_error ()   = raise(YicesException(Error.code(),Error.report()))
+  let raise_bindings_error s = raise(YicesBindingsException s)
+  let aux check t = if check t then t else raise_yices_error ()
+  let statuscheck status =
+    match status with
+    | `STATUS_ERROR -> false
+    | _ -> true
+  let check_status  = aux statuscheck
   let return_sint t = aux sintcheck t
   let return_uint t = aux uintcheck t
   let return_ptr t  = aux ptrcheck t
@@ -246,7 +251,8 @@ module SumErrorHandling = struct
   type error = Yices of error_code * error_report | Bindings of string [@@ show]
   open Stdlib
   type 'a t = ('a, error) Result.t
-  let raise_error s = Error(Bindings s)
+  let raise_yices_error ()   = Error(Yices(Error.code(),Error.report()))
+  let raise_bindings_error s = Error(Bindings s)
   let aux check t =
     if check t then Ok t
     else Error(Yices(Error.code(),Error.report()))
@@ -319,6 +325,13 @@ module SafeMake
 [%%if gmp_present]
   type mpz_array = MPZ.t abstract Array.t Array.t
   type mpq_array = MPQ.t abstract Array.t Array.t
+                     [%%else]
+                 let () = assert false
+  let raise_gmp s =
+    EH.raise_bindings_error
+      (Format.sprintf
+         "%s necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support"
+         s)
 [%%endif]
 
   (* Malloc memory cell(s) for a C function to place its result. *)
@@ -659,8 +672,7 @@ module SafeMake
          is_tuple, lazy(let+ l = children t in return(Tuple l));
          is_function, lazy(let+ x = children t in
                            match List.rev x with
-                           | [] -> raise_error
-                                     "functions must have at least 1 child"
+                           | [] -> raise_bindings_error "functions must have at least 1 child"
                            | codom::dom -> let dom = List.rev dom in return(Fun{dom; codom}))]
 
     let build = function
@@ -751,7 +763,7 @@ module SafeMake
       let mpz        = yices_mpz |> ofZ <.> return_sint
       let mpq        = yices_mpq |> ofQ <.> return_sint
 [%%else]
-      let mpq _      = raise_error("Term.Arith.mpq necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+      let mpq _      = raise_gmp "Term.Arith.mpq"
 [%%endif]
       let parse_rational = ofString yices_parse_rational <.> return_sint
       let parse_float = ofString yices_parse_float <.> return_sint
@@ -983,7 +995,7 @@ module SafeMake
 [%%if gmp_present]
     let sum_components     = args sum_component
 [%%else]
-    let sum_components _   = raise_error("Term.sum_components necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support")
+    let sum_components _   = raise_gmp "Term.sum_components"
 [%%endif]
 
     let proj_index = yices_proj_index <.> toInts
@@ -995,16 +1007,26 @@ module SafeMake
 
     let get_last l =
       let rec aux accu = function
-        | []   -> raise_error "Term.get_last expects at least 1 argument, got 0"
+        | []   -> raise_bindings_error "Term.get_last expects at least 1 argument, got 0"
         | [h]  -> return(accu, h)
         | h::l -> aux (h::accu) l
       in
       let+ index, last = aux [] l in
       return(List.rev index, last)
 
+    (* Complain about wrong number of arguments for constructor *)
+    let raise_args ?(at_least=false) constructor expected args =
+      raise_bindings_error(
+          Format.sprintf
+            "Term.reveal expected %s%i argument for %a, got %i of them instead"
+            (if at_least then "at least " else "")
+            expected
+            Types.pp_term_constructor constructor
+            (List.length args))
+      
     let reveal t = let+ c = constructor t in
       match c with
-      | `YICES_CONSTRUCTOR_ERROR -> raise_error "`YICES_CONSTRUCTOR_ERROR"
+      | `YICES_CONSTRUCTOR_ERROR -> raise_yices_error ()
       | `YICES_BOOL_CONSTANT
       | `YICES_ARITH_CONSTANT
       | `YICES_BV_CONSTANT
@@ -1032,7 +1054,7 @@ module SafeMake
       | `YICES_IS_INT_ATOM  as c -> let+ children = children t in
         begin match children with
           | [t] -> return(Term(A1(c,t)))
-          | l -> raise_error("Term.reveal expected 1 argument for `YICES_IS_INT_ATOM, got "^string_of_int(List.length l)^" of them instead")
+          | l   -> raise_args c 1 l
         end
       | `YICES_EQ_TERM 
       | `YICES_ARITH_GE_ATOM 
@@ -1052,12 +1074,12 @@ module SafeMake
       | `YICES_RDIV as c -> let+ children = children t in
         begin match children with
           | [a;b] -> return(Term(A2(c,a,b)))
-          | l -> raise_error("Term.reveal expected 2 arguments, got "^string_of_int(List.length l)^" of them instead")
+          | l     -> raise_args c 2 l
         end
       | `YICES_ITE_TERM -> let+ children = children t in
         begin match children with
           | [a;b;c] -> return(Term(ITE(a,b,c)))
-          | l -> raise_error("Term.reveal expected 3 arguments for `YICES_ITE_TERM, got "^string_of_int(List.length l)^" of them instead")
+          | l       -> raise_args c 3 l
         end
       | `YICES_TUPLE_TERM
       | `YICES_DISTINCT_TERM 
@@ -1072,13 +1094,13 @@ module SafeMake
       | `YICES_APP_TERM -> let+ children = children t in
         begin match children with
           | h::l -> return(Term(App(h,l)))
-          | [] -> raise_error("Term.reveal expected at least 1 argument for `YICES_APP_TERM, got empty list instead")
+          | []   -> raise_args ~at_least:true c 1 []
         end
       | `YICES_UPDATE_TERM -> let+ children = children t in
         begin match children with
           | array::l -> let+ index, value = get_last l in
             return(Term(Update{array; index; value}))
-          | [] -> raise_error("Term.reveal expected at least 2 arguments for `YICES_UPDATE_TERM, got empty list instead")
+          | [] -> raise_args ~at_least:true c 2 []
         end
 
     let build : type a. a termstruct -> term_t EH.t = function

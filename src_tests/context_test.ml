@@ -2,40 +2,11 @@ open Yices2.High
 
 module EH1 = Make(ExceptionsErrorHandling)
 
-let test_config () =
-  print_endline "Config tests";
-  let open EH1 in
-  let open Global in
-  init();
-  let cfg = Config.malloc () in
-  Config.set cfg ~name:"mode" ~value:"push-pop";
-  begin
-    try
-      Config.set cfg ~name:"baz" ~value:"bar";
-      assert false;
-    with
-      _ ->
-      let error_string = ErrorPrint.string () in
-      assert(String.equal error_string "invalid parameter")
-  end;
-  begin
-    try
-      Config.set cfg ~name:"mode" ~value:"bar";
-      assert false;
-    with
-      _ ->
-      let error_string = ErrorPrint.string () in
-      assert(String.equal error_string "value not valid for parameter")
-  end;
-  Config.default cfg ~logic:"QF_UFNIRA";
-  Config.free cfg;
-  print_endline "Done with Config tests";
-  exit()
-
 module type Context = sig
   open EH1
   type t
   type config
+       
   val malloc : ?config:config -> unit -> t
   val free : t -> unit
   val status : t -> Types.smt_status
@@ -54,6 +25,9 @@ module type Context = sig
   val get_unsat_core   : t -> Term.t list
   val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
   val get_model_interpolant : t -> Term.t
+  val check_with_interpolation : ?build_model:bool ->
+                                 ?param:Param.t ->
+                                 t -> t -> Types.smt_status * Term.t option * Model.t option
 
   module Param : sig
     type context := t
@@ -68,14 +42,16 @@ end
 
 let test_context (type a) (type c)
       (module Context : Context with type t = a and type config = c)
-      (ctx   : a)
       (mcsat : bool)
+      (cfg : c)
   =
 
   let module Type = EH1.Type in
   let module Term = EH1.Term in
   let module Param = EH1.Param in
   let module ErrorPrint = EH1.ErrorPrint in
+
+  let ctx = Context.malloc ~config:cfg () in
 
   (* Basic tests, asserts, checks, push, pops, options, reset *)
   let _stat = Context.status ctx in
@@ -166,31 +142,173 @@ let test_context (type a) (type c)
       let () = Context.assert_blocking_clause ctx in
       let smt_stat = Context.check ctx in
       assert(Types.equal_smt_status smt_stat `STATUS_UNSAT);
-    end;  
+    end;
+
+  Context.free ctx
+
+(* Testing interpolation *)
+  
+let test_interpolation (type a) (type c)
+      (module Context : Context with type t = a and type config = c)
+      (cfg : c)
+      assertA
+      assertB
+  =
+  let ctxA = Context.malloc ~config:cfg () in
+  let ctxB = Context.malloc ~config:cfg () in
+
+  Context.assert_formulas ctxA assertA;
+  Context.assert_formulas ctxB assertB;
+
+  let param = Context.Param.malloc() in
+  Context.Param.default ctxA param;
+  let r =
+    Context.check_with_interpolation ~build_model:true ~param ctxA ctxB
+  in
+  Context.free ctxA;
+  Context.free ctxB;
+  r
+
+let test_interpolation (type a) (type c)
+      (module Context : Context with type t = a and type config = c)
+      (mcsat : bool)
+      (cfg : c)
+  =
+
+  let module Type = EH1.Type in
+  let module Term = EH1.Term in
+
+  let realT = Type.real() in
+  let r1 = Term.new_uninterpreted ~name:"r1" realT in
+  let r2 = Term.new_uninterpreted ~name:"r2" realT in
+
+  let fmla1 = Term.parse "(> r1 3)" in
+  let fmla2 = Term.parse "(< r1 4)" in
+  let fmla3 = Term.parse "(< (- r1 r2) 0)" in
+
+  let () =
+    try
+      match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [] with
+  
+      | `STATUS_SAT, None, Some model ->
+         let v1 = EH1.Model.get_rational64_value model r1 in
+         assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v1
+                  (Signed.Long.of_int 7, Unsigned.ULong.of_int 2));
+         let v2 = EH1.Model.get_rational64_value model r2 in
+         assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v2
+                  (Signed.Long.of_int 5, Unsigned.ULong.of_int 1));
+  
+      | status, _, _ ->
+         let _ = ExceptionsErrorHandling.check_status status in
+         assert false
+    with ExceptionsErrorHandling.YicesException _ when not mcsat -> () 
+  in
+  
+  let fmla4 = Term.parse "(< r2 3)" in
+  
+  let () = 
+    try
+      match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [fmla4] with
+
+      | `STATUS_UNSAT, Some interpolant, None ->
+         let string = CCFormat.sprintf "%s" (EH1.PP.term_string interpolant) in
+         assert(String.equal string "(>= (+ -3 r2) 0)")
+         (* print_endline (CCFormat.sprintf "%a" Yices2.Ext_bindings.Term.pp interpolant) *)
+        
+      | status, _, _ ->
+         let _ = ExceptionsErrorHandling.check_status status in
+         assert false
+    with ExceptionsErrorHandling.YicesException _ when not mcsat -> ()
+       | _ ->
+         print_endline(CCFormat.sprintf "%a"
+                         Yices2.Ext_bindings.Types.pp_error_report
+                         (Error.report()));
+          
+  in
+  
   ()
 
-let test_native_context cfg mcsat =
-  let open EH1 in
-  let ctx = Context.malloc ~config:cfg () in
-  let module Context = struct
-      include Context
-      type config = Config.t
-      module Param = Param
-    end
-  in
-  test_context (module Context) ctx mcsat;
-  Context.free ctx;
-  Global.exit()
+(* Running a function for testing a configuration *)
+
+module type Config = sig
+  type t   
+  val malloc : unit -> t
+  val free : t -> unit
+  val set : t -> name:string -> value:string -> unit
+  val default : ?logic:string -> t -> unit
+end
+
+let cfg_makeNtest (type a) (module Config : Config with type t = a) test_cfg =
+
+  EH1.Global.init();
+
+  print_endline "Config tests";
+  let cfg = Config.malloc () in
+  Config.set cfg ~name:"mode" ~value:"push-pop";
+  begin
+    try
+      Config.set cfg ~name:"baz" ~value:"bar";
+      assert false;
+    with
+      _ ->
+      let error_string = EH1.ErrorPrint.string () in
+      assert(String.equal error_string "invalid parameter")
+  end;
+  begin
+    try
+      Config.set cfg ~name:"mode" ~value:"bar";
+      assert false;
+    with
+      _ ->
+      let error_string = EH1.ErrorPrint.string () in
+      assert(String.equal error_string "value not valid for parameter")
+  end;
+  Config.default cfg ~logic:"QF_UFNIRA";
+  Config.free cfg;
+  print_endline "Done with Config tests";
   
-let test_ext_context cfg =
+  (* Now preparing the call to test_cfg *)
+  let cfg = Config.malloc () in
+
+  print_endline "Regular context tests";
+  test_cfg false cfg;
+
+  print_endline "MCSAT contexts tests";
+  Config.set cfg ~name:"solver-type" ~value:"mcsat";
+  Config.set cfg ~name:"model-interpolation" ~value:"true";
+  Config.set cfg ~name:"mode" ~value:"push-pop";
+  test_cfg true cfg;
+
+  Config.free cfg;
+  EH1.Global.exit();
+  print_endline "Done with Regular and MCSAT Context tests"
+
+(* We've pushed as far as we could the common code for native and extended contexts.
+   Now we do the two separately *)
+
+module NativeContext = struct
+  open EH1
+  include Context
+  type config = Config.t
+  module Param = Param
+end
+
+module ExtContext = struct
+  open Yices2.Ext_bindings
+  include Context
+  type config = Config.t
+  module Param = Param
+end
+
+let test_native_context mcsat cfg =
+  test_context       (module NativeContext) mcsat cfg;
+  test_interpolation (module NativeContext) mcsat cfg
+  
+let test_ext_context mcsat cfg =
   let open Yices2.Ext_bindings in
+
   let ctx = Context.malloc ~config:cfg () in
-  let module Context = struct
-      include Context
-      type config = Config.t
-      module Param = Param
-    end
-  in
+  assert(Bool.equal mcsat (Context.is_mcsat ctx));
   Context.goto ctx 5;
   Context.assert_formula ctx (Term.false0());
   let smt_stat = Context.check ctx in
@@ -198,46 +316,17 @@ let test_ext_context cfg =
   Context.goto ctx 0;
   let smt_stat = Context.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
-  test_context (module Context) ctx (Context.is_mcsat ctx);
   Context.free ctx;
-  Global.exit()
+
+    
+  test_context       (module ExtContext) mcsat cfg;
+  test_interpolation (module ExtContext) mcsat cfg
 
 
-let test_regular_context () =
-  print_endline "Regular context tests";
-  let open EH1 in
-  Global.init();
-  let cfg = Config.malloc () in
-  test_native_context cfg false;
-  print_endline "Done with Context tests"
-         
-let test_mcsat_context () =
-  print_endline "MCSAT contexts tests";
-  let open EH1 in
-  Global.init();
-  let cfg = Config.malloc () in
-  Config.set cfg ~name:"solver-type" ~value:"mcsat";
-  Config.set cfg ~name:"model-interpolation" ~value:"true";
-  Config.set cfg ~name:"mode" ~value:"push-pop";
-  test_native_context cfg true;
-  print_endline "Done with Context tests"
+let test_context () =
+  print_endline "High bindings tests";
+  cfg_makeNtest (module EH1.Config) test_native_context
 
-let test_regular_ext_context () =
-  print_endline "Regular extended context tests";
-  let open Yices2.Ext_bindings in
-  Global.init();
-  let cfg = Config.malloc () in
-  test_ext_context cfg;
-  print_endline "Done with Context tests"
-         
-let test_mcsat_ext_context () =
-  print_endline "MCSAT extended contexts tests";
-  let open Yices2.Ext_bindings in
-  Global.init();
-  let cfg = Config.malloc () in
-  Config.set cfg ~name:"solver-type" ~value:"mcsat";
-  Config.set cfg ~name:"model-interpolation" ~value:"true";
-  Config.set cfg ~name:"mode" ~value:"push-pop";
-  test_ext_context cfg;
-  print_endline "Done with Context tests"
-
+let test_ext_context () =
+  print_endline "Extended bindings tests";
+  cfg_makeNtest (module Yices2.Ext_bindings.Config) test_ext_context
