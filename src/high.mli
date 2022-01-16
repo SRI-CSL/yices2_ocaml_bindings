@@ -31,7 +31,35 @@ module MTerm(M : Monad) : sig
     val map : (term_t -> term_t M.t) -> 'a termstruct -> 'a termstruct M.t
 end
 
+module Algebraic : sig
 
+  module DyadicRational : sig
+    type t = lp_dyadic_rational_t ptr
+    val to_string : t -> string
+    val get_num   : t -> Z.t
+    val get_pow   : t -> int
+  end
+       
+  type t = lp_algebraic_number_t ptr
+
+  val to_string  : t -> string
+  val get_sign_a : t -> bool
+  val get_sign_b : t -> bool
+  val get_is_point : t -> bool
+
+  val get_a_open : t -> bool
+  val get_b_open : t -> bool
+
+  val get_a : t -> DyadicRational.t
+  val get_b : t -> DyadicRational.t
+
+  val get_a_num : t -> Z.t
+  val get_a_pow : t -> int
+
+  val get_b_num : t -> Z.t
+  val get_b_pow : t -> int
+
+end
 
 module Error : sig
   (** ********************

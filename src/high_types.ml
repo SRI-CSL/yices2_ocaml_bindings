@@ -134,7 +134,6 @@ module Types = struct
     | A0 : [< `YICES_BOOL_CONSTANT
            | `YICES_ARITH_CONSTANT
            | `YICES_BV_CONSTANT
-           | `YICES_ARITH_ROOT_ATOM 
            | `YICES_SCALAR_CONSTANT
            | `YICES_VARIABLE
            | `YICES_UNINTERPRETED_TERM ]
@@ -159,7 +158,8 @@ module Types = struct
            | `YICES_DIVIDES_ATOM 
            | `YICES_IDIV 
            | `YICES_IMOD 
-           | `YICES_RDIV ]
+           | `YICES_RDIV
+           | `YICES_ARITH_ROOT_ATOM ]
            * term_t * term_t         -> [`a2] composite termstruct
     | ITE : term_t * term_t * term_t -> [`a3] composite termstruct
     | Astar : [< `YICES_TUPLE_TERM
@@ -209,6 +209,31 @@ module Types = struct
     type1 : type_t;
     type2 : type_t;
   }
+
+  type algebraic = lp_algebraic_number_t ptr
+
+  type atomic_const =
+    [ `Bool     of bool
+    | `Rational of rational
+    | `BV       of int * bool list (* bitwidth and list of bits *)
+    | `Scalar   of type_t * int (* Type and index of the value in the scalar type *) ]
+
+  type mapping = {
+      args  : yval_t ptr list;
+      value : yval_t ptr;
+    }
+
+  type fun_val = { mappings : mapping list ;
+                   default  : yval_t ptr;
+                   typ      : type_t;
+                   arity    : int
+                 }
+
+  type yval =
+    [ atomic_const
+    | `Algebraic of algebraic
+    | `Tuple of int * yval_t ptr list (* number of components and list of values *)
+    | `Fun of fun_val ]
 end
 
 module type API = sig
@@ -1941,7 +1966,7 @@ module type API = sig
     val is_product    : term_t -> bool eh
 
     val reveal : term_t -> yterm eh
-    val build  : 'a termstruct -> term_t eh
+    val build  : _ termstruct -> term_t eh
     val map    : (term_t -> term_t eh) -> 'a termstruct -> 'a termstruct eh
         
     (** Constructor of term t:
@@ -2089,6 +2114,10 @@ module type API = sig
     val rational_const_value : term_t -> Q.t eh
     [%%endif]
 
+    val const_value : [`a0] termstruct -> [ atomic_const | `SYMBOLIC ] eh
+
+
+    
     (** Components of a sum t
         - i = index (must be between 0 and t's number of children - 1)
         - for an arithmetic sum, each component is a pair (rational, term)
@@ -2594,10 +2623,7 @@ module type API = sig
     val set_mpq : t -> term_t -> Q.t -> unit eh
 [%%endif]
 
-    (* #ifdef LIBPOLY_VERSION
-     * __YICES_DLLSPEC__ extern int32_t set_algebraic_number(model_t *model, term_t var, const
-     * lp_algebraic_number_t *val);
-     * #endif *)
+    val set_algebraic_number : t -> term_t -> lp_algebraic_number_t ptr -> unit eh
 
     (**
      * Assign an integer value to a bitvector uninterpreted term.
@@ -2709,21 +2735,17 @@ module type API = sig
     val get_mpq_value        : t -> term_t -> Q.t eh
     [%%endif]
 
-    (** UNSUPPORTED (extract from Yices's API)
+    (**  * Conversion to an algebraic number.
      *
-     * (\*  * Conversion to an algebraic number.
-     *  *
-     *  * t must be an arithmetic term.
-     *  *
-     *  * Error codes:
-     *  * - if t's value is rational:
-     *  *    code = EVAL_CONVERSION_FAILED
-     *  * - if yices is compiled without support for MCSAT
-     *  *    code = EVAL_NOT_SUPPORTED
-     *  *\)
-     * #ifdef LIBPOLY_VERSION
-     * __YICES_DLLSPEC__ extern int32_t yices_get_algebraic_number_value(model_t *mdl, term_t t, lp_algebraic_number_t *a);
-     * #endif *)
+     * t must be an arithmetic term.
+     *
+     * Error codes:
+     * - if t's value is rational:
+     *    code = EVAL_CONVERSION_FAILED
+     * - if yices is compiled without support for MCSAT
+     *    code = EVAL_NOT_SUPPORTED
+     *)
+    val get_algebraic_number_value : t -> term_t -> lp_algebraic_number_t ptr eh
 
     (** Value of bitvector term t in mdl
         - the value is returned in array val
@@ -2738,7 +2760,7 @@ module type API = sig
         If t is not a bitvector term
          code = BITVECTOR_REQUIRED
          term1 = t  *)
-    val get_bv_value : t -> term_t -> sint eh
+    val get_bv_value : t -> term_t -> bool list eh
 
     (** Value of term t of uninterpreted or scalar type
         - the value is returned as a constant index in *val
@@ -2757,7 +2779,6 @@ module type API = sig
           term1 = t  *)
     val get_scalar_value : t -> term_t -> sint eh
 
-
     (** GENERIC FORM: VALUE DESCRIPTORS AND NODES  *)
 
     (** The previous functions work for terms t of atomic types, but they
@@ -2767,7 +2788,7 @@ module type API = sig
         A node in the DAG is represented by a structure of type yval_t defined
         as follows in yices_types.h: *)
 
-    (*  typedef struct yval_s {
+    (**  typedef struct yval_s {
          int32_t node_id;
          yval_tag_t node_tag;
         } yval_t;
@@ -2919,21 +2940,17 @@ module type API = sig
     val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
     [%%endif]
 
-    (** NOT SUPPORTED in yices bindings
-
-       (**  * Export an algebraic number
-        * - v->tag must be YVAL_ALGEBRAIC
-        * - return a copy of the algebraic number in *a
-        *
-        * Error reports:
-        * - if v is not an algebraic number:
-        *    code = YVAL_INVALID_OP
-        * - if MCSAT is not supported by the yices library
-        *    code = YVAL_NOT_SUPPORTED
-         *)
-        #ifdef LIBPOLY_VERSION
-        __YICES_DLLSPEC__ extern int32_t yices_val_get_algebraic_number(model_t *mdl, const yval_t *v, lp_algebraic_number_t *a);
-        #endif  *)
+    (**  * Export an algebraic number
+     * - v->tag must be YVAL_ALGEBRAIC
+     * - return a copy of the algebraic number in *a
+     *
+     * Error reports:
+     * - if v is not an algebraic number:
+     *    code = YVAL_INVALID_OP
+     * - if MCSAT is not supported by the yices library
+     *    code = YVAL_NOT_SUPPORTED
+     *)
+    val val_get_algebraic_number_value : t -> yval_t ptr -> lp_algebraic_number_t ptr eh
 
     (** Get the value of a bitvector node:
         - val must have size at least equal to n = yices_val_bitsize(mdl, v)
@@ -2941,13 +2958,13 @@ module type API = sig
           every val[i] is either 0 or 1.
         - the function returns 0 if v has tag YVAL_BV
         - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP.  *)
-    val val_get_bv : t -> yval_t ptr -> sint eh
+    val val_get_bv : t -> yval_t ptr -> bool list eh
 
     (** Get the value of a scalar node:
         - the function returns 0 if v's tag is YVAL_SCALAR
           the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
         - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP.  *)
-    val val_get_scalar : t -> yval_t ptr -> (sint*type_t) eh
+    val val_get_scalar : t -> yval_t ptr -> (int*type_t) eh
 
     (** Expand a tuple node:
         - child must be an array large enough to store all children of v (i.e.,
@@ -2977,8 +2994,11 @@ module type API = sig
 
         Return code = 0 if v's tag is YVAL_MAPPING.
         Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
-    val val_expand_mapping : t -> yval_t ptr -> ((yval_t ptr list) * (yval_t ptr)) eh
+    val val_expand_mapping : t -> yval_t ptr -> mapping eh
 
+    (** Expand a node m, of any kind, calling the functions above. *)
+    val reveal : t -> yval_t ptr -> yval eh
+      
     (** CHECK THE VALUE OF BOOLEAN FORMULAS  *)
 
     (** Check whether f is true in mdl

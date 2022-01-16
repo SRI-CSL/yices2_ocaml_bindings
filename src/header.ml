@@ -10,42 +10,33 @@ open Ctypes_zarith
 
 module TMP =
   struct
-    let anonymous_2 =
-      let (_ctype : [ `anonymous ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "" in
-      _ctype
-    let anonymous_3 =
-      let (_ctype : [ `anonymous_0 ] Ctypes.union Ctypes.typ) =
-        Ctypes.union "" in
-      _ctype
-    let anonymous_4 =
-      let (_ctype : [ `anonymous_1 ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "" in
-      _ctype
-    let _G_fpos_t_0 =
-      let (_ctype : [ `_G_fpos_t ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "_G_fpos_t" in
-      _ctype
-    let _G_fpos64_t_0 =
-      let (_ctype : [ `_G_fpos64_t ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "_G_fpos64_t" in
-      _ctype
-    let _IO_marker_0 =
-      let (_ctype : [ `_IO_marker ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "_IO_marker" in
-      _ctype
-    let _IO_codecvt_0 =
-      let (_ctype : [ `_IO_codecvt ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "_IO_codecvt" in
-      _ctype
-    let _IO_wide_data_0 =
-      let (_ctype : [ `_IO_wide_data ] Ctypes.structure Ctypes.typ) =
-        Ctypes.structure "_IO_wide_data" in
-      _ctype
+
+    let __int8_t = Ctypes.typedef Ctypes.schar "__int8_t"
+    let __uint8_t = Ctypes.typedef Ctypes.uchar "__uint8_t"
+    let __int16_t = Ctypes.typedef Ctypes.short "__int16_t"
+    let __uint16_t = Ctypes.typedef Ctypes.ushort "__uint16_t"
+    let __int32_t = Ctypes.typedef Ctypes.sint "__int32_t"
+    let __uint32_t = Ctypes.typedef Ctypes.uint "__uint32_t"
+    let __int64_t = Ctypes.typedef Ctypes.long "__int64_t"
+    let __uint64_t = Ctypes.typedef Ctypes.ulong "__uint64_t"
+
+    let int8_t = Ctypes.typedef __int8_t "int8_t"
+    let int16_t = Ctypes.typedef __int16_t "int16_t"
+    let int32_t = Ctypes.typedef __int32_t "int32_t"
+    let int64_t = Ctypes.typedef __int64_t "int64_t"
+    let uint8_t = Ctypes.typedef __uint8_t "uint8_t"
+    let uint16_t = Ctypes.typedef __uint16_t "uint16_t"
+    let uint32_t = Ctypes.typedef __uint32_t "uint32_t"
+    let uint64_t = Ctypes.typedef __uint64_t "uint64_t"
+
+    let term_t = Ctypes.typedef int32_t "term_t"
+    let type_t = Ctypes.typedef int32_t "type_t"
+
     let __IO_FILE_0 =
       let (_ctype : [ `__IO_FILE ] Ctypes.structure Ctypes.typ) =
         Ctypes.structure "_IO_FILE" in
       _ctype
+
     let context_s_0 =
       let (_ctype : [ `context_s ] Ctypes.structure Ctypes.typ) =
         Ctypes.structure "context_s" in
@@ -90,256 +81,25 @@ module TMP =
       _ctype
 
 
-    let __u_char = Ctypes.typedef Ctypes.uchar "__u_char"
-    let __u_short = Ctypes.typedef Ctypes.ushort "__u_short"
-    let __u_int = Ctypes.typedef Ctypes.uint "__u_int"
-    let __u_long = Ctypes.typedef Ctypes.ulong "__u_long"
-    let __int8_t = Ctypes.typedef Ctypes.schar "__int8_t"
-    let __uint8_t = Ctypes.typedef Ctypes.uchar "__uint8_t"
-    let __int16_t = Ctypes.typedef Ctypes.short "__int16_t"
-    let __uint16_t = Ctypes.typedef Ctypes.ushort "__uint16_t"
-    let __int32_t = Ctypes.typedef Ctypes.sint "__int32_t"
-    let __uint32_t = Ctypes.typedef Ctypes.uint "__uint32_t"
-    let __int64_t = Ctypes.typedef Ctypes.long "__int64_t"
-    let __uint64_t = Ctypes.typedef Ctypes.ulong "__uint64_t"
-    let __int_least8_t = Ctypes.typedef __int8_t "__int_least8_t"
-    let __uint_least8_t = Ctypes.typedef __uint8_t "__uint_least8_t"
-    let __int_least16_t = Ctypes.typedef __int16_t "__int_least16_t"
-    let __uint_least16_t = Ctypes.typedef __uint16_t "__uint_least16_t"
-    let __int_least32_t = Ctypes.typedef __int32_t "__int_least32_t"
-    let __uint_least32_t = Ctypes.typedef __uint32_t "__uint_least32_t"
-    let __int_least64_t = Ctypes.typedef __int64_t "__int_least64_t"
-    let __uint_least64_t = Ctypes.typedef __uint64_t "__uint_least64_t"
-    let __quad_t = Ctypes.typedef Ctypes.long "__quad_t"
-    let __u_quad_t = Ctypes.typedef Ctypes.ulong "__u_quad_t"
-    let __intmax_t = Ctypes.typedef Ctypes.long "__intmax_t"
-    let __uintmax_t = Ctypes.typedef Ctypes.ulong "__uintmax_t"
-    let __dev_t = Ctypes.typedef Ctypes.ulong "__dev_t"
-    let __uid_t = Ctypes.typedef Ctypes.uint "__uid_t"
-    let __gid_t = Ctypes.typedef Ctypes.uint "__gid_t"
-    let __ino_t = Ctypes.typedef Ctypes.ulong "__ino_t"
-    let __ino64_t = Ctypes.typedef Ctypes.ulong "__ino64_t"
-    let __mode_t = Ctypes.typedef Ctypes.uint "__mode_t"
-    let __nlink_t = Ctypes.typedef Ctypes.ulong "__nlink_t"
-    let __off_t = Ctypes.typedef Ctypes.long "__off_t"
-    let __off64_t = Ctypes.typedef Ctypes.long "__off64_t"
-    let __pid_t = Ctypes.typedef Ctypes.sint "__pid_t"
-    let anonymous =
-      let field_0 =
-        Ctypes.field anonymous_2 "__val" (Ctypes.array 2 Ctypes.sint) in
-      let () = Ctypes.seal anonymous_2 in
-      object
-        method ctype = anonymous_2
-        method members = object method __val = field_0 end
-      end
-    let __fsid_t = Ctypes.typedef anonymous_2 "__fsid_t"
-    let __clock_t = Ctypes.typedef Ctypes.long "__clock_t"
-    let __rlim_t = Ctypes.typedef Ctypes.ulong "__rlim_t"
-    let __rlim64_t = Ctypes.typedef Ctypes.ulong "__rlim64_t"
-    let __id_t = Ctypes.typedef Ctypes.uint "__id_t"
-    let __time_t = Ctypes.typedef Ctypes.long "__time_t"
-    let __useconds_t = Ctypes.typedef Ctypes.uint "__useconds_t"
-    let __suseconds_t = Ctypes.typedef Ctypes.long "__suseconds_t"
-    let __daddr_t = Ctypes.typedef Ctypes.sint "__daddr_t"
-    let __key_t = Ctypes.typedef Ctypes.sint "__key_t"
-    let __clockid_t = Ctypes.typedef Ctypes.sint "__clockid_t"
-    let __timer_t = Ctypes.typedef (Ctypes.ptr Ctypes.void) "__timer_t"
-    let __blksize_t = Ctypes.typedef Ctypes.long "__blksize_t"
-    let __blkcnt_t = Ctypes.typedef Ctypes.long "__blkcnt_t"
-    let __blkcnt64_t = Ctypes.typedef Ctypes.long "__blkcnt64_t"
-    let __fsblkcnt_t = Ctypes.typedef Ctypes.ulong "__fsblkcnt_t"
-    let __fsblkcnt64_t = Ctypes.typedef Ctypes.ulong "__fsblkcnt64_t"
-    let __fsfilcnt_t = Ctypes.typedef Ctypes.ulong "__fsfilcnt_t"
-    let __fsfilcnt64_t = Ctypes.typedef Ctypes.ulong "__fsfilcnt64_t"
-    let __fsword_t = Ctypes.typedef Ctypes.long "__fsword_t"
-    let __ssize_t = Ctypes.typedef Ctypes.long "__ssize_t"
-    let __syscall_slong_t = Ctypes.typedef Ctypes.long "__syscall_slong_t"
-    let __syscall_ulong_t = Ctypes.typedef Ctypes.ulong "__syscall_ulong_t"
-    let __loff_t = Ctypes.typedef __off64_t "__loff_t"
-    let __caddr_t = Ctypes.typedef (Ctypes.ptr Ctypes.char) "__caddr_t"
-    let __intptr_t = Ctypes.typedef Ctypes.long "__intptr_t"
-    let __socklen_t = Ctypes.typedef Ctypes.uint "__socklen_t"
-    let __sig_atomic_t = Ctypes.typedef Ctypes.sint "__sig_atomic_t"
-    let int8_t = Ctypes.typedef __int8_t "int8_t"
-    let int16_t = Ctypes.typedef __int16_t "int16_t"
-    let int32_t = Ctypes.typedef __int32_t "int32_t"
-    let int64_t = Ctypes.typedef __int64_t "int64_t"
-    let uint8_t = Ctypes.typedef __uint8_t "uint8_t"
-    let uint16_t = Ctypes.typedef __uint16_t "uint16_t"
-    let uint32_t = Ctypes.typedef __uint32_t "uint32_t"
-    let uint64_t = Ctypes.typedef __uint64_t "uint64_t"
-    let int_least8_t = Ctypes.typedef __int_least8_t "int_least8_t"
-    let int_least16_t = Ctypes.typedef __int_least16_t "int_least16_t"
-    let int_least32_t = Ctypes.typedef __int_least32_t "int_least32_t"
-    let int_least64_t = Ctypes.typedef __int_least64_t "int_least64_t"
-    let uint_least8_t = Ctypes.typedef __uint_least8_t "uint_least8_t"
-    let uint_least16_t = Ctypes.typedef __uint_least16_t "uint_least16_t"
-    let uint_least32_t = Ctypes.typedef __uint_least32_t "uint_least32_t"
-    let uint_least64_t = Ctypes.typedef __uint_least64_t "uint_least64_t"
-    let int_fast8_t = Ctypes.typedef Ctypes.schar "int_fast8_t"
-    let int_fast16_t = Ctypes.typedef Ctypes.long "int_fast16_t"
-    let int_fast32_t = Ctypes.typedef Ctypes.long "int_fast32_t"
-    let int_fast64_t = Ctypes.typedef Ctypes.long "int_fast64_t"
-    let uint_fast8_t = Ctypes.typedef Ctypes.uchar "uint_fast8_t"
-    let uint_fast16_t = Ctypes.typedef Ctypes.ulong "uint_fast16_t"
-    let uint_fast32_t = Ctypes.typedef Ctypes.ulong "uint_fast32_t"
-    let uint_fast64_t = Ctypes.typedef Ctypes.ulong "uint_fast64_t"
-    let intptr_t = Ctypes.typedef Ctypes.long "intptr_t"
-    let uintptr_t = Ctypes.typedef Ctypes.ulong "uintptr_t"
-    let intmax_t = Ctypes.typedef __intmax_t "intmax_t"
-    let uintmax_t = Ctypes.typedef __uintmax_t "uintmax_t"
-    let size_t = Ctypes.typedef Ctypes.ulong "size_t"
-    let anonymous_0 =
-      let field_0 = Ctypes.field anonymous_3 "__wch" Ctypes.uint in
-      let field_1 =
-        Ctypes.field anonymous_3 "__wchb" (Ctypes.array 4 Ctypes.char) in
-      let () = Ctypes.seal anonymous_3 in
-      object
-        method ctype = anonymous_3
-        method members =
-          object method __wch = field_0 method __wchb = field_1 end
-      end
-    let anonymous_1 =
-      let field_0 = Ctypes.field anonymous_4 "__count" Ctypes.sint in
-      let field_1 = Ctypes.field anonymous_4 "__value" anonymous_3 in
-      let () = Ctypes.seal anonymous_4 in
-      object
-        method ctype = anonymous_4
-        method members =
-          object method __count = field_0 method __value = field_1 end
-      end
-    let __mbstate_t = Ctypes.typedef anonymous_4 "__mbstate_t"
-    let _G_fpos_t =
-      let field_0 = Ctypes.field _G_fpos_t_0 "__pos" __off_t in
-      let field_1 = Ctypes.field _G_fpos_t_0 "__state" __mbstate_t in
-      let () = Ctypes.seal _G_fpos_t_0 in
-      object
-        method ctype = _G_fpos_t_0
-        method members =
-          object method __pos = field_0 method __state = field_1 end
-      end
-    let __fpos_t = Ctypes.typedef _G_fpos_t_0 "__fpos_t"
-    let _G_fpos64_t =
-      let field_0 = Ctypes.field _G_fpos64_t_0 "__pos" __off64_t in
-      let field_1 = Ctypes.field _G_fpos64_t_0 "__state" __mbstate_t in
-      let () = Ctypes.seal _G_fpos64_t_0 in
-      object
-        method ctype = _G_fpos64_t_0
-        method members =
-          object method __pos = field_0 method __state = field_1 end
-      end
-    let __fpos64_t = Ctypes.typedef _G_fpos64_t_0 "__fpos64_t"
-    let ___FILE = Ctypes.typedef __IO_FILE_0 "__FILE"
-    let _FILE = Ctypes.typedef __IO_FILE_0 "FILE"
-    let _IO_marker =
-      object method ctype = _IO_marker_0 method members = object  end end
-    let _IO_codecvt =
-      object method ctype = _IO_codecvt_0 method members = object  end end
-    let _IO_wide_data =
-      object method ctype = _IO_wide_data_0 method members = object  end end
-    let _IO_lock_t = Ctypes.typedef Ctypes.void "_IO_lock_t"
-    let __IO_FILE =
-      let field_0 = Ctypes.field __IO_FILE_0 "_flags" Ctypes.sint in
-      let field_1 =
-        Ctypes.field __IO_FILE_0 "_IO_read_ptr" (Ctypes.ptr Ctypes.char) in
-      let field_2 =
-        Ctypes.field __IO_FILE_0 "_IO_read_end" (Ctypes.ptr Ctypes.char) in
-      let field_3 =
-        Ctypes.field __IO_FILE_0 "_IO_read_base" (Ctypes.ptr Ctypes.char) in
-      let field_4 =
-        Ctypes.field __IO_FILE_0 "_IO_write_base" (Ctypes.ptr Ctypes.char) in
-      let field_5 =
-        Ctypes.field __IO_FILE_0 "_IO_write_ptr" (Ctypes.ptr Ctypes.char) in
-      let field_6 =
-        Ctypes.field __IO_FILE_0 "_IO_write_end" (Ctypes.ptr Ctypes.char) in
-      let field_7 =
-        Ctypes.field __IO_FILE_0 "_IO_buf_base" (Ctypes.ptr Ctypes.char) in
-      let field_8 =
-        Ctypes.field __IO_FILE_0 "_IO_buf_end" (Ctypes.ptr Ctypes.char) in
-      let field_9 =
-        Ctypes.field __IO_FILE_0 "_IO_save_base" (Ctypes.ptr Ctypes.char) in
-      let field_10 =
-        Ctypes.field __IO_FILE_0 "_IO_backup_base" (Ctypes.ptr Ctypes.char) in
-      let field_11 =
-        Ctypes.field __IO_FILE_0 "_IO_save_end" (Ctypes.ptr Ctypes.char) in
-      let field_12 =
-        Ctypes.field __IO_FILE_0 "_markers" (Ctypes.ptr _IO_marker_0) in
-      let field_13 =
-        Ctypes.field __IO_FILE_0 "_chain" (Ctypes.ptr __IO_FILE_0) in
-      let field_14 = Ctypes.field __IO_FILE_0 "_fileno" Ctypes.sint in
-      let field_15 = Ctypes.field __IO_FILE_0 "_flags2" Ctypes.sint in
-      let field_16 = Ctypes.field __IO_FILE_0 "_old_offset" __off_t in
-      let field_17 = Ctypes.field __IO_FILE_0 "_cur_column" Ctypes.ushort in
-      let field_18 = Ctypes.field __IO_FILE_0 "_vtable_offset" Ctypes.schar in
-      let field_19 =
-        Ctypes.field __IO_FILE_0 "_shortbuf" (Ctypes.array 1 Ctypes.char) in
-      let field_20 = Ctypes.field __IO_FILE_0 "_lock" (Ctypes.ptr _IO_lock_t) in
-      let field_21 = Ctypes.field __IO_FILE_0 "_offset" __off64_t in
-      let field_22 =
-        Ctypes.field __IO_FILE_0 "_codecvt" (Ctypes.ptr _IO_codecvt_0) in
-      let field_23 =
-        Ctypes.field __IO_FILE_0 "_wide_data" (Ctypes.ptr _IO_wide_data_0) in
-      let field_24 =
-        Ctypes.field __IO_FILE_0 "_freeres_list" (Ctypes.ptr __IO_FILE_0) in
-      let field_25 =
-        Ctypes.field __IO_FILE_0 "_freeres_buf" (Ctypes.ptr Ctypes.void) in
-      let field_26 = Ctypes.field __IO_FILE_0 "__pad5" size_t in
-      let field_27 = Ctypes.field __IO_FILE_0 "_mode" Ctypes.sint in
-      let field_28 =
-        Ctypes.field __IO_FILE_0 "_unused2" (Ctypes.array 20 Ctypes.char) in
-      let () = Ctypes.seal __IO_FILE_0 in
-      object
-        method ctype = __IO_FILE_0
-        method members =
-          object
-            method _flags = field_0
-            method _IO_read_ptr = field_1
-            method _IO_read_end = field_2
-            method _IO_read_base = field_3
-            method _IO_write_base = field_4
-            method _IO_write_ptr = field_5
-            method _IO_write_end = field_6
-            method _IO_buf_base = field_7
-            method _IO_buf_end = field_8
-            method _IO_save_base = field_9
-            method _IO_backup_base = field_10
-            method _IO_save_end = field_11
-            method _markers = field_12
-            method _chain = field_13
-            method _fileno = field_14
-            method _flags2 = field_15
-            method _old_offset = field_16
-            method _cur_column = field_17
-            method _vtable_offset = field_18
-            method _shortbuf = field_19
-            method _lock = field_20
-            method _offset = field_21
-            method _codecvt = field_22
-            method _wide_data = field_23
-            method _freeres_list = field_24
-            method _freeres_buf = field_25
-            method __pad5 = field_26
-            method _mode = field_27
-            method _unused2 = field_28
-          end
-      end
-    let off_t = Ctypes.typedef __off_t "off_t"
-    let ssize_t = Ctypes.typedef __ssize_t "ssize_t"
-    let fpos_t = Ctypes.typedef __fpos_t "fpos_t"
-    let term_t = Ctypes.typedef int32_t "term_t"
-    let type_t = Ctypes.typedef int32_t "type_t"
+    let _FILE = Ctypes.typedef __IO_FILE_0 "FILE"    
+
+
     let context_s =
       object method ctype = context_s_0 method members = object  end end
     let context_t = Ctypes.typedef context_s_0 "context_t"
+
     let model_s =
       object method ctype = model_s_0 method members = object  end end
     let model_t = Ctypes.typedef model_s_0 "model_t"
+
     let ctx_config_s =
       object method ctype = ctx_config_s_0 method members = object  end end
     let ctx_config_t = Ctypes.typedef ctx_config_s_0 "ctx_config_t"
+
     let param_s =
       object method ctype = param_s_0 method members = object  end end
     let param_t = Ctypes.typedef param_s_0 "param_t"
+
     let smt_status =
       let (to_int, of_int) =
         ((function
@@ -365,6 +125,7 @@ module TMP =
         method of_int = of_int
       end
     let smt_status_t = Ctypes.typedef smt_status#ctype "smt_status_t"
+
     let term_vector_s =
       let field_0 = Ctypes.field term_vector_s_0 "capacity" uint32_t in
       let field_1 = Ctypes.field term_vector_s_0 "size" uint32_t in
@@ -380,6 +141,7 @@ module TMP =
           end
       end
     let term_vector_t = Ctypes.typedef term_vector_s_0 "term_vector_t"
+
     let type_vector_s =
       let field_0 = Ctypes.field type_vector_s_0 "capacity" uint32_t in
       let field_1 = Ctypes.field type_vector_s_0 "size" uint32_t in
@@ -395,6 +157,7 @@ module TMP =
           end
       end
     let type_vector_t = Ctypes.typedef type_vector_s_0 "type_vector_t"
+
     let term_constructor =
       let (to_int, of_int) =
         ((function
@@ -495,6 +258,7 @@ module TMP =
       end
     let term_constructor_t =
       Ctypes.typedef term_constructor#ctype "term_constructor_t"
+
     let yval_tag =
       let (to_int, of_int) =
         ((function
@@ -524,6 +288,7 @@ module TMP =
         method of_int = of_int
       end
     let yval_tag_t = Ctypes.typedef yval_tag#ctype "yval_tag_t"
+
     let yval_s =
       let field_0 = Ctypes.field yval_s_0 "node_id" int32_t in
       let field_1 = Ctypes.field yval_s_0 "node_tag" yval_tag_t in
@@ -534,6 +299,7 @@ module TMP =
           object method node_id = field_0 method node_tag = field_1 end
       end
     let yval_t = Ctypes.typedef yval_s_0 "yval_t"
+
     let yval_vector_s =
       let field_0 = Ctypes.field yval_vector_s_0 "capacity" uint32_t in
       let field_1 = Ctypes.field yval_vector_s_0 "size" uint32_t in
@@ -549,6 +315,7 @@ module TMP =
           end
       end
     let yval_vector_t = Ctypes.typedef yval_vector_s_0 "yval_vector_t"
+
     let yices_gen_mode =
       let (to_int, of_int) =
         ((function
@@ -567,6 +334,7 @@ module TMP =
       end
     let yices_gen_mode_t =
       Ctypes.typedef yices_gen_mode#ctype "yices_gen_mode_t"
+
     let error_code =
       let (to_int, of_int) =
         ((function
@@ -821,6 +589,7 @@ module TMP =
         method of_int = of_int
       end
     let error_code_t = Ctypes.typedef error_code#ctype "error_code_t"
+
     let error_report_s =
       let field_0 = Ctypes.field error_report_s_0 "code" error_code_t in
       let field_1 = Ctypes.field error_report_s_0 "line" uint32_t in
@@ -1959,6 +1728,13 @@ module TMP =
                  (Ctypes.returning int32_t))))
 [%%endif]
 
+    let yices_model_set_algebraic_number =
+      Foreign.foreign "yices_model_set_algebraic_number"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) (Ctypes.ptr Libpoly.lp_algebraic_number_t)
+                 (Ctypes.returning int32_t))))
+
     let yices_model_set_bv_int32 =
       Foreign.foreign "yices_model_set_bv_int32"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -2089,6 +1865,12 @@ module TMP =
               (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.returning int32_t))))
 [%%endif]
+    let yices_get_algebraic_number_value =
+      Foreign.foreign "yices_get_algebraic_number_value"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) term_t
+              (Ctypes.(@->) (Ctypes.ptr Libpoly.lp_algebraic_number_t)
+                 (Ctypes.returning int32_t))))
     let yices_get_bv_value =
       Foreign.foreign "yices_get_bv_value"
         (Ctypes.(@->) (Ctypes.ptr model_t)
@@ -2205,6 +1987,12 @@ module TMP =
               (Ctypes.(@->) MPQ.t_ptr
                  (Ctypes.returning int32_t))))
 [%%endif]
+    let yices_val_get_algebraic_number =
+      Foreign.foreign "yices_val_get_algebraic_number"
+        (Ctypes.(@->) (Ctypes.ptr model_t)
+           (Ctypes.(@->) (Ctypes.ptr yval_t)
+              (Ctypes.(@->) (Ctypes.ptr Libpoly.lp_algebraic_number_t)
+                 (Ctypes.returning int32_t))))
     let yices_val_get_bv =
       Foreign.foreign "yices_val_get_bv"
         (Ctypes.(@->) (Ctypes.ptr model_t)

@@ -13,17 +13,20 @@ module BaseTypes = struct
     type t = [ `__IO_FILE ] structure
   end
 
-  type context_t      = [ `context_s ] structure
-  type model_t        = [ `model_s ] structure
-  type ctx_config_t   = [ `ctx_config_s ] structure
-  type param_t        = [ `param_s ] structure
+  type context_t      = [ `context_s ]     structure
+  type model_t        = [ `model_s ]       structure
+  type ctx_config_t   = [ `ctx_config_s ]  structure
+  type param_t        = [ `param_s ]       structure
   type term_vector_t  = [ `term_vector_s ] structure
   type type_vector_t  = [ `type_vector_s ] structure
-  type yval_t         = [ `yval_s ] structure
+  type yval_t         = [ `yval_s ]        structure
   type yval_vector_t  = [ `yval_vector_s ] structure
   type error_report_t = [ `error_report_s ] structure
   type interpolation_context_t = [ `interpolation_context_s ] structure
 
+  type lp_dyadic_rational_t  = [ `lp_dyadic_rational_struct ]  structure
+  type lp_algebraic_number_t = [ `lp_algebraic_number_struct ] structure
+                               
   type smt_status = 
     [ `STATUS_ERROR
     | `STATUS_IDLE
@@ -3250,10 +3253,8 @@ module type API = sig
   val yices_model_set_mpq : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
 [%%endif]
 
-  (* #ifdef LIBPOLY_VERSION
-   * __YICES_DLLSPEC__ extern int32_t yices_model_set_algebraic_number(model_t *model, term_t var, const
-   * lp_algebraic_number_t *val);
-   * #endif *)
+  val yices_model_set_algebraic_number :
+    model_t ptr -> term_t -> lp_algebraic_number_t ptr -> unit_t checkable
 
   (*
    * Assign an integer value to a bitvector uninterpreted term.
@@ -3544,21 +3545,19 @@ module type API = sig
   val yices_get_mpq_value : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
 [%%endif]
 
-  (* UNSUPPORTED (extract from Yices's API)
+  (*  * Conversion to an algebraic number.
    *
-   * (\*  * Conversion to an algebraic number.
-   *  *
-   *  * t must be an arithmetic term.
-   *  *
-   *  * Error codes:
-   *  * - if t's value is rational:
-   *  *    code = EVAL_CONVERSION_FAILED
-   *  * - if yices is compiled without support for MCSAT
-   *  *    code = EVAL_NOT_SUPPORTED
-   *  *\)
-   * #ifdef LIBPOLY_VERSION
-   * __YICES_DLLSPEC__ extern int32_t yices_get_algebraic_number_value(model_t *mdl, term_t t, lp_algebraic_number_t *a);
-   * #endif *)
+   * t must be an arithmetic term.
+   *
+   * Error codes:
+   * - if t's value is rational:
+   *    code = EVAL_CONVERSION_FAILED
+   * - if yices is compiled without support for MCSAT
+   *    code = EVAL_NOT_SUPPORTED
+   *)
+
+  val yices_get_algebraic_number_value :
+    model_t ptr -> term_t -> lp_algebraic_number_t ptr -> unit_t checkable
 
   (* Value of bitvector term t in mdl
    * - the value is returned in array val
@@ -3573,7 +3572,7 @@ module type API = sig
    * If t is not a bitvector term
    *   code = BITVECTOR_REQUIRED
    *   term1 = t *)
-  val yices_get_bv_value : model_t ptr -> term_t -> sint ptr -> unit_t checkable
+  val yices_get_bv_value : model_t ptr -> term_t -> bool_t ptr -> unit_t checkable
 
   (* Value of term t of uninterpreted or scalar type
    * - the value is returned as a constant index in *val
@@ -3757,19 +3756,18 @@ module type API = sig
   val yices_val_get_mpq : model_t ptr -> yval_t ptr -> MPQ.t abstract ptr -> unit_t checkable
 [%%endif]
   
-  (* (*  * Export an algebraic number
-   *  * - v->tag must be YVAL_ALGEBRAIC
-   *  * - return a copy of the algebraic number in *a
-   *  *
-   *  * Error reports:
-   *  * - if v is not an algebraic number:
-   *  *    code = YVAL_INVALID_OP
-   *  * - if MCSAT is not supported by the yices library
-   *  *    code = YVAL_NOT_SUPPORTED
-   *  *)
-   * #ifdef LIBPOLY_VERSION
-   * __YICES_DLLSPEC__ extern int32_t yices_val_get_algebraic_number(model_t *mdl, const yval_t *v, lp_algebraic_number_t *a);
-   * #endif *)
+  (*  * Export an algebraic number
+   * - v->tag must be YVAL_ALGEBRAIC
+   * - return a copy of the algebraic number in *a
+   *
+   * Error reports:
+   * - if v is not an algebraic number:
+   *    code = YVAL_INVALID_OP
+   * - if MCSAT is not supported by the yices library
+   *    code = YVAL_NOT_SUPPORTED
+   *)
+  val yices_val_get_algebraic_number :
+    model_t ptr -> yval_t ptr -> lp_algebraic_number_t ptr -> unit_t checkable
 
   (* Get the value of a bitvector node:
    * - val must have size at least equal to n = yices_val_bitsize(mdl, v)
@@ -3777,7 +3775,7 @@ module type API = sig
    *   every val[i] is either 0 or 1.
    * - the function returns 0 if v has tag YVAL_BV
    * - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP. *)
-  val yices_val_get_bv : model_t ptr -> yval_t ptr -> sint ptr -> unit_t checkable
+  val yices_val_get_bv : model_t ptr -> yval_t ptr -> bool_t ptr -> unit_t checkable
 
   (* Get the value of a scalar node:
    * - the function returns 0 if v's tag is YVAL_SCALAR

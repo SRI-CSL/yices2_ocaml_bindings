@@ -111,7 +111,35 @@ let test_context (type a) (type c)
   (* let _ = EH1.Model.get_value_as_term model f in *)
   Context.reset ctx;
 
+  (* Testing algebraic numbers *)
+  if mcsat
+  then
+    begin
+      let x = Term.new_uninterpreted (Type.real()) in
+      Context.assert_formula ctx Term.(Arith.(((neg x) ** (neg x)) === Arith.int 2));
+      let status = Context.check ctx in
+      assert(Types.equal_smt_status status `STATUS_SAT);
+      let model = Context.get_model ctx in
+      let _sq2 = EH1.Model.get_algebraic_number_value model x in
+      (* print_endline(CCFormat.sprintf "a = %s" (Algebraic.to_string sq2));
+       * let a = Algebraic.get_a sq2 in
+       * let b = Algebraic.get_b sq2 in *)
+      (* print_endline(CCFormat.sprintf "a = %s" (Algebraic.DyadicRational.to_string a));
+       * print_endline(CCFormat.sprintf "b = %s" (Algebraic.DyadicRational.to_string b));
+       * 
+       * print_endline(CCFormat.sprintf "a = %i/2^%i is %b"
+       *                 (sq2 |> Algebraic.get_a_num |> Z.to_int)
+       *                 (sq2 |> Algebraic.get_a_pow)
+       *                 (sq2 |> Algebraic.get_sign_b)); 
+       * print_endline(CCFormat.sprintf "b = %i/2^%i is %b"
+       *                 (sq2 |> Algebraic.get_b_num |> Z.to_int)
+       *                 (sq2 |> Algebraic.get_b_pow)
+       *                 (sq2 |> Algebraic.get_sign_b));  *)
+      EH1.Model.free model;
+      Context.reset ctx;
+    end;
 
+  
   (* Testing parameters *)
   let module Param = Context.Param in
   let param = Param.malloc () in

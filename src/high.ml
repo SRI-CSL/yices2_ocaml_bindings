@@ -135,6 +135,8 @@ let (!<)  = UInt.to_int
 (* let (!>>) = ULong.of_int *)
 (* let (!<<) = ULong.to_int *)
 
+let to_string = coerce (ptr char) string
+
 (* The null pointer for a particular type *)
 let null typ = null |> from_voidp typ
 
@@ -142,6 +144,45 @@ let null typ = null |> from_voidp typ
 let (<.>) f g x = g(f x)
 let (<..>) f g x1 x2 = g (f x1 x2)
 let (<...>) f g x1 x2 x3 = g (f x1 x2 x3)
+
+module Algebraic = struct
+
+  module DyadicRational = struct
+    type t = lp_dyadic_rational_t ptr
+    let to_string = Libpoly.lp_dyadic_rational_to_string <.> to_string
+    let get_num t = getf !@t Libpoly.lp_dyadic_rational_struct#members#a |> Ctypes.addr |> MPZ.to_z
+    let get_pow t = getf !@t Libpoly.lp_dyadic_rational_struct#members#n |> ULong.to_int
+  end
+
+  type t = lp_algebraic_number_t ptr
+
+  let to_string = Libpoly.lp_algebraic_number_to_string <.> to_string
+  let is1_size_t = Unsigned.Size_t.(equal one)
+  let is1_int    = Int.(equal one)
+
+  let get_sign_a t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_a |> is1_int
+  let get_sign_b t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_b |> is1_int
+  let get_interval t = getf !@t Libpoly.lp_algebraic_number_struct#members#_I
+
+  let get_a_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#a_open   |> is1_size_t
+  let get_b_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#b_open   |> is1_size_t
+  let get_is_point t = getf t Libpoly.lp_dyadic_interval_struct#members#is_point |> is1_size_t
+  let get_a t = getf t Libpoly.lp_dyadic_interval_struct#members#a
+  let get_b t = getf t Libpoly.lp_dyadic_interval_struct#members#b
+
+  let get_a_open = get_interval <.> get_a_open 
+  let get_b_open = get_interval <.> get_b_open 
+  let get_is_point = get_interval <.> get_is_point
+  let get_a = get_interval <.> get_a <.> addr
+  let get_b = get_interval <.> get_b <.> addr
+
+  let get_a_num = get_a <.> DyadicRational.get_num
+  let get_a_pow = get_a <.> DyadicRational.get_pow
+  let get_b_num = get_b <.> DyadicRational.get_num
+  let get_b_pow = get_b <.> DyadicRational.get_pow
+
+end
+                 
 
 module DepList(M : sig type 'a t end) = struct
   type _ t =
@@ -325,8 +366,7 @@ module SafeMake
 [%%if gmp_present]
   type mpz_array = MPZ.t abstract Array.t Array.t
   type mpq_array = MPQ.t abstract Array.t Array.t
-                     [%%else]
-                 let () = assert false
+[%%else]
   let raise_gmp s =
     EH.raise_bindings_error
       (Format.sprintf
@@ -610,6 +650,11 @@ module SafeMake
     let string   = yices_error_string   <.> toString
   end
 
+  let rec ifseries t = function
+    | [] -> assert false
+    | (f,x)::tail -> let+ b = f t in
+                     if b then Lazy.force x else ifseries t tail
+
   module Type = struct
 
     type t = type_t [@@deriving eq, ord]
@@ -656,11 +701,6 @@ module SafeMake
     let num_children = yices_type_num_children <.> toInts
     let child t      = SInt.of_int <.> yices_type_child t <.> return_sint
     let children     = yices_type_children <.> TypeVector.toList
-
-    let rec ifseries t = function
-      | [] -> assert false
-      | (f,x)::tail -> let+ b = f t in
-        if b then Lazy.force x else ifseries t tail
 
     let reveal t = ifseries t
         [is_bool, lazy(return Bool);
@@ -1030,7 +1070,6 @@ module SafeMake
       | `YICES_BOOL_CONSTANT
       | `YICES_ARITH_CONSTANT
       | `YICES_BV_CONSTANT
-      | `YICES_ARITH_ROOT_ATOM 
       | `YICES_SCALAR_CONSTANT
       | `YICES_VARIABLE
       | `YICES_UNINTERPRETED_TERM as c -> return(Term(A0(c,t)))
@@ -1071,7 +1110,8 @@ module SafeMake
       | `YICES_DIVIDES_ATOM 
       | `YICES_IDIV 
       | `YICES_IMOD 
-      | `YICES_RDIV as c -> let+ children = children t in
+      | `YICES_RDIV
+      | `YICES_ARITH_ROOT_ATOM as c -> let+ children = children t in
         begin match children with
           | [a;b] -> return(Term(A2(c,a,b)))
           | l     -> raise_args c 2 l
@@ -1133,6 +1173,7 @@ module SafeMake
           | `YICES_IDIV          -> Arith.idiv t1 t2
           | `YICES_IMOD          -> Arith.imod t1 t2
           | `YICES_RDIV          -> Arith.division t1 t2
+          | `YICES_ARITH_ROOT_ATOM -> raise_bindings_error "Cannot build an algebraic term"
         end
       | ITE(c, tb, eb) -> ite c tb eb
       | Astar(c,l) ->
@@ -1208,7 +1249,25 @@ module SafeMake
                                <+> (SInt.to_int <.> return)
 [%%if gmp_present]
     let rational_const_value = yices_rational_const_value <.> toQ1
+[%%else]
+    let rational_const_value _ = ()
 [%%endif]
+
+    let const_value (A0(c, t)) =
+      match c with
+      | `YICES_BOOL_CONSTANT   -> let+ c = bool_const_value t     in return(`Bool c)
+      | `YICES_ARITH_CONSTANT  -> let+ c = rational_const_value t in return(`Rational c) 
+      | `YICES_BV_CONSTANT     ->
+         let+ typ = type_of_term t in
+         let+ bitwidth = Type.bvsize typ in
+         let+ c = bv_const_value t in
+         return(`BV(bitwidth, c))
+      | `YICES_SCALAR_CONSTANT ->
+         let+ typ = type_of_term t in
+         let+ c = scalar_const_value t in
+         return(`Scalar(typ, c))
+      | `YICES_VARIABLE
+        | `YICES_UNINTERPRETED_TERM -> return `SYMBOLIC
 
   end
 
@@ -1259,6 +1318,8 @@ module SafeMake
     let set_mpq model x = yices_model_set_mpq model x |> ofQ <.> toUnit
 [%%endif]
 
+    let set_algebraic_number model x = yices_model_set_algebraic_number model x <.> toUnit
+
     let set_bv_int32       = yices_model_set_bv_int32 <...> toUnit
     let set_bv_int64       = yices_model_set_bv_int64 <...> toUnit
     let set_bv_int model x = Long.of_int <.> set_bv_int64 model x
@@ -1281,12 +1342,21 @@ module SafeMake
     let get_int64_value = yices_get_int64_value <..> alloc1 long
     let get_rational32_value = yices_get_rational32_value <..> alloc2 sint uint
     let get_rational64_value = yices_get_rational64_value <..> alloc2 long ulong
+    let get_double_value = yices_get_double_value <..> alloc1 float
 [%%if gmp_present]
     let get_mpz_value    = yices_get_mpz_value <..> toZ1
     let get_mpq_value    = yices_get_mpq_value <..> toQ1
 [%%endif]
-    let get_double_value = yices_get_double_value <..> alloc1 float
-    let get_bv_value     = yices_get_bv_value     <..> alloc1 sint
+
+    let get_algebraic_number_value model x =
+      Alloc.(load (yices_get_algebraic_number_value model x)
+             |> alloc Libpoly.lp_algebraic_number_t
+             |> check1 (fun x -> x))
+
+    let get_bv_value m t =
+      let+ n = Term.bitsize t in
+      t |> yices_get_bv_value m |> allocL ~n bool_t |+> (List.map Conv.bool.read <.> return)
+
     let get_scalar_value = yices_get_scalar_value <..> alloc1 sint
     let get_value m t    = Alloc.(load (yices_get_value m t)
                                   |> alloc yval_t
@@ -1317,8 +1387,20 @@ module SafeMake
     let val_get_mpz            = yices_val_get_mpz    <..> toZ1
     let val_get_mpq            = yices_val_get_mpq    <..> toQ1
 [%%endif]
-    let val_get_bv             = yices_val_get_bv     <..> alloc1 sint
-    let val_get_scalar         = yices_val_get_scalar <..> alloc2 sint type_t
+
+    let val_get_algebraic_number_value model x =
+      Alloc.(load (yices_val_get_algebraic_number model x)
+             |> alloc Libpoly.lp_algebraic_number_t
+             |> check1 (fun x -> x))
+
+    let val_get_bv m t         =
+      let+ n = val_bitsize m t in
+      t |> yices_val_get_bv m |> allocL ~n bool_t |+> (List.map Conv.bool.read <.> return)
+
+    let val_get_scalar m t     =
+      let+ s, typ = yices_val_get_scalar m t |> alloc2 sint type_t in
+      return(SInt.to_int s, typ)
+                  
     let val_expand_tuple m t   =
       let+ arity = val_tuple_arity m t in
       Alloc.(load (Array.start <.> yices_val_expand_tuple m t)
@@ -1337,7 +1419,40 @@ module SafeMake
       Alloc.(load (Array.start <.> yices_val_expand_mapping m t)
              |> allocN arity yval_t
              |> alloc yval_t
-             |> check2 (fun x1 x2 -> x1 |> Array.to_list |> List.map addr, x2))
+             |> check2 (fun x1 x2 -> { args  = x1 |> Array.to_list |> List.map addr;
+                                       value = x2 }))
+    let val_get_tag t = getf !@t (yval_s#members#node_tag) |> Conv.yval_tag.read
+
+    let reveal m t =
+      match val_get_tag t with
+        | `YVAL_BOOL -> let+ b  = val_get_bool m t in return(`Bool b)
+        | `YVAL_RATIONAL -> let+ q = val_get_mpq m t in return(`Rational q)
+        | `YVAL_BV       ->
+           let+ bv = val_get_bv m t in
+           let+ w  = val_bitsize m t in
+           return(`BV(w, bv))
+
+        | `YVAL_SCALAR   -> let+ s, typ = val_get_scalar m t in return(`Scalar(typ, s))
+
+        | `YVAL_FUNCTION ->
+           let+ typ   = val_function_type m t in
+           let+ arity = val_function_arity m t in
+           let+ default, mappings = val_expand_function m t in
+           let+ mappings = map (val_expand_mapping m) mappings in 
+           return(`Fun { mappings; default; typ; arity })
+           
+        | `YVAL_TUPLE ->
+           let+ arity = val_tuple_arity m t in
+           let+ components = val_expand_tuple m t in
+           return(`Tuple(arity, components))
+           
+        | `YVAL_ALGEBRAIC ->
+           let+ x = val_get_algebraic_number_value m t in
+           return(`Algebraic x)
+           
+        | `YVAL_MAPPING
+        | `YVAL_UNKNOWN -> raise_bindings_error ""
+
       
     let formula_true_in_model  = yices_formula_true_in_model <..> toBool
     let formulas_true_in_model = yices_formulas_true_in_model <.> ofList1 term_t <..> toBool

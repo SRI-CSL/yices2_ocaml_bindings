@@ -301,6 +301,7 @@ module TermTMP = struct
          | `YICES_IDIV          -> sexp "div" args
          | `YICES_IMOD          -> sexp "mod" args
          | `YICES_RDIV          -> sexp "/" args
+         | `YICES_ARITH_ROOT_ATOM -> sexp "ARITH_ROOT_ATOM" args
        end
     | ITE(c, tb, eb) ->
        let args = List.map to_sexp [c;tb;eb] in 
