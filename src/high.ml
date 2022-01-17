@@ -135,8 +135,6 @@ let (!<)  = UInt.to_int
 (* let (!>>) = ULong.of_int *)
 (* let (!<<) = ULong.to_int *)
 
-let to_string = coerce (ptr char) string
-
 (* The null pointer for a particular type *)
 let null typ = null |> from_voidp typ
 

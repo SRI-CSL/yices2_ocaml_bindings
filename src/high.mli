@@ -37,7 +37,6 @@ module Algebraic : sig
      
   module DyadicRational : sig
     type t = DyadicRational.t
-    val to_string : t ptr -> string
     val num   : t ptr -> Z.t
     val pow   : t ptr -> int
     val to_string : t ptr -> string
@@ -45,7 +44,6 @@ module Algebraic : sig
        
   type t = AlgebraicNumber.t
 
-  val to_string  : t ptr -> string
   val sgn_at_a : t ptr -> bool
   val sgn_at_b : t ptr -> bool
   val is_point : t ptr -> bool
