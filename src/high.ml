@@ -147,39 +147,38 @@ let (<...>) f g x1 x2 x3 = g (f x1 x2 x3)
 
 module Algebraic = struct
 
+  open Libpoly
+
   module DyadicRational = struct
-    type t = lp_dyadic_rational_t ptr
-    let to_string = Libpoly.lp_dyadic_rational_to_string <.> to_string
-    let get_num t = getf !@t Libpoly.lp_dyadic_rational_struct#members#a |> Ctypes.addr |> MPZ.to_z
-    let get_pow t = getf !@t Libpoly.lp_dyadic_rational_struct#members#n |> ULong.to_int
+    include DyadicRational
+    let to_string = DyadicRational.to_string
+    let num = DyadicRational.a
+    let pow = DyadicRational.n
   end
 
-  type t = lp_algebraic_number_t ptr
+  include AlgebraicNumber
 
-  let to_string = Libpoly.lp_algebraic_number_to_string <.> to_string
-  let is1_size_t = Unsigned.Size_t.(equal one)
-  let is1_int    = Int.(equal one)
 
-  let get_sign_a t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_a |> is1_int
-  let get_sign_b t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_b |> is1_int
-  let get_interval t = getf !@t Libpoly.lp_algebraic_number_struct#members#_I
+  (* let get_sign_a t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_a |> is1_int
+   * let get_sign_b t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_b |> is1_int
+   * let get_interval t = getf !@t Libpoly.lp_algebraic_number_struct#members#_I
+   * 
+   * let get_a_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#a_open   |> is1_size_t
+   * let get_b_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#b_open   |> is1_size_t
+   * let get_is_point t = getf t Libpoly.lp_dyadic_interval_struct#members#is_point |> is1_size_t
+   * let get_a t = getf t Libpoly.lp_dyadic_interval_struct#members#a
+   * let get_b t = getf t Libpoly.lp_dyadic_interval_struct#members#b *)
 
-  let get_a_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#a_open   |> is1_size_t
-  let get_b_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#b_open   |> is1_size_t
-  let get_is_point t = getf t Libpoly.lp_dyadic_interval_struct#members#is_point |> is1_size_t
-  let get_a t = getf t Libpoly.lp_dyadic_interval_struct#members#a
-  let get_b t = getf t Libpoly.lp_dyadic_interval_struct#members#b
+  let a_open = interval <.> DyadicInterval.a_open
+  let b_open = interval <.> DyadicInterval.b_open 
+  let is_point = interval <.> DyadicInterval.is_point
+  let a = interval <.> DyadicInterval.a
+  let b = interval <.> DyadicInterval.b
 
-  let get_a_open = get_interval <.> get_a_open 
-  let get_b_open = get_interval <.> get_b_open 
-  let get_is_point = get_interval <.> get_is_point
-  let get_a = get_interval <.> get_a <.> addr
-  let get_b = get_interval <.> get_b <.> addr
-
-  let get_a_num = get_a <.> DyadicRational.get_num
-  let get_a_pow = get_a <.> DyadicRational.get_pow
-  let get_b_num = get_b <.> DyadicRational.get_num
-  let get_b_pow = get_b <.> DyadicRational.get_pow
+  let a_num = a <.> DyadicRational.num
+  let a_pow = a <.> DyadicRational.pow
+  let b_num = b <.> DyadicRational.num
+  let b_pow = b <.> DyadicRational.pow
 
 end
                  
@@ -1350,7 +1349,7 @@ module SafeMake
 
     let get_algebraic_number_value model x =
       Alloc.(load (yices_get_algebraic_number_value model x)
-             |> alloc Libpoly.lp_algebraic_number_t
+             |> alloc Algebraic.t
              |> check1 (fun x -> x))
 
     let get_bv_value m t =
@@ -1390,7 +1389,7 @@ module SafeMake
 
     let val_get_algebraic_number_value model x =
       Alloc.(load (yices_val_get_algebraic_number model x)
-             |> alloc Libpoly.lp_algebraic_number_t
+             |> alloc Algebraic.t
              |> check1 (fun x -> x))
 
     let val_get_bv m t         =

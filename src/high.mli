@@ -33,32 +33,37 @@ end
 
 module Algebraic : sig
 
+  open Libpoly
+     
   module DyadicRational : sig
-    type t = lp_dyadic_rational_t ptr
-    val to_string : t -> string
-    val get_num   : t -> Z.t
-    val get_pow   : t -> int
+    type t = DyadicRational.t
+    val to_string : t ptr -> string
+    val num   : t ptr -> Z.t
+    val pow   : t ptr -> int
+    val to_string : t ptr -> string
   end
        
-  type t = lp_algebraic_number_t ptr
+  type t = AlgebraicNumber.t
 
-  val to_string  : t -> string
-  val get_sign_a : t -> bool
-  val get_sign_b : t -> bool
-  val get_is_point : t -> bool
+  val to_string  : t ptr -> string
+  val sgn_at_a : t ptr -> bool
+  val sgn_at_b : t ptr -> bool
+  val is_point : t ptr -> bool
 
-  val get_a_open : t -> bool
-  val get_b_open : t -> bool
+  val a_open : t ptr -> bool
+  val b_open : t ptr -> bool
 
-  val get_a : t -> DyadicRational.t
-  val get_b : t -> DyadicRational.t
+  val a : t ptr -> DyadicRational.t ptr
+  val b : t ptr -> DyadicRational.t ptr
 
-  val get_a_num : t -> Z.t
-  val get_a_pow : t -> int
+  val a_num : t ptr -> Z.t
+  val a_pow : t ptr -> int
 
-  val get_b_num : t -> Z.t
-  val get_b_pow : t -> int
+  val b_num : t ptr -> Z.t
+  val b_pow : t ptr -> int
 
+  val to_string : t ptr -> string
+ 
 end
 
 module Error : sig

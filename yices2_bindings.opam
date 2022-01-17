@@ -20,6 +20,7 @@ depends: [
   "ctypes"
   "ctypes-foreign"
   "ctypes-zarith"
+  "libpoly_bindings"
 #  "ctypes-of-clang"
 ]
 build: [

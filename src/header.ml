@@ -1732,7 +1732,7 @@ module TMP =
       Foreign.foreign "yices_model_set_algebraic_number"
         (Ctypes.(@->) (Ctypes.ptr model_t)
            (Ctypes.(@->) term_t
-              (Ctypes.(@->) (Ctypes.ptr Libpoly.lp_algebraic_number_t)
+              (Ctypes.(@->) (Ctypes.ptr Libpoly.AlgebraicNumber.t)
                  (Ctypes.returning int32_t))))
 
     let yices_model_set_bv_int32 =
@@ -1869,7 +1869,7 @@ module TMP =
       Foreign.foreign "yices_get_algebraic_number_value"
         (Ctypes.(@->) (Ctypes.ptr model_t)
            (Ctypes.(@->) term_t
-              (Ctypes.(@->) (Ctypes.ptr Libpoly.lp_algebraic_number_t)
+              (Ctypes.(@->) (Ctypes.ptr Libpoly.AlgebraicNumber.t)
                  (Ctypes.returning int32_t))))
     let yices_get_bv_value =
       Foreign.foreign "yices_get_bv_value"
@@ -1991,7 +1991,7 @@ module TMP =
       Foreign.foreign "yices_val_get_algebraic_number"
         (Ctypes.(@->) (Ctypes.ptr model_t)
            (Ctypes.(@->) (Ctypes.ptr yval_t)
-              (Ctypes.(@->) (Ctypes.ptr Libpoly.lp_algebraic_number_t)
+              (Ctypes.(@->) (Ctypes.ptr Libpoly.AlgebraicNumber.t)
                  (Ctypes.returning int32_t))))
     let yices_val_get_bv =
       Foreign.foreign "yices_val_get_bv"

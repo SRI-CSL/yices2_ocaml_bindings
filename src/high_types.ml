@@ -210,7 +210,7 @@ module Types = struct
     type2 : type_t;
   }
 
-  type algebraic = lp_algebraic_number_t ptr
+  type algebraic = Libpoly.AlgebraicNumber.t ptr
 
   type atomic_const =
     [ `Bool     of bool
