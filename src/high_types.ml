@@ -210,7 +210,15 @@ module Types = struct
     type2 : type_t;
   }
 
-  type algebraic = Libpoly.AlgebraicNumber.t ptr
+  type algebraic = {
+      libpoly : Libpoly.AlgebraicNumber.t ptr;
+      a : Q.t;
+      b : Q.t;
+      a_open: bool;
+      b_open: bool;
+      degree : int;
+      coeffs : Z.t list
+    }
 
   type atomic_const =
     [ `Bool     of bool
@@ -2745,7 +2753,7 @@ module type API = sig
      * - if yices is compiled without support for MCSAT
      *    code = EVAL_NOT_SUPPORTED
      *)
-    val get_algebraic_number_value : t -> term_t -> lp_algebraic_number_t ptr eh
+    val get_algebraic_number_value : t -> term_t -> algebraic eh
 
     (** Value of bitvector term t in mdl
         - the value is returned in array val
@@ -2950,7 +2958,7 @@ module type API = sig
      * - if MCSAT is not supported by the yices library
      *    code = YVAL_NOT_SUPPORTED
      *)
-    val val_get_algebraic_number_value : t -> yval_t ptr -> lp_algebraic_number_t ptr eh
+    val val_get_algebraic_number_value : t -> yval_t ptr -> algebraic eh
 
     (** Get the value of a bitvector node:
         - val must have size at least equal to n = yices_val_bitsize(mdl, v)

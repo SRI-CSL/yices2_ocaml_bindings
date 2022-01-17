@@ -121,20 +121,9 @@ let test_context (type a) (type c)
       assert(Types.equal_smt_status status `STATUS_SAT);
       let model = Context.get_model ctx in
       let sq2 = EH1.Model.get_algebraic_number_value model x in
-      print_endline(CCFormat.sprintf "a = %s" (Algebraic.to_string sq2));
-      let a = Algebraic.a sq2 in
-      let b = Algebraic.b sq2 in
-      print_endline(CCFormat.sprintf "a = %s" (Algebraic.DyadicRational.to_string a));
-      print_endline(CCFormat.sprintf "b = %s" (Algebraic.DyadicRational.to_string b));
-      
-      print_endline(CCFormat.sprintf "a = %i/2^%i is %b"
-                      (sq2 |> Algebraic.a_num |> Z.to_int)
-                      (sq2 |> Algebraic.a_pow)
-                      (sq2 |> Algebraic.sgn_at_a)); 
-      print_endline(CCFormat.sprintf "b = %i/2^%i is %b"
-                      (sq2 |> Algebraic.b_num |> Z.to_int)
-                      (sq2 |> Algebraic.b_pow)
-                      (sq2 |> Algebraic.sgn_at_b));
+      assert Q.(equal sq2.a (of_ints (-23) 16));
+      assert Q.(equal sq2.b (of_ints (-45) 32));
+      assert CCList.(equal Z.equal sq2.coeffs (List.map Z.of_int [-2;0;1]));
       EH1.Model.free model;
       Context.reset ctx;
     end;

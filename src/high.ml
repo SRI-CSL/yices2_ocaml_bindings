@@ -158,17 +158,6 @@ module Algebraic = struct
 
   include AlgebraicNumber
 
-
-  (* let get_sign_a t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_a |> is1_int
-   * let get_sign_b t   = getf !@t Libpoly.lp_algebraic_number_struct#members#sgn_at_b |> is1_int
-   * let get_interval t = getf !@t Libpoly.lp_algebraic_number_struct#members#_I
-   * 
-   * let get_a_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#a_open   |> is1_size_t
-   * let get_b_open t   = getf t Libpoly.lp_dyadic_interval_struct#members#b_open   |> is1_size_t
-   * let get_is_point t = getf t Libpoly.lp_dyadic_interval_struct#members#is_point |> is1_size_t
-   * let get_a t = getf t Libpoly.lp_dyadic_interval_struct#members#a
-   * let get_b t = getf t Libpoly.lp_dyadic_interval_struct#members#b *)
-
   let a_open = interval <.> DyadicInterval.a_open
   let b_open = interval <.> DyadicInterval.b_open 
   let is_point = interval <.> DyadicInterval.is_point
@@ -1347,10 +1336,30 @@ module SafeMake
     let get_mpq_value    = yices_get_mpq_value <..> toQ1
 [%%endif]
 
+    let algebraic_treat libpoly =
+      let a_num = Algebraic.a_num libpoly in
+      let a_pow = Algebraic.a_pow libpoly in
+      let b_num = Algebraic.b_num libpoly in
+      let b_pow = Algebraic.b_pow libpoly in
+      let a = Q.((of_bigint a_num) asr a_pow) in
+      let b = Q.((of_bigint b_num) asr b_pow) in
+      let a_open = Algebraic.a_open libpoly in
+      let b_open = Algebraic.b_open libpoly in
+      let f = Libpoly.AlgebraicNumber.f libpoly in
+      let degree = Libpoly.UPolynomial.degree f in
+      let to_load carray = Libpoly.UPolynomial.unpack f (CArray.start carray) in
+      let n = degree+1 in
+      let get a i = CArray.get a i |> addr |> MPZ.to_z in
+      let coeffs = Alloc.(load to_load
+                          |> allocN n MPZ.t
+                          |> nocheck (fun () ((),a) -> List.init n (get a))) in
+      { libpoly; a; b; a_open; b_open; degree; coeffs }
+      
+
     let get_algebraic_number_value model x =
       Alloc.(load (yices_get_algebraic_number_value model x)
              |> alloc Algebraic.t
-             |> check1 (fun x -> x))
+             |> check1 algebraic_treat)
 
     let get_bv_value m t =
       let+ n = Term.bitsize t in
@@ -1387,10 +1396,11 @@ module SafeMake
     let val_get_mpq            = yices_val_get_mpq    <..> toQ1
 [%%endif]
 
+
     let val_get_algebraic_number_value model x =
       Alloc.(load (yices_val_get_algebraic_number model x)
              |> alloc Algebraic.t
-             |> check1 (fun x -> x))
+             |> check1 algebraic_treat)
 
     let val_get_bv m t         =
       let+ n = val_bitsize m t in
@@ -1422,7 +1432,7 @@ module SafeMake
                                        value = x2 }))
     let val_get_tag t = getf !@t (yval_s#members#node_tag) |> Conv.yval_tag.read
 
-    let reveal m t =
+    let reveal m t : yval EH.t =
       match val_get_tag t with
         | `YVAL_BOOL -> let+ b  = val_get_bool m t in return(`Bool b)
         | `YVAL_RATIONAL -> let+ q = val_get_mpq m t in return(`Rational q)
