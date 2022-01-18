@@ -860,12 +860,38 @@ module SModel = struct
     | [] -> Format.fprintf fmt "[]"
     | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
 
+  let as_substitution smodel =
+    let aux t = (t, Model.get_value_as_term smodel.model t) in
+    List.rev_map aux smodel.support
+
   let as_assumptions smodel =
     let aux t =
-      Model.get_value_as_term smodel.model t |> Term.eq t
+      if Term.is_bool t
+      then
+        if Model.get_bool_value smodel.model t
+        then t
+        else Term.not1 t
+      else
+        Model.get_value_as_term smodel.model t |> Term.eq t
     in
     List.rev_map aux smodel.support
-    
+
+  let from_assumptions assumptions =
+    let aux (model, support, constraints) assumption =
+      let atom, fresh = Purification.Term.get_var assumption in
+      let constraints =
+        if fresh then 
+          let constr1 = Term.(atom ==> assumption) in
+          let constr2 = Term.(assumption ==> atom) in
+          constr1::constr2::constraints
+        else
+          constraints
+      in
+      (atom, Term.true0())::model, atom::support, constraints
+    in
+    let model, support, constraints = List.fold_left aux ([],[],[]) assumptions in
+    make ~support (Model.from_map model), constraints
+
 end
 
 module Assertions = struct
@@ -1106,22 +1132,16 @@ module Context = struct
   let check ?param x =
     action (Check param) x;
     Context.check ?param x.context
-
+    
   let check_with_assumptions ?param x assumptions =
     action (CheckWithAssumptions{param; assumptions}) x;
     if x.mcsat
     then
       begin
-        let aux (model, support, constraints) assumption =
-          let atom   = Purification.Term.get_var assumption in
-          let constr = Term.(atom ==> assumption) in
-          (atom, Term.true0())::model, atom::support, constr::constraints
-        in
-        let model, support, constraints = List.fold_left aux ([],[],[]) assumptions in
+        let smodel, constraints = SModel.from_assumptions assumptions in
         Context.push x.context;
         Context.assert_formulas x.context constraints;
-        let r = Context.check_with_model ?param x.context (Model.from_map model) support in
-        r
+        Context.check_with_model ?param x.context smodel.model smodel.support
       end
     else
       Context.check_with_assumptions ?param x.context assumptions

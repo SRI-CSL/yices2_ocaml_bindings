@@ -20,17 +20,19 @@ module Type = struct
     HTypes.reset to_body; 
     HTypes.reset to_var
 
-  let get_body = HTypes.find to_body
-  let get_var  = HTypes.find to_var
+  let get_body k = HTypes.get_or to_body ~default:k k
 
-  let var t = Type.new_uninterpreted ~name:(Format.sprintf "tpure_%i" (Type.hash t)) ()
-  let add k =
-    let f k =
-      let var = var k in
-      HTypes.replace to_body var k;
-      var
-    in
-    HTypes.get_or_add to_var ~f ~k
+  let get_var k =
+    match Type.reveal k with
+    | Types.Uninterpreted _ -> k, false
+    | _ ->
+       if HTypes.mem to_var k then HTypes.find to_var k, false
+       else
+         let name = Format.sprintf "tpure_%i" (Type.hash k) in
+         let var = Type.new_uninterpreted ~name () in
+         HTypes.replace to_body var k;
+         HTypes.replace to_var k var;
+         var, true
 
   module Accu = struct
     type accu = (Type.t * Type.t) list
@@ -47,8 +49,8 @@ module Type = struct
       Accu.return(Type.build tstruct)
     else
       fun accu ->
-      let r = add ty in
-      r, (r, ty)::accu
+      let r, fresh = get_var ty in
+      r, if fresh then (r, ty)::accu else accu
 end
 
 module Term = struct
@@ -60,19 +62,23 @@ module Term = struct
     HTerms.reset to_body; 
     HTerms.reset to_var
 
-  let get_body = HTerms.find to_body
-  let get_var  = HTerms.find to_var
-
-  let var t =
-    Term.new_uninterpreted ~name:(Format.sprintf "pure_%i" (Term.hash t)) (Term.type_of_term t)
+  let get_body k = HTerms.get_or to_body ~default:k k
 
   let get_var k =
-    let f k =
-      let var = var k in
-      HTerms.replace to_body var k;
-      var
-    in
-    HTerms.get_or_add to_var ~f ~k
+    match Term.constructor k with
+    | `YICES_VARIABLE ->
+       ExceptionsErrorHandling.raise_bindings_error
+         ("Cannot purify possibly bound variable "^PP.term_string k)
+    | `YICES_UNINTERPRETED_TERM -> k, false
+    | _ ->
+       if HTerms.mem to_var k then HTerms.find to_var k, false
+       else
+         let typ  = Term.type_of_term k in
+         let name = Format.sprintf "pure_%i" (Term.hash k) in
+         let var  = Term.new_uninterpreted ~name typ in
+         HTerms.replace to_body var k;
+         HTerms.add to_var k var;
+         var, true
     
   module Accu = struct
     type accu = (Term.t * Term.t) list
@@ -90,8 +96,8 @@ module Term = struct
       Accu.return(Term.build tstruct)
     else
       fun accu ->
-      let r = get_var t in
-      r, (r, t)::accu
+      let r, fresh = get_var t in
+      r, if fresh then (r, t)::accu else accu
 
 end
 

@@ -50,7 +50,18 @@ module SModel : sig
     ?pp_start:unit Format.printer ->
     ?pp_stop:unit Format.printer ->
     ?pp_sep:unit Format.printer -> unit -> t Format.printer
-  val as_assumptions : t -> Term.t list
+
+  val as_substitution  : t -> (Term.t * Term.t) list
+
+  (* turns every assignment (x |-> v) into (x === v);
+     unless x is Boolean in which case it produces x or (not x) depending on v;
+     crashes if v cannot be expressed as a term, like algebraic numbers or functional values *)
+  val as_assumptions   : t -> Term.t list
+
+  (* turns every assumption f into a Boolean assignment (x |-> true),
+     for a Boolean uninterpreted term x purifying f.
+     also returns the constraint (x <==> f) *)
+  val from_assumptions : Term.t list -> t * Term.t list 
 end
 
 module Assertions : sig
