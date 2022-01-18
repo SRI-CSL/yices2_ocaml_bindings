@@ -3,15 +3,15 @@ open Sexplib
 
 open High
 
-module List : module type of List
-module StringHashtbl : CCHashtbl.S with type key = String.t
-  
-val pp_sexp : Sexp.t Format.printer
+include High.API with type 'a eh := 'a
 
-include API with type 'a eh := 'a
+module List : module type of List
 
 module HTypes : CCHashtbl.S with type key = Type.t
 module HTerms : CCHashtbl.S with type key = Term.t
+module StringHashtbl : CCHashtbl.S with type key = String.t
+  
+val pp_sexp : Sexp.t Format.printer
 
 module Config : sig
   type t

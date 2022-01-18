@@ -1343,16 +1343,19 @@ module SafeMake
       let b = Q.((of_bigint b_num) asr b_pow) in
       let a_open = Algebraic.a_open libpoly in
       let b_open = Algebraic.b_open libpoly in
-      let f = Libpoly.AlgebraicNumber.f libpoly in
-      let degree = Libpoly.UPolynomial.degree f in
-      let to_load carray = Libpoly.UPolynomial.unpack f (CArray.start carray) in
-      let n = degree+1 in
-      let get a i = CArray.get a i |> addr |> MPZ.to_z in
-      let coeffs = Alloc.(load to_load
-                          |> allocN n MPZ.t
-                          |> nocheck (fun () ((),a) -> List.init n (get a))) in
-      { libpoly; a; b; a_open; b_open; degree; coeffs }
-      
+      if Algebraic.is_point libpoly
+      then { libpoly; a; b; a_open; b_open; degree = -1; coeffs = [] }
+      else      
+        let f = Libpoly.AlgebraicNumber.f libpoly in
+        let degree = Libpoly.UPolynomial.degree f in
+        let to_load carray = Libpoly.UPolynomial.unpack f (CArray.start carray) in
+        let n = degree+1 in
+        let get a i = CArray.get a i |> addr |> MPZ.to_z in
+        let coeffs = Alloc.(load to_load
+                            |> allocN n MPZ.t
+                            |> nocheck (fun () ((),a) -> List.init n (get a))) in
+        { libpoly; a; b; a_open; b_open; degree; coeffs }
+        
 
     let get_algebraic_number_value model x =
       Alloc.(load (yices_get_algebraic_number_value model x)

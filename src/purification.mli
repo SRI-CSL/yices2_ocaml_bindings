@@ -1,4 +1,9 @@
-open Ext_bindings
+module HighAPI : High.API with type 'a eh := 'a
+
+open HighAPI
+
+module HTypes : CCHashtbl.S with type key = Type.t
+module HTerms : CCHashtbl.S with type key = Term.t
 
 module Type : sig
   val get_body : Type.t -> Type.t

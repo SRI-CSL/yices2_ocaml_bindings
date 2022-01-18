@@ -8,12 +8,16 @@ open Type
 open High
 open Types
 
+include Purification.HighAPI
+
+module HTypes = Purification.HTypes
+module HTerms = Purification.HTerms
+module StringHashtbl = CCHashtbl.Make(String)
+
 module List = struct
   include List
   let map f l = List.rev (List.fold_left (fun sofar a -> f a::sofar) [] l)
 end
-
-module StringHashtbl = CCHashtbl.Make(String)
 
 exception PopLastLevel
 
@@ -23,10 +27,6 @@ let sexp f arg = List(Atom f::arg)
 let rec pp_sexp fmt = function
   | Atom s -> Format.fprintf fmt "@[%s@]" s
   | List l -> Format.fprintf fmt "@[<hov1>(%a)@]" (List.pp ~pp_sep pp_sexp) l
-
-include Make(ExceptionsErrorHandling)
-module HTypes = CCHashtbl.Make(Type)
-module HTerms = CCHashtbl.Make(Term)
 
 let use_type_names = ref true
 let use_term_names = ref true
@@ -830,7 +830,12 @@ module SModel = struct
              Sexp.List(List.map aux vars), TermSexp.to_sexp body
           | _ -> Sexp.List [], TermSexp.to_sexp v
         with
-          _ -> Sexp.List [], Sexp.Atom "ALG"
+          _ -> Sexp.List [],
+               try
+                 let v = Model.get_algebraic_number_value smodel.model t in
+                 Sexp.Atom (Algebraic.to_string v.libpoly)
+               with
+                 _ -> Sexp.Atom "Can't print"
       in
       sexp "define-fun" [TermSexp.to_sexp t; vars; ty; body]
     in
@@ -844,7 +849,12 @@ module SModel = struct
         Format.fprintf fmt "@[%a := %a@]" TermSexp.pp u TermSexp.pp v
       with
         _ ->
-        Format.fprintf fmt "@[%a := ALG @]" TermSexp.pp u
+        try
+          let v = Model.get_algebraic_number_value model u in
+          Format.fprintf fmt "@[%a := %s@]" TermSexp.pp u (Algebraic.to_string v.libpoly)
+        with
+          _ -> Format.fprintf fmt "@[%a := Can't print@]" TermSexp.pp u 
+           
     in
     match support with
     | [] -> Format.fprintf fmt "[]"
@@ -1099,7 +1109,22 @@ module Context = struct
 
   let check_with_assumptions ?param x assumptions =
     action (CheckWithAssumptions{param; assumptions}) x;
-    Context.check_with_assumptions ?param x.context assumptions
+    if x.mcsat
+    then
+      begin
+        let aux (model, support, constraints) assumption =
+          let atom   = Purification.Term.get_var assumption in
+          let constr = Term.(atom ==> assumption) in
+          (atom, Term.true0())::model, atom::support, constr::constraints
+        in
+        let model, support, constraints = List.fold_left aux ([],[],[]) assumptions in
+        Context.push x.context;
+        Context.assert_formulas x.context constraints;
+        let r = Context.check_with_model ?param x.context (Model.from_map model) support in
+        r
+      end
+    else
+      Context.check_with_assumptions ?param x.context assumptions
 
   let stop x =
     action Stop x;
@@ -1107,9 +1132,27 @@ module Context = struct
   let get_model ?(keep_subst=true) x =
     action (GetModel{ keep_subst }) x;
     Context.get_model ~keep_subst x.context
+
   let get_unsat_core x =
     action GetUnsatCore x;
-    Context.get_unsat_core x.context
+    if x.mcsat
+    then
+      let rec subst t =
+        let Term x = Term.reveal t in
+        match x with
+        | A0(`YICES_UNINTERPRETED_TERM,_) ->
+           (try Purification.Term.get_body t with Not_found -> t)
+        | _ ->
+           Term.(map subst x |> build)
+      in
+      let interpolant = Context.get_model_interpolant x.context |> subst in
+      Context.pop x.context;
+      let Term termstruct = Term.reveal interpolant in
+      match termstruct with
+      | Types.Astar(`YICES_OR_TERM, l) -> List.map Term.not1 l
+      | _ ->                              [Term.not1 interpolant]
+    else
+      Context.get_unsat_core x.context
 
   let declare_type x s =
     action (DeclareType s) x
@@ -1248,7 +1291,8 @@ module Global = struct
     reset_global_log();
     Context.all_reset();
     Term.reset();
-    Type.reset()
+    Type.reset();
+    Purification.reset()
 
   let init() =
     init();

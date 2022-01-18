@@ -2,7 +2,13 @@ open Containers
 
 open High
 open Types
-open Ext_bindings
+
+module HighAPI = Make(ExceptionsErrorHandling)
+
+open HighAPI
+
+module HTypes = CCHashtbl.Make(Type)
+module HTerms = CCHashtbl.Make(Term)
 
 module Type = struct
 
@@ -60,7 +66,7 @@ module Term = struct
   let var t =
     Term.new_uninterpreted ~name:(Format.sprintf "pure_%i" (Term.hash t)) (Term.type_of_term t)
 
-  let add k =
+  let get_var k =
     let f k =
       let var = var k in
       HTerms.replace to_body var k;
@@ -84,7 +90,7 @@ module Term = struct
       Accu.return(Term.build tstruct)
     else
       fun accu ->
-      let r = add t in
+      let r = get_var t in
       r, (r, t)::accu
 
 end
