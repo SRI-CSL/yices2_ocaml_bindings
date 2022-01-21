@@ -222,7 +222,6 @@ let test_interpolation (type a) (type c)
   in
   
   let fmla4 = Term.parse "(< r2 3)" in
-  (* let fmla4 = Term.true0() in *)
 
   let status = test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [fmla4] in
   let () = 
@@ -231,18 +230,13 @@ let test_interpolation (type a) (type c)
 
       | `STATUS_UNSAT, Some interpolant, None ->
          let string = CCFormat.sprintf "%s" (EH1.PP.term_string interpolant) in
+         (* print_endline (CCFormat.sprintf "UNSAT with interpolant %a" Yices2.Ext_bindings.Term.pp interpolant); *)
          assert(String.equal string "(>= (+ -3 r2) 0)")
-         (* print_endline (CCFormat.sprintf "%a" Yices2.Ext_bindings.Term.pp interpolant) *)
         
       | status, _, _ ->
          let _ = ExceptionsErrorHandling.check_status status in
          assert false
-    with
-    | ExceptionsErrorHandling.YicesException _ when not mcsat -> ()
-    | _ ->
-       print_endline(CCFormat.sprintf "%a"
-                       Yices2.Ext_bindings.Types.pp_error_report
-                       (Error.report()));
+    with ExceptionsErrorHandling.YicesException _ when not mcsat -> ()
        
   in
   
