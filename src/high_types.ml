@@ -2122,8 +2122,10 @@ module type API = sig
     val rational_const_value : term_t -> Q.t eh
     [%%endif]
 
+    (** Packaging the above functions into a conversion into [ atomic_const | `SYMBOLIC ] *)
     val const_value : [`a0] termstruct -> [ atomic_const | `SYMBOLIC ] eh
-
+    (** Converse function from atomic_const to terms *)
+    val const_as_term : atomic_const -> t eh
 
     
     (** Components of a sum t
@@ -3006,7 +3008,7 @@ module type API = sig
 
     (** Expand a node m, of any kind, calling the functions above. *)
     val reveal : t -> yval_t ptr -> yval eh
-      
+
     (** CHECK THE VALUE OF BOOLEAN FORMULAS  *)
 
     (** Check whether f is true in mdl
@@ -3034,32 +3036,34 @@ module type API = sig
 
     (** CONVERSION OF VALUES TO CONSTANT TERMS  *)
 
-    (** Value of term t converted to a constant term val.
+    (** Model value (from OCaml type yval) converted to constant term. *)
+    val yval_as_term : t -> yval -> term_t eh
+
+    (** Model value (from C yval pointer) converted to constant term.
+     calls reveal and then the above function *)
+    val val_as_term  : t -> yval_t ptr -> term_t eh
+
+    (** Value of term t in model converted to a constant term.
 
         For primitive types, this is the same as extracting the value
         then converting it to a constant term:
         - if t is a Boolean term, then val is either true or false (as
           returned by functions yices_true() or yices_false()).
-        - if t is an arithmetic term, then val is a rational or integer constant
+        - if t is an arithmetic term and its value is a rational or integer constant,
+          then the value is reflected in the returned term
           (as built by functions yices_mpq or yices_mpz).
+        - if t is an arithmetic term and its value is an algebraic number from libpoly,
+          this function raises an exception.
         - if t has uninterpreted or scalar type, then val is a constant term
           of that type (as built by function yices_constant).
         - if t has a bitvector type, then val is a bitvector constant term
           (as in yices_bvconst_from_array)
 
-        Conversion of function values is not supported currently. So the
-        function fails and returns NULL_TERM if t has a function type.
+        For functional types, the functional values is converted to a lambda-term
+        and a series of if-then-else constructs; the last else branch is the default value.
 
-        If t has tuple type tau, then val is a tuple of constants (provided
-        tau does not contain any function type).
-
-        The function returns val, or NULL_TERM if there's an error.
-
-        Error report
-         code = EVAL_CONVERSION_FAILED,
-         if the conversion to term fails (because it would require
-         converting a function to a term).
-        *)   
+        If t has tuple type tau, then val is a tuple of constant terms.
+     *)   
     val get_value_as_term : t -> term_t -> term_t eh
 
     (** Get the values of terms a[0 .. n-1] in mdl and convert the values to terms.

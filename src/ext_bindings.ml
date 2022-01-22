@@ -800,7 +800,6 @@ module Model = struct
     t |> PP.model_string ~display:Types.{ width = 100; height; offset=0}
     |> Format.fprintf fmt "%s"
   let pp = pph 1000
-
 end
 
 (* Supported models *)

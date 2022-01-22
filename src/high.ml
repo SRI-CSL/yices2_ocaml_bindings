@@ -246,12 +246,17 @@ module type SafeErrorHandling = sig
   type 'a t
   val raise_yices_error    : unit -> _ t
   val raise_bindings_error : string -> _ t
+  val return_status : smt_status -> smt_status t
   val return_sint : 'a sintbase checkable -> 'a sintbase t
   val return_uint : 'a uintbase checkable -> 'a uintbase t
   val return_ptr  : 'a ptr checkable -> 'a ptr t
   val return      : 'a -> 'a t
   val bind        : 'a t -> ('a -> 'b t) -> 'b t
 end
+
+let status_is_not_error = function
+  | `STATUS_ERROR -> false
+  | _ -> true
 
 module type ErrorHandling = SafeErrorHandling with type 'a checkable := 'a
 
@@ -262,11 +267,7 @@ module ExceptionsErrorHandling = struct
   let raise_yices_error ()   = raise(YicesException(Error.code(),Error.report()))
   let raise_bindings_error s = raise(YicesBindingsException s)
   let aux check t = if check t then t else raise_yices_error ()
-  let statuscheck status =
-    match status with
-    | `STATUS_ERROR -> false
-    | _ -> true
-  let check_status  = aux statuscheck
+  let return_status = aux status_is_not_error
   let return_sint t = aux sintcheck t
   let return_uint t = aux uintcheck t
   let return_ptr t  = aux ptrcheck t
@@ -283,6 +284,7 @@ module SumErrorHandling = struct
   let aux check t =
     if check t then Ok t
     else Error(Yices(Error.code(),Error.report()))
+  let return_status = aux status_is_not_error
   let return_sint t = aux sintcheck t
   let return_uint t = aux uintcheck t
   let return_ptr t  = aux ptrcheck t
@@ -381,6 +383,7 @@ module SafeMake
     *)
     type ('a, 'b, 'c) alloc = ('a, 'b -> 'c) t -> ('a * 'b, 'c) t
 
+    val custom  : (unit -> 'b) -> ('a, 'b, 'c) alloc
     val alloc   :        'b typ -> ?finalise: ('b ptr     -> unit) -> ('a, 'b ptr,     'c) alloc
     val allocN  : int -> 'b typ -> ?finalise: ('b Array.t -> unit) -> ('a, 'b Array.t, 'c) alloc
 [%%if gmp_present]
@@ -409,29 +412,29 @@ module SafeMake
     let load f = (),f
     (* let apply (y,f) x = y,f x *)
 
-    let aux alloc preproc (y,f) =
+    let aux preproc alloc (y,f) =
       let x = alloc () in
       (y,x), (x |> preproc |> f)
 
     let id x = x
 
-    let alloc hdl ?finalise =
-      aux (fun () -> allocate_n hdl ~count:1 ?finalise) id
-    let allocN n hdl ?finalise =
-      aux (fun () -> Array.make hdl n ?finalise) id
+    let custom make = aux id make
+
+    let alloc hdl ?finalise    = custom (fun () -> allocate_n hdl ~count:1 ?finalise)
+    let allocN n hdl ?finalise = custom (fun () -> Array.make hdl n ?finalise)
 
 [%%if gmp_present]
-    let allocZ a = aux MPZ.make id a
-    let allocQ a = aux MPQ.make id a
+    let allocZ a = custom MPZ.make a
+    let allocQ a = custom MPQ.make a
 
-    let allocZn n a =
+    let allocZn n =
       let finalise = CArray.(iter (start <.> MPZ.clear)) in
       let make () = 
         let r = Array.make ~finalise (array 1 MPZ.t) n in
         Array.(iter (start <.> MPZ.init)) r;
         r
       in
-      aux make id a
+      custom make
       
     let allocQn n a =
       let finalise = CArray.(iter (start <.> MPQ.clear)) in
@@ -440,9 +443,9 @@ module SafeMake
         Array.(iter (start <.> MPQ.init)) r;
         r
       in
-      aux make id a
+      custom make a
 [%%endif]
-    let allocV make  = aux make addr
+    let allocV make  = aux addr make
     
     let nocheck cont (y,f) = cont f y 
     let check cont (y,f) = 
@@ -1255,6 +1258,13 @@ module SafeMake
       | `YICES_VARIABLE
         | `YICES_UNINTERPRETED_TERM -> return `SYMBOLIC
 
+    let const_as_term : atomic_const -> t EH.t = function
+      | `Bool true  -> true0()
+      | `Bool false -> false0()
+      | `Rational q -> Arith.mpq q
+      | `BV(_,l)    -> BV.bvconst_from_list l
+      | `Scalar(typ, id) -> constant typ ~id
+
   end
 
   module GC = struct
@@ -1359,7 +1369,7 @@ module SafeMake
 
     let get_algebraic_number_value model x =
       Alloc.(load (yices_get_algebraic_number_value model x)
-             |> alloc Algebraic.t
+             |> custom Libpoly.AlgebraicNumber.make
              |> check1 algebraic_treat)
 
     let get_bv_value m t =
@@ -1460,13 +1470,51 @@ module SafeMake
            let+ x = val_get_algebraic_number_value m t in
            return(`Algebraic x)
            
-        | `YVAL_MAPPING
-        | `YVAL_UNKNOWN -> raise_bindings_error ""
+        | `YVAL_MAPPING -> raise_bindings_error "reveal does not apply to mapping values"
+        | `YVAL_UNKNOWN -> raise_bindings_error "value is unknown"
 
+    let rec yval_as_term m : yval -> Term.t EH.t = function
+      | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
+         Term.const_as_term s
+      | `Tuple(_,l) ->
+         map (val_as_term m) l |+> Term.tuple
+      | `Fun { mappings; default; typ; _ } ->
+         let+ input_types =
+           let+ ytyp = Type.reveal typ in
+           match ytyp with
+           | Fun{ dom; _ } -> return dom
+           | _ ->
+              raise_bindings_error "fun val should have fun type"
+         in
+         let+ variables = map Term.new_variable input_types in
+         let default = val_as_term m default in
+         let aux sofar mapping =
+           let rec aux accu vars vals =
+             match vars, vals with
+             | [], [] -> return accu
+             | var::vars, v::vals ->
+                let+ v = val_as_term m v in
+                let+ cond = Term.(var === v) in
+                aux (cond::accu) vars vals
+             | _ -> failwith "bug in yval_as_term"
+           in
+           let+ cond = aux [] variables mapping.args |+> Term.andN in
+           let+ value = val_as_term m mapping.value in
+           Term.ite cond value sofar
+         in
+         fold aux default mappings |+> Term.lambda variables
+      | `Algebraic _ ->
+         raise_bindings_error "algebraic val as terms not supported"
+         
+    and val_as_term m v = reveal m v |+> yval_as_term m
+
+    let get_value_as_term m t =
+      let c = yices_get_value_as_term m t in
+      if sintcheck c then return_sint c
+      else get_value m t |+> val_as_term m
       
     let formula_true_in_model  = yices_formula_true_in_model <..> toBool
     let formulas_true_in_model = yices_formulas_true_in_model <.> ofList1 term_t <..> toBool
-    let get_value_as_term      = yices_get_value_as_term     <..> return_sint
     let terms_value m l =
       let n = List.length l in 
       Alloc.(load (Array.start <.> (yices_term_array_value m |> ofList1 term_t) l)

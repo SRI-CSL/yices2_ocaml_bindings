@@ -204,39 +204,30 @@ let test_interpolation (type a) (type c)
   let fmla3 = Term.parse "(< (- r1 r2) 0)" in
 
   let () =
-    try
-      match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [] with
-  
-      | `STATUS_SAT, None, Some model ->
-         let v1 = EH1.Model.get_rational64_value model r1 in
-         assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v1
-                  (Signed.Long.of_int 7, Unsigned.ULong.of_int 2));
-         let v2 = EH1.Model.get_rational64_value model r2 in
-         assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v2
-                  (Signed.Long.of_int 5, Unsigned.ULong.of_int 1));
-  
-      | status, _, _ ->
-         let _ = ExceptionsErrorHandling.check_status status in
-         assert false
-    with ExceptionsErrorHandling.YicesException _ when not mcsat -> () 
+    match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [] with
+      
+    | `STATUS_SAT, None, Some model ->
+       let v1 = EH1.Model.get_rational64_value model r1 in
+       assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v1
+                (Signed.Long.of_int 7, Unsigned.ULong.of_int 2));
+       let v2 = EH1.Model.get_rational64_value model r2 in
+       assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v2
+                (Signed.Long.of_int 5, Unsigned.ULong.of_int 1))
+       
+    | status, _, _ -> if status_is_not_error status || mcsat then assert false
   in
   
   let fmla4 = Term.parse "(< r2 3)" in
 
-  let status = test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [fmla4] in
   let () = 
-    try
-      match status with
+      match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [fmla4] with
 
       | `STATUS_UNSAT, Some interpolant, None ->
          let string = CCFormat.sprintf "%s" (EH1.PP.term_string interpolant) in
          (* print_endline (CCFormat.sprintf "UNSAT with interpolant %a" Yices2.Ext_bindings.Term.pp interpolant); *)
          assert(String.equal string "(>= (+ -3 r2) 0)")
         
-      | status, _, _ ->
-         let _ = ExceptionsErrorHandling.check_status status in
-         assert false
-    with ExceptionsErrorHandling.YicesException _ when not mcsat -> ()
+      | status, _, _ -> if status_is_not_error status || mcsat then assert false
        
   in
   

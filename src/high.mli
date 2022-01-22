@@ -87,12 +87,18 @@ module Error : sig
   val clear  : unit -> unit
 end
 
+(** Small abbreviation *)
+val status_is_not_error : smt_status -> bool
+
 module type ErrorHandling = sig
   type 'a t
 
   (** How to raise an error manually, originating from Yices or from the bindings *)
   val raise_yices_error    : unit -> _ t
   val raise_bindings_error : string -> _ t
+
+  (** What to do when getting back a status *)
+  val return_status : smt_status -> smt_status t
 
   (** What to do when getting back a value implemented as a signed int  *)
   val return_sint : 'a sintbase -> 'a sintbase t
@@ -114,7 +120,6 @@ module ExceptionsErrorHandling : sig
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
   include ErrorHandling with type 'a t = 'a
-  val check_status : Types.smt_status -> Types.smt_status
 end
 
 module SumErrorHandling : sig
