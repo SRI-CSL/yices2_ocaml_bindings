@@ -95,7 +95,7 @@ module type ErrorHandling = sig
 
   (** How to raise an error manually, originating from Yices or from the bindings *)
   val raise_yices_error    : unit -> _ t
-  val raise_bindings_error : string -> _ t
+  val raise_bindings_error : ('a, Format.formatter, unit, _ t) format4 -> 'a
 
   (** What to do when getting back a status *)
   val return_status : smt_status -> smt_status t

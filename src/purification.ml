@@ -68,7 +68,7 @@ module Term = struct
     match Term.constructor k with
     | `YICES_VARIABLE ->
        ExceptionsErrorHandling.raise_bindings_error
-         ("Cannot purify possibly bound variable "^PP.term_string k)
+         "Cannot purify possibly bound variable %s" (PP.term_string k)
     | `YICES_UNINTERPRETED_TERM -> k, false
     | _ ->
        if HTerms.mem to_var k then HTerms.find to_var k, false
@@ -102,3 +102,4 @@ module Term = struct
 end
 
 let reset() = Type.reset(); Term.reset()
+

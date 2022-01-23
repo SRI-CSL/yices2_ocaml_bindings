@@ -10,7 +10,8 @@ module List : module type of List
 module HTypes : CCHashtbl.S with type key = Type.t
 module HTerms : CCHashtbl.S with type key = Term.t
 module StringHashtbl : CCHashtbl.S with type key = String.t
-  
+
+val sexp : string -> Sexp.t list -> Sexp.t
 val pp_sexp : Sexp.t Format.printer
 
 module Config : sig
@@ -127,11 +128,15 @@ module Context : sig
   val is_alive       : t -> bool            (* Whether the raw context wasn't freed *)
   val is_mcsat       : t -> bool            (* Whether the context uses mcsat *)
 
-  val pp : t Format.printer
-
   (** Turns the log into list of S-expressions.
       The first executed action ends up as the head of the list. *)
   val to_sexp : t -> Sexplib.Type.t list
+
+  (** Prints the assertions. *)
+  val pp : t Format.printer
+
+  (** Prints the log. *)
+  val pp_log : t Format.printer
 
   val malloc : ?config:Config.t -> unit -> t
 

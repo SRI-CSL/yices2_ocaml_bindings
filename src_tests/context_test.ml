@@ -335,3 +335,52 @@ let test_context () =
 let test_ext_context () =
   print_endline "Extended bindings tests";
   cfg_makeNtest (module Yices2.Ext_bindings.Config) test_ext_context
+
+let test_lfun () =
+  let open Yices2.Ext_bindings in
+  let open Yices2.Extensions in
+  Global.init();
+  let ctx = DiffLength.malloc () in
+  let int = Type.(int()) in
+  let admissible =
+    let length = Term.new_variable int in
+    let index  = Term.new_variable int in
+    Term.(lambda [length; index] Arith.(leq (zero()) index &&& lt index length))
+  in
+  let open AddLength in
+  let typ = ExtraType.lfun ~admissible ~length_type:int ~dom:[int] ~codom:int in
+  (* print_endline (CCFormat.sprintf "%a" Type.pp typ); *)
+  let a = Term.new_uninterpreted ~name:"a" typ in
+  let b = Term.new_uninterpreted ~name:"b" typ in
+  (* print_endline (CCFormat.sprintf "%a" Term.pp a);
+   * print_endline (CCFormat.sprintf "%a" Term.pp b); *)
+  try
+    let la = Term.( ExtraTerm.length a === Arith.int 2) in
+    (* print_endline (CCFormat.sprintf "%a" Term.pp la); *)
+    DiffLength.assert_formula ctx la;
+    let lb = Term.( ExtraTerm.length b === Arith.int 2) in
+    (* print_endline (CCFormat.sprintf "%a" Term.pp lb); *)
+    DiffLength.assert_formula ctx lb;
+    let l = Term.( [
+                     ExtraTerm.application a [Arith.zero()] === Arith.zero();
+                     ExtraTerm.application b [Arith.zero()] === Arith.zero();
+                     ExtraTerm.application a [Arith.int 1] === Arith.int 1;
+                     ExtraTerm.application b [Arith.int 1] === Arith.int 1 ])
+    in
+    DiffLength.assert_formulas ctx l;
+    DiffLength.assert_formula ctx Term.(a =/= b);
+    match DiffLength.check ctx with
+    | `STATUS_UNSAT -> ()
+    | `STATUS_SAT ->
+       CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (DiffLength.get_model ctx);
+       CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx;
+       assert false
+    | _ -> assert false
+  with
+  | ExceptionsErrorHandling.YicesException(_,report) as exc ->
+     let bcktrace = Printexc.get_backtrace() in
+     CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string());
+     CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@,"
+       Types.pp_error_report report;
+     CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace;
+     raise exc

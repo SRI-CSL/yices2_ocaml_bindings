@@ -245,7 +245,7 @@ module type SafeErrorHandling = sig
   type 'a checkable
   type 'a t
   val raise_yices_error    : unit -> _ t
-  val raise_bindings_error : string -> _ t
+  val raise_bindings_error : ('a, Format.formatter, unit, _ t) format4 -> 'a
   val return_status : smt_status -> smt_status t
   val return_sint : 'a sintbase checkable -> 'a sintbase t
   val return_uint : 'a uintbase checkable -> 'a uintbase t
@@ -265,7 +265,7 @@ module ExceptionsErrorHandling = struct
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
   let raise_yices_error ()   = raise(YicesException(Error.code(),Error.report()))
-  let raise_bindings_error s = raise(YicesBindingsException s)
+  let raise_bindings_error a = Format.ksprintf ~f:(fun s -> raise(YicesBindingsException s)) a
   let aux check t = if check t then t else raise_yices_error ()
   let return_status = aux status_is_not_error
   let return_sint t = aux sintcheck t
@@ -277,10 +277,9 @@ end
 
 module SumErrorHandling = struct
   type error = Yices of error_code * error_report | Bindings of string [@@ show]
-  open Stdlib
   type 'a t = ('a, error) Result.t
   let raise_yices_error ()   = Error(Yices(Error.code(),Error.report()))
-  let raise_bindings_error s = Error(Bindings s)
+  let raise_bindings_error a = Format.ksprintf ~f:(fun s -> Error(Bindings s)) a
   let aux check t =
     if check t then Ok t
     else Error(Yices(Error.code(),Error.report()))
@@ -288,8 +287,8 @@ module SumErrorHandling = struct
   let return_sint t = aux sintcheck t
   let return_uint t = aux uintcheck t
   let return_ptr t  = aux ptrcheck t
-  let return = Result.ok
-  let bind = Result.bind
+  let return = Result.return
+  let bind = Result.(let*)
 end
 
 module SafeMake
@@ -357,9 +356,8 @@ module SafeMake
 [%%else]
   let raise_gmp s =
     EH.raise_bindings_error
-      (Format.sprintf
-         "%s necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support"
-         s)
+      "%s necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support"
+         s
 [%%endif]
 
   (* Malloc memory cell(s) for a C function to place its result. *)
@@ -1045,13 +1043,12 @@ module SafeMake
 
     (* Complain about wrong number of arguments for constructor *)
     let raise_args ?(at_least=false) constructor expected args =
-      raise_bindings_error(
-          Format.sprintf
+      raise_bindings_error
             "Term.reveal expected %s%i argument for %a, got %i of them instead"
             (if at_least then "at least " else "")
             expected
             Types.pp_term_constructor constructor
-            (List.length args))
+            (List.length args)
       
     let reveal t = let+ c = constructor t in
       match c with
@@ -1483,8 +1480,7 @@ module SafeMake
            let+ ytyp = Type.reveal typ in
            match ytyp with
            | Fun{ dom; _ } -> return dom
-           | _ ->
-              raise_bindings_error "fun val should have fun type"
+           | _ -> raise_bindings_error "fun val should have fun type"
          in
          let+ variables = map Term.new_variable input_types in
          let default = val_as_term m default in

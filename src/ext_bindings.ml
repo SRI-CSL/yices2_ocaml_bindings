@@ -28,6 +28,8 @@ let rec pp_sexp fmt = function
   | Atom s -> Format.fprintf fmt "@[%s@]" s
   | List l -> Format.fprintf fmt "@[<hov1>(%a)@]" (List.pp ~pp_sep pp_sexp) l
 
+(* let pp_sexp = Sexp.pp_hum *)
+
 let use_type_names = ref true
 let use_term_names = ref true
 let use_type_notations = ref true
@@ -163,7 +165,7 @@ module TermTMP = struct
 
   let pow i t = 
     if i <= 0 then ExceptionsErrorHandling.raise_bindings_error
-                     "Exponent should be positive in a power product"
+                     "Exponent should be positive in a power product, not %i" i
     else
       if i = 1 then t
       else
@@ -258,7 +260,7 @@ module TermTMP = struct
           let s =
             if String.length s < 2
             then ExceptionsErrorHandling.raise_bindings_error
-                   "bv constant as a string should have at least 2 characters"
+                   "bv constant as a string should have at least 2 characters, got %s instead" s
             else
               match String.sub s 0 2 with
               | "0b" -> "#b"^String.sub s 2 (String.length s -2)
@@ -272,14 +274,23 @@ module TermTMP = struct
        end
 
     | A1(c,t) ->
-       let t = [to_sexp t] in
        begin
          match c with
-         | `YICES_NOT_TERM    -> sexp "not" t
-         | `YICES_ABS         -> sexp "abs" t
-         | `YICES_CEIL        -> sexp "ceil" t
-         | `YICES_FLOOR       -> sexp "floor" t
-         | `YICES_IS_INT_ATOM -> sexp "is-int" t
+         | `YICES_NOT_TERM ->
+            begin
+              match Term.constructor t with
+              | `YICES_OR_TERM ->
+                 let disjuncts = Term.children t in
+                 sexp "and" (List.map (fun disjunct-> disjunct |> Term.not1 |> to_sexp) disjuncts)
+              | `YICES_ARITH_GE_ATOM ->
+                 let args = Term.children t in
+                 sexp "<" (List.map to_sexp args)
+              | _ -> sexp "not" [to_sexp t]
+            end
+         | `YICES_ABS         -> sexp "abs" [to_sexp t]
+         | `YICES_CEIL        -> sexp "ceil" [to_sexp t]
+         | `YICES_FLOOR       -> sexp "floor" [to_sexp t]
+         | `YICES_IS_INT_ATOM -> sexp "is-int" [to_sexp t]
        end
     | A2(c,t1,t2) ->
        let args = [to_sexp t1; to_sexp t2] in
@@ -307,12 +318,32 @@ module TermTMP = struct
        let args = List.map to_sexp [c;tb;eb] in 
        sexp "ite" args
     | Astar(c,l) ->
-       let args = List.map to_sexp l in 
+       let args = List.map to_sexp l in
        begin
          match c with
-         | `YICES_TUPLE_TERM    -> sexp "tuple" args
+         | `YICES_TUPLE_TERM    -> sexp "tuple"    args
          | `YICES_DISTINCT_TERM -> sexp "distinct" args
-         | `YICES_OR_TERM       -> sexp "or" args
+         | `YICES_OR_TERM       ->
+            begin
+              let filter (hyps, concl) = function
+                | List[Atom "not"; arg] -> arg::hyps, concl
+                | arg -> hyps, arg::concl
+              in
+              let to_sexp_hyps = function
+                | [a] -> a
+                | hyps -> sexp "and" hyps
+              in
+              let to_sexp_concl = function
+                | [a] -> a
+                | concl -> sexp "or" concl
+              in
+              match args |> List.rev |> List.fold_left filter ([],[]) with
+              | [], l       -> to_sexp_concl l
+              | hyps, []    -> sexp "not" [to_sexp_hyps hyps]
+              | hyps, concl -> sexp "=>" [to_sexp_hyps hyps; to_sexp_concl concl]
+
+            end
+
          | `YICES_XOR_TERM      -> sexp "xor" args
          | `YICES_BV_ARRAY      -> sexp "bool-to-bv" args (* Not official SMTLib syntax *)
        end
@@ -1026,6 +1057,8 @@ module Context = struct
 
   let to_sexp {log; _} = !log |> List.fold_left Action.to_sexp [] 
 
+  let pp_log fmt ctx = Format.fprintf fmt "%a" (List.pp pp_sexp) (to_sexp ctx)
+
   let malloc ?config () =
     let yconfig = Option.map (fun config -> Config.(config.config)) config in
     let config_options =
@@ -1110,14 +1143,17 @@ module Context = struct
 
   let assert_formulas x formulas =
     action (AssertFormulas formulas) x;
-    let Assertions.{list; level} = !(x.assertions) in
-    begin match list with
-    | []         -> assert false
-    | last::tail ->
-       x.assertions := { list = (Option.map (List.rev_append (List.rev formulas)) last)::tail;
-                         level }
-    end;
-    Context.assert_formulas x.context formulas
+    match formulas with
+    | [] -> ()
+    | _::_ ->
+       let Assertions.{list; level} = !(x.assertions) in
+       begin match list with
+       | []         -> assert false
+       | last::tail ->
+          x.assertions := { list = (Option.map (List.rev_append (List.rev formulas)) last)::tail;
+                            level }
+       end;
+       Context.assert_formulas x.context formulas
 
   let assert_blocking_clause x =
     action AssertBlockingClause x;
