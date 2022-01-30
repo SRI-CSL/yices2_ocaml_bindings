@@ -12,7 +12,7 @@ include Purification.HighAPI
 
 module HTypes = Purification.HTypes
 module HTerms = Purification.HTerms
-module StringHashtbl = CCHashtbl.Make(String)
+module HString = CCHashtbl.Make(String)
 
 module List = struct
   include List
@@ -58,7 +58,7 @@ let notation replace hooks t =
 
 module Config = struct
 
-  type options = String.t StringHashtbl.t
+  type options = String.t HString.t
 
   type t = {
       config : Config.t;
@@ -68,34 +68,34 @@ module Config = struct
 
   let malloc () = {
       config  = Config.malloc();
-      options = StringHashtbl.create 10;
+      options = HString.create 10;
       mcsat  = ref false
     }
 
   let free t = Config.free t.config
   let set t ~name ~value =
-    StringHashtbl.replace t.options name value;
+    HString.replace t.options name value;
     if String.equal name "solver-type"
     then t.mcsat := String.equal value "mcsat";
     Config.set t.config ~name ~value
 
-  let mcsat_logics = StringHashtbl.create 10
+  let mcsat_logics = HString.create 10
 
   let () =
-    StringHashtbl.replace mcsat_logics "QF_NRA" ();
-    StringHashtbl.replace mcsat_logics "QF_NIA" ();
-    StringHashtbl.replace mcsat_logics "QF_UFNRA" ();
-    StringHashtbl.replace mcsat_logics "QF_UFNIA" ()
+    HString.replace mcsat_logics "QF_NRA" ();
+    HString.replace mcsat_logics "QF_NIA" ();
+    HString.replace mcsat_logics "QF_UFNRA" ();
+    HString.replace mcsat_logics "QF_UFNIA" ()
     
   let default ?logic t =
     let () = match logic with
-      | Some logic when StringHashtbl.mem mcsat_logics logic -> t.mcsat := true
+      | Some logic when HString.mem mcsat_logics logic -> t.mcsat := true
       | _ -> t.mcsat := false
     in
     Config.default ?logic t.config
 
-  let get t     = StringHashtbl.find t.options
-  let options t = StringHashtbl.to_list t.options
+  let get t     = HString.find t.options
+  let options t = HString.to_list t.options
 
 end
   
@@ -214,13 +214,30 @@ module TermTMP = struct
     | A0 _ -> TermSet.empty
     | a -> map (fun a -> a, fv a) a |> snd
   and fv t =
-    match HTerms.find_opt fv_table t with
-    | Some b -> b
-    | None ->
-       let Term a = Term.reveal t in
-       let answer = fv_termstruct a in
-       HTerms.add fv_table t answer;
-       answer
+    try
+      let f k =
+        let Term a = Term.reveal k in
+        fv_termstruct a
+      in
+      HTerms.get_or_add fv_table ~f ~k:t
+    with
+    | ExceptionsErrorHandling.YicesException _
+      ->
+       print_endline (Format.sprintf "@[Yices error on term %i: @[%s@]@]@,"
+                        (Term.hash t)
+                        (ErrorPrint.string()));
+       let bcktrace = Printexc.get_backtrace() in
+       print_endline(Format.sprintf "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace);
+       print_endline "Attempting to print term";
+       print_endline(Format.sprintf " @[%a@]" (pph 100) t);
+       print_endline "Attempting to print error report";
+       failwith "Giving up"
+    | _ -> 
+       print_endline (Format.sprintf "@[Catching giving up with term %i: @[%a@]@]@,"
+                        (Term.hash t)
+                        (pph 100) t);
+       failwith "Giving up"
+   
          
 [%%if gmp_present]
   let sum_aux to_sexp (coeff, term) =
@@ -1027,25 +1044,25 @@ let reset_global_log() = global_log := []
 module Context = struct
 
   let pp_options fmt options =
-    Format.fprintf fmt "@[<v>%a@]" (StringHashtbl.pp String.pp Format.silent) options
+    Format.fprintf fmt "@[<v>%a@]" (HString.pp String.pp Format.silent) options
 
   let pp_config_options fmt config_options =
-    Format.fprintf fmt "@[<v>%a@]" (StringHashtbl.pp String.pp String.pp) config_options
+    Format.fprintf fmt "@[<v>%a@]" (HString.pp String.pp String.pp) config_options
 
   type nonrec t = {
       config     : Config.t option;
       context    : Context.t;
       assertions : Assertions.t ref;
-      options    : unit StringHashtbl.t;
+      options    : unit HString.t;
       log        : Action.t list ref;
       is_alive   : bool ref;
-      config_options : String.t StringHashtbl.t;
+      config_options : String.t HString.t;
       mcsat      : bool
     }
 
   let assertions ctx = !(ctx.assertions)
-  let options ctx = StringHashtbl.copy ctx.options
-  let config_options ctx = StringHashtbl.copy ctx.config_options
+  let options ctx = HString.copy ctx.options
+  let config_options ctx = HString.copy ctx.config_options
   let log ctx = !(ctx.log)
   let is_alive ctx = !(ctx.is_alive)
   let is_mcsat ctx = ctx.mcsat
@@ -1063,14 +1080,14 @@ module Context = struct
     let yconfig = Option.map (fun config -> Config.(config.config)) config in
     let config_options =
       match config with
-      | Some config -> StringHashtbl.copy config.options
-      | None -> StringHashtbl.create 1
+      | Some config -> HString.copy config.options
+      | None -> HString.create 1
     in
     let context = 
       { config  = config;
         context = Context.malloc ?config:yconfig ();
         assertions = ref Assertions.init;
-        options = StringHashtbl.create 10;
+        options = HString.create 10;
         log     = ref !global_log;
         is_alive = ref true;
         config_options;
@@ -1125,12 +1142,12 @@ module Context = struct
   let enable_option x ~option =
     action (EnableOption option) x;
     Context.enable_option x.context ~option;
-    StringHashtbl.replace x.options option ()
+    HString.replace x.options option ()
 
   let disable_option x ~option =
     action (DisableOption option) x;
     Context.disable_option x.context ~option;
-    StringHashtbl.remove x.options option 
+    HString.remove x.options option 
 
   let assert_formula x formula =
     action (AssertFormula formula) x;

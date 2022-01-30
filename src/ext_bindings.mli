@@ -7,9 +7,9 @@ include High.API with type 'a eh := 'a
 
 module List : module type of List
 
-module HTypes : CCHashtbl.S with type key = Type.t
-module HTerms : CCHashtbl.S with type key = Term.t
-module StringHashtbl : CCHashtbl.S with type key = String.t
+module HTypes  : CCHashtbl.S with type key = Type.t
+module HTerms  : CCHashtbl.S with type key = Term.t
+module HString : CCHashtbl.S with type key = String.t
 
 val sexp : string -> Sexp.t list -> Sexp.t
 val pp_sexp : Sexp.t Format.printer
@@ -116,14 +116,14 @@ end
 
 module Context : sig
 
-  val pp_options        : unit StringHashtbl.t Format.printer
-  val pp_config_options : string StringHashtbl.t Format.printer
+  val pp_options        : unit HString.t Format.printer
+  val pp_config_options : string HString.t Format.printer
 
   type t
 
   val assertions     : t -> Assertions.t (* Structure of assertions and level *)
-  val options        : t -> unit StringHashtbl.t   (* Set options (hashtbl copy) *)
-  val config_options : t -> string StringHashtbl.t (* Set config options (hashtbl copy) *)
+  val options        : t -> unit HString.t   (* Set options (hashtbl copy) *)
+  val config_options : t -> string HString.t (* Set config options (hashtbl copy) *)
   val log            : t -> Action.t list   (* Everything that happened to that context *)
   val is_alive       : t -> bool            (* Whether the raw context wasn't freed *)
   val is_mcsat       : t -> bool            (* Whether the context uses mcsat *)

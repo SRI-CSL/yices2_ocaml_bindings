@@ -982,7 +982,15 @@ module SafeMake
     let num_children  = yices_term_num_children <.> toInts
 
     let child t       = SInt.of_int <.> yices_term_child t <.> return_sint
-    let children      = yices_term_children <.> TermVector.toList
+    (* let children      = yices_term_children <.> TermVector.toList *)
+    let children t    =
+      let+ n = num_children t in
+      let aux sofar i =
+        let+ child = child t i in
+        return (child::sofar)
+      in
+      let+ l = fold aux (return []) (List.init n (fun i -> i)) in
+      return (List.rev l)
 
     let term_ptr2term_opt t = if equal t null_term then None else Some t
     

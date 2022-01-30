@@ -349,17 +349,17 @@ let test_lfun () =
   in
   let open AddLength in
   let typ = ExtraType.lfun ~admissible ~length_type:int ~dom:[int] ~codom:int in
-  (* print_endline (CCFormat.sprintf "%a" Type.pp typ); *)
+  print_endline (CCFormat.sprintf "%a" Type.pp typ);
   let a = Term.new_uninterpreted ~name:"a" typ in
   let b = Term.new_uninterpreted ~name:"b" typ in
-  (* print_endline (CCFormat.sprintf "%a" Term.pp a);
-   * print_endline (CCFormat.sprintf "%a" Term.pp b); *)
+  print_endline (CCFormat.sprintf "%a" Term.pp a);
+  print_endline (CCFormat.sprintf "%a" Term.pp b);
   try
     let la = Term.( ExtraTerm.length a === Arith.int 2) in
-    (* print_endline (CCFormat.sprintf "%a" Term.pp la); *)
+    print_endline (CCFormat.sprintf "%a" Term.pp la);
     DiffLength.assert_formula ctx la;
     let lb = Term.( ExtraTerm.length b === Arith.int 2) in
-    (* print_endline (CCFormat.sprintf "%a" Term.pp lb); *)
+    print_endline (CCFormat.sprintf "%a" Term.pp lb);
     DiffLength.assert_formula ctx lb;
     let l = Term.( [
                      ExtraTerm.application a [Arith.zero()] === Arith.zero();
@@ -370,7 +370,10 @@ let test_lfun () =
     DiffLength.assert_formulas ctx l;
     DiffLength.assert_formula ctx Term.(a =/= b);
     match DiffLength.check ctx with
-    | `STATUS_UNSAT -> ()
+    | `STATUS_UNSAT ->
+       print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx);
+       
+       print_endline (CCFormat.sprintf "@[UNSAT@]")
     | `STATUS_SAT ->
        CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (DiffLength.get_model ctx);
        CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx;
