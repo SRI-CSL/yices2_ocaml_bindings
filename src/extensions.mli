@@ -1,6 +1,4 @@
 open Containers
-open Sexplib
-open Type
 open Ext_bindings
 
 module type YicesContext = sig
@@ -115,7 +113,7 @@ module AddLength : sig
 
   module ExtraType : sig
     val lfun :
-      ?admissible:Term.t -> length_type:Type.t -> dom:Type.t list -> codom:Type.t -> Type.t
+      ?admissible:Term.t -> length_type:Type.t -> dom:Type.t list -> codom:Type.t -> unit -> Type.t
     val is_lfun : Type.t -> bool
     val length_type : Type.t -> Type.t
     val dom         : Type.t -> Type.t list

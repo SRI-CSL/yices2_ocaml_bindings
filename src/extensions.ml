@@ -388,7 +388,7 @@ module AddLength = struct
 
     (* Get the type of lengthed arrays from dom to codom, with lengths of type length_type,
    and admissible predicate (if absent, an uninterpreted predicate is generated) *)
-    let lfun ?admissible ~length_type ~dom ~codom =
+    let lfun ?admissible ~length_type ~dom ~codom () =
       let lfun = Type.func dom codom in
       let admissible = match admissible with
         | Some admissible -> admissible

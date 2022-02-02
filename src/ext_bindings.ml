@@ -12,7 +12,7 @@ include Purification.HighAPI
 
 module HTypes = Purification.HTypes
 module HTerms = Purification.HTerms
-module HString = CCHashtbl.Make(String)
+module HStrings = CCHashtbl.Make(String)
 
 module List = struct
   include List
@@ -58,7 +58,7 @@ let notation replace hooks t =
 
 module Config = struct
 
-  type options = String.t HString.t
+  type options = String.t HStrings.t
 
   type t = {
       config : Config.t;
@@ -68,34 +68,34 @@ module Config = struct
 
   let malloc () = {
       config  = Config.malloc();
-      options = HString.create 10;
+      options = HStrings.create 10;
       mcsat  = ref false
     }
 
   let free t = Config.free t.config
   let set t ~name ~value =
-    HString.replace t.options name value;
+    HStrings.replace t.options name value;
     if String.equal name "solver-type"
     then t.mcsat := String.equal value "mcsat";
     Config.set t.config ~name ~value
 
-  let mcsat_logics = HString.create 10
+  let mcsat_logics = HStrings.create 10
 
   let () =
-    HString.replace mcsat_logics "QF_NRA" ();
-    HString.replace mcsat_logics "QF_NIA" ();
-    HString.replace mcsat_logics "QF_UFNRA" ();
-    HString.replace mcsat_logics "QF_UFNIA" ()
+    HStrings.replace mcsat_logics "QF_NRA" ();
+    HStrings.replace mcsat_logics "QF_NIA" ();
+    HStrings.replace mcsat_logics "QF_UFNRA" ();
+    HStrings.replace mcsat_logics "QF_UFNIA" ()
     
   let default ?logic t =
     let () = match logic with
-      | Some logic when HString.mem mcsat_logics logic -> t.mcsat := true
+      | Some logic when HStrings.mem mcsat_logics logic -> t.mcsat := true
       | _ -> t.mcsat := false
     in
     Config.default ?logic t.config
 
-  let get t     = HString.find t.options
-  let options t = HString.to_list t.options
+  let get t     = HStrings.find t.options
+  let options t = HStrings.to_list t.options
 
 end
   
@@ -1044,25 +1044,25 @@ let reset_global_log() = global_log := []
 module Context = struct
 
   let pp_options fmt options =
-    Format.fprintf fmt "@[<v>%a@]" (HString.pp String.pp Format.silent) options
+    Format.fprintf fmt "@[<v>%a@]" (HStrings.pp String.pp Format.silent) options
 
   let pp_config_options fmt config_options =
-    Format.fprintf fmt "@[<v>%a@]" (HString.pp String.pp String.pp) config_options
+    Format.fprintf fmt "@[<v>%a@]" (HStrings.pp String.pp String.pp) config_options
 
   type nonrec t = {
       config     : Config.t option;
       context    : Context.t;
       assertions : Assertions.t ref;
-      options    : unit HString.t;
+      options    : unit HStrings.t;
       log        : Action.t list ref;
       is_alive   : bool ref;
-      config_options : String.t HString.t;
+      config_options : String.t HStrings.t;
       mcsat      : bool
     }
 
   let assertions ctx = !(ctx.assertions)
-  let options ctx = HString.copy ctx.options
-  let config_options ctx = HString.copy ctx.config_options
+  let options ctx = HStrings.copy ctx.options
+  let config_options ctx = HStrings.copy ctx.config_options
   let log ctx = !(ctx.log)
   let is_alive ctx = !(ctx.is_alive)
   let is_mcsat ctx = ctx.mcsat
@@ -1080,14 +1080,14 @@ module Context = struct
     let yconfig = Option.map (fun config -> Config.(config.config)) config in
     let config_options =
       match config with
-      | Some config -> HString.copy config.options
-      | None -> HString.create 1
+      | Some config -> HStrings.copy config.options
+      | None -> HStrings.create 1
     in
     let context = 
       { config  = config;
         context = Context.malloc ?config:yconfig ();
         assertions = ref Assertions.init;
-        options = HString.create 10;
+        options = HStrings.create 10;
         log     = ref !global_log;
         is_alive = ref true;
         config_options;
@@ -1142,12 +1142,12 @@ module Context = struct
   let enable_option x ~option =
     action (EnableOption option) x;
     Context.enable_option x.context ~option;
-    HString.replace x.options option ()
+    HStrings.replace x.options option ()
 
   let disable_option x ~option =
     action (DisableOption option) x;
     Context.disable_option x.context ~option;
-    HString.remove x.options option 
+    HStrings.remove x.options option 
 
   let assert_formula x formula =
     action (AssertFormula formula) x;
