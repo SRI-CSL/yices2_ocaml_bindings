@@ -23,6 +23,8 @@ module Types = struct
 
   let hash_sint = SInt.to_int
   let hash_uint = UInt.to_int
+  let of_hash_sint = SInt.of_int
+  let of_hash_uint = UInt.of_int
   
   (* Opaque C types, only accessible through the API functions *)
   type uint_t = [`uint_t] uintbase [@@deriving eq, ord]

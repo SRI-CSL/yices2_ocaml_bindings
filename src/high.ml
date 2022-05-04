@@ -630,6 +630,7 @@ module SafeMake
 
     type t = type_t [@@deriving eq, ord]
     let hash = hash_sint
+    let of_hash = of_hash_sint
 
     module Names = struct
       let set x     = ofString(yices_set_type_name x) <.> toUnit
@@ -704,6 +705,7 @@ module SafeMake
 
     type t = term_t [@@deriving eq,ord]
     let hash = hash_sint
+    let of_hash = of_hash_sint
 
     module Names = struct
       let set     = yices_set_term_name <.> ofString <..> toUnit
@@ -1267,10 +1269,6 @@ module SafeMake
     let build_date = let* x = yices_build_date in toStringR !@x
     let has_mcsat      = toBool1 yices_has_mcsat
     let is_thread_safe = toBool1 yices_is_thread_safe
-
-    (* List of hashtables of types / terms *)
-    let hTypes = ref []
-    let hTerms = ref []
 
     let cleanup_ocaml = ref (fun ~after:_ -> ())
 

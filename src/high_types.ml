@@ -367,6 +367,9 @@ module type API = sig
     (** Its hash function *)
     val hash : t -> int
 
+    (** Getting term from hash (not resilient to garbagge collection) *)
+    val of_hash : int -> t
+
     (** ********************
         TYPE CONSTRUCTORS  *
      ******************* *)
@@ -567,6 +570,9 @@ module type API = sig
 
     (** Its hash function *)
     val hash : t -> int
+
+    (** Getting term from hash (not resilient to garbagge collection) *)
+    val of_hash : int -> t
 
     (** ********************
         TERM CONSTRUCTORS  *

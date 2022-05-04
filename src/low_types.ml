@@ -244,6 +244,9 @@ module type API = sig
     val hash_sint : _ sintbase -> int
     val hash_uint : _ uintbase -> int
 
+    val of_hash_sint : int -> _ sintbase
+    val of_hash_uint : int -> _ uintbase
+
     (* Opaque C types, only accessible through the API functions *)
     type uint_t = [`uint_t] uintbase [@@deriving eq, ord]
     type sint_t = [`sint_t] sintbase [@@deriving eq, ord]
