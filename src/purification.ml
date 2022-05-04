@@ -7,18 +7,10 @@ module HighAPI = Make(ExceptionsErrorHandling)
 
 open HighAPI
 
-module HTypes = CCHashtbl.Make(Type)
-module HTerms = CCHashtbl.Make(Term)
-
 module Type = struct
 
-  module HTypes = CCHashtbl.Make(Type)
-  let to_body = HTypes.create 10
-  let to_var  = HTypes.create 10
-
-  let reset () =
-    HTypes.reset to_body; 
-    HTypes.reset to_var
+  let to_body = Global.hTypes_create 10
+  let to_var  = Global.hTypes_create 10
 
   let get_body k = HTypes.get_or to_body ~default:k k
 
@@ -55,12 +47,8 @@ end
 
 module Term = struct
                 
-  let to_body = HTerms.create 1000
-  let to_var  = HTerms.create 1000
-
-  let reset () =
-    HTerms.reset to_body; 
-    HTerms.reset to_var
+  let to_body = Global.hTerms_create 1000
+  let to_var  = Global.hTerms_create 1000
 
   let get_body k = HTerms.get_or to_body ~default:k k
 
@@ -100,6 +88,3 @@ module Term = struct
       r, if fresh then (r, t)::accu else accu
 
 end
-
-let reset() = Type.reset(); Term.reset()
-

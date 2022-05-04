@@ -328,87 +328,6 @@ module type API = sig
 
   end
 
-
-  module Global : sig
-    (** The version as a string "x.y.z"  *)
-    val version : string eh
-
-    (** More details about the release:
-        - build_arch is a string like "x86_64-unknown-linux-gnu"
-        - build_mode is "release" or "debug"
-        - build_date is the compilation date as in "2014-01-27"  *)
-
-    val build_arch : string eh
-    val build_mode : string eh
-    val build_date : string eh
-
-    (** Check whether the library was compiled with MCSAT support (i.e.,
-        it can deal with nonlinear arithmetic).  *)
-    val has_mcsat : unit -> bool eh
-
-    (** Check whether the library was compiled in THREAD_SAFE mode.  *)
-    val is_thread_safe : unit -> bool eh
-
-    (** ************************************
-        GLOBAL INITIALIZATION AND CLEANUP  *
-     *********************************** *)
-
-    (** This function must be called before anything else to initialize
-        internal data structures.  *)
-    val init : unit -> unit
-
-    (** Delete all internal data structures and objects
-        - this must be called to avoid memory leaks  *)
-    val exit : unit -> unit
-
-    (** Full reset
-        - delete all terms and types and reset the symbol tables
-        - delete all contexts, models, configuration descriptors and
-          parameter records.  *)
-    val reset : unit -> unit
-
-    (** ************************
-        OUT-OF-MEMORY CALLBACK  *
-     *********************** *)
-
-    (** By default, when Yices runs out of memory, it
-        first prints an error message on stderr; then it calls
-        exit(YICES_EXIT_OUT_OF_MEMORY).  This kills the whole process.
-
-        The following function allows you to register a callback to invoke
-        if Yices runs out of memory.  The callback function takes no
-        arguments and returns nothing.
-
-        Installing an out-of-memory callback allows you to do something a
-        bit less brutal than killing the process. If there's a callback,
-        yices will call it first when it runs out of memory.  The callback
-        function should not return. If it does, yices will call exit as
-        previously.
-
-        In other words, the code that handles out-of-memory is as follows:
-     
-         if (callback != NULL) {
-           callback();
-         } else {
-           fprintf(stderr, ...);
-         }
-         exit(YICES_EXIT_OUT_OF_MEMORY); *)
-
-    (**
-       IMPORTANT
-       ---------
-       After Yices runs out of memory, its internal data structures may be
-       left in an inconsistent/corrupted state. The API is effectively
-       unusable at this point and nothing can be done to recover cleanly.
-       Evan a call to yices_exit() may cause a seg fault. The callback
-       should not try to cleanup anything, or call any function from the API.
-
-       A plausible use of this callback feature is to implement an
-       exception mechanism using setjmp/longjmp.  *)
-    val set_out_of_mem_callback : (unit -> unit) static_funptr -> unit
-
-  end
-
   (** ************************
    *  ERROR REPORTING PRINTS *
    ************************ *)
@@ -2178,6 +2097,102 @@ module type API = sig
 
   end
 
+  module HTypes : CCHashtbl.S with type key = Type.t
+  module HTerms : CCHashtbl.S with type key = Term.t
+
+  module Global : sig
+    (** The version as a string "x.y.z"  *)
+    val version : string eh
+
+    (** More details about the release:
+        - build_arch is a string like "x86_64-unknown-linux-gnu"
+        - build_mode is "release" or "debug"
+        - build_date is the compilation date as in "2014-01-27"  *)
+
+    val build_arch : string eh
+    val build_mode : string eh
+    val build_date : string eh
+
+    (** Check whether the library was compiled with MCSAT support (i.e.,
+        it can deal with nonlinear arithmetic).  *)
+    val has_mcsat : unit -> bool eh
+
+    (** Check whether the library was compiled in THREAD_SAFE mode.  *)
+    val is_thread_safe : unit -> bool eh
+
+    (** ************************************
+        GLOBAL INITIALIZATION AND CLEANUP  *
+     *********************************** *)
+
+    (** This function must be called before anything else to initialize
+        internal data structures.  *)
+    val init : unit -> unit
+
+    (** Delete all internal data structures and objects
+        - this must be called to avoid memory leaks  *)
+    val exit : unit -> unit
+
+    (** Full reset
+        - delete all terms and types and reset the symbol tables
+        - delete all contexts, models, configuration descriptors and
+          parameter records.  *)
+    val reset : unit -> unit
+
+    (** Register an operation that will be executed
+        after init, after reset or after garbage_collect *)
+    val register_cleanup : (after:[ `GC | `Init | `Reset ] -> unit) -> unit
+
+    (** Execute the registered cleanups *)
+    val cleanup_ocaml : after:[ `GC | `Init | `Reset ] -> unit
+
+    (** Create a hashmap of types, of terms.
+        Such hashtables are automatically reset upon init and reset.
+        Upon GC, you can specify what to do with the hashmap; by default, it is reset. *)
+
+    val hTypes_create : ?after_gc:('a HTypes.t -> unit) -> int -> 'a HTypes.t
+    val hTerms_create : ?after_gc:('a HTerms.t -> unit) -> int -> 'a HTerms.t
+
+    (** ************************
+        OUT-OF-MEMORY CALLBACK  *
+     *********************** *)
+
+    (** By default, when Yices runs out of memory, it
+        first prints an error message on stderr; then it calls
+        exit(YICES_EXIT_OUT_OF_MEMORY).  This kills the whole process.
+
+        The following function allows you to register a callback to invoke
+        if Yices runs out of memory.  The callback function takes no
+        arguments and returns nothing.
+
+        Installing an out-of-memory callback allows you to do something a
+        bit less brutal than killing the process. If there's a callback,
+        yices will call it first when it runs out of memory.  The callback
+        function should not return. If it does, yices will call exit as
+        previously.
+
+        In other words, the code that handles out-of-memory is as follows:
+     
+         if (callback != NULL) {
+           callback();
+         } else {
+           fprintf(stderr, ...);
+         }
+         exit(YICES_EXIT_OUT_OF_MEMORY); *)
+
+    (**
+       IMPORTANT
+       ---------
+       After Yices runs out of memory, its internal data structures may be
+       left in an inconsistent/corrupted state. The API is effectively
+       unusable at this point and nothing can be done to recover cleanly.
+       Evan a call to yices_exit() may cause a seg fault. The callback
+       should not try to cleanup anything, or call any function from the API.
+
+       A plausible use of this callback feature is to implement an
+       exception mechanism using setjmp/longjmp.  *)
+    val set_out_of_mem_callback : (unit -> unit) static_funptr -> unit
+
+  end
 
   module GC : sig
 

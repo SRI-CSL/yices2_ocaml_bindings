@@ -10,8 +10,6 @@ open Types
 
 include Purification.HighAPI
 
-module HTypes = Purification.HTypes
-module HTerms = Purification.HTerms
 module HStrings = CCHashtbl.Make(String)
 
 module List = struct
@@ -111,9 +109,7 @@ module TypeSexp = struct
       |> Format.fprintf fmt "%s"
     with _ -> Format.fprintf fmt "null_type"
 
-
-  let hooks          = HTypes.create 100
-  let reset()        = HTypes.reset hooks
+  let hooks          = Global.hTypes_create 100
   let notation t     = notation HTypes.replace hooks t
   let get_notation t = HTypes.find hooks t |> Lazy.force
 
@@ -147,10 +143,9 @@ module HPairs = Hashtbl.Make(struct
                   end)
 
 let is_free_table = HPairs.create 500
-let reset_is_free () = HPairs.reset is_free_table
+let () = Global.register_cleanup (fun ~after:_ -> HPairs.reset is_free_table)
 
-let fv_table = HTerms.create 500
-let reset_fv () = HTerms.reset fv_table
+let fv_table = Global.hTerms_create 500
 
 module TermTMP = struct
 
@@ -738,13 +733,15 @@ module ExtTerm = struct
     let auxTerm f t  = let+ T t     = f.apply(T t) in t
     let auxSlice f s = let+ Slice s = f.apply(Slice s) in s
 
-    let mapSlice f = let open BoolStruct in function
-                                         | Leaf(SliceTMP.{ extractee; indices }) ->
-                                            let+ extractee = auxTerm f extractee in
-                                            Leaf(SliceTMP.{ extractee; indices })
-                                         | And l -> let+ l = mapList (auxSlice f) l in And l
-                                         | Or l  -> let+ l = mapList (auxSlice f) l in Or l
-                                         | Not a -> let+ a = auxSlice f a in Not a
+    let mapSlice f =
+      let open BoolStruct in
+      function
+      | Leaf(SliceTMP.{ extractee; indices }) ->
+         let+ extractee = auxTerm f extractee in
+         Leaf(SliceTMP.{ extractee; indices })
+      | And l -> let+ l = mapList (auxSlice f) l in And l
+      | Or l  -> let+ l = mapList (auxSlice f) l in Or l
+      | Not a -> let+ a = auxSlice f a in Not a
 
     let map : type a. update -> (a, [`tstruct]) base -> (a, [`tstruct]) base M.t =
       fun f -> function
@@ -760,8 +757,7 @@ module ExtTerm = struct
   type t  = ExtTerm  : _ closed -> t
   type yt = YExtTerm : _ termstruct -> yt
 
-  let reveal_table = HTerms.create 500
-  let reset() = HTerms.reset reveal_table
+  let reveal_table = Global.hTerms_create 500
 
   let of_yterm : Types.yterm -> yt = function
     | Term(Astar(`YICES_BV_ARRAY, bits)) -> (* In case of a BV_ARRAY, we preprocess *)
@@ -786,8 +782,7 @@ module ExtTerm = struct
        end
     | tt -> of_yterm tt
 
-  let hooks          = HTerms.create 100
-  let reset()        = reset(); HTerms.reset hooks
+  let hooks          = Global.hTerms_create 100
   let notation t     = notation HTerms.replace hooks t
   let get_notation t = HTerms.find hooks t |> Lazy.force
 
@@ -1005,6 +1000,7 @@ module Action = struct
                                   other_assertions : Assertions.t;
                                   other_log : t list }
     | GetModelInterpolant
+    | GarbageCollect of Sexp.t list
 
   let to_sexp accu = function
     | DeclareType typ_string
@@ -1035,11 +1031,12 @@ module Action = struct
        sexp "check-sat-with-interpolation"
          [build_model; is_first; Assertions.to_sexp other_assertions] ::accu
     | GetModelInterpolant -> sexp "get-unsat-model-interpolant" [] ::accu
+    | GarbageCollect sexpl -> sexp "garbage-collect" sexpl ::accu
 
 end
 
 let global_log = ref []
-let reset_global_log() = global_log := []
+let () = Global.register_cleanup (fun ~after:_ -> global_log := [])
 
 module Context = struct
 
@@ -1068,7 +1065,11 @@ module Context = struct
   let is_mcsat ctx = ctx.mcsat
 
   let all = ref []
-  let all_reset() = all := []
+  let () = Global.register_cleanup (* We don't erase contexts after GC *)
+             (fun ~after ->
+               match after with
+               | `GC -> ()
+               | _ -> all := [])
 
   let pp fmt {assertions; _} = Assertions.pp fmt !assertions
 
@@ -1104,6 +1105,11 @@ module Context = struct
   let free {context; is_alive; _ } = Context.free context; is_alive := false
 
   let action a x = x.log := a::!(x.log)
+
+  (* GC invalidates references to terms and types in x.log *)
+  let garbage_collect ?(record_log=false) x =
+    let sexps = if record_log then to_sexp x else [] in
+    x.log := [Action.GarbageCollect sexps]
 
   let status x =
     action Status x;
@@ -1271,26 +1277,30 @@ module Term = struct
   include TermSexp
 
   let count = ref 0
-  let all_uninterpreted = ref []
-  let reset() = all_uninterpreted := []; count := 0
+  let all_uninterpreted = ref (Some [])
+  let () = Global.register_cleanup
+             (fun ~after ->
+               count := 0;
+               match after with
+               | `GC -> all_uninterpreted := None; 
+               | _   -> all_uninterpreted := Some [])
 
-  let new_uninterpreted ?contexts ?name ty =
+  let new_uninterpreted ?(contexts=[]) ?name ty =
     let name = match name with
       | Some name -> name
       | None -> incr count; "x"^string_of_int !count
     in
     let t = new_uninterpreted ~name ty in
-    all_uninterpreted := t::!all_uninterpreted;
+    all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
     let action = Action.DeclareFun(name,ty) in
     global_log := action::!global_log;
-    let () = match contexts with
-      | Some contexts ->
-         List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts
-      | None -> ()
-    in
+    List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
     t
 
-  let all_uninterpreted() = !all_uninterpreted
+  let all_uninterpreted() =
+    Option.get_exn_or
+      "Can't safely tell you all uninterpreted terms after garbage collection"
+      !all_uninterpreted
 
 end
 
@@ -1298,28 +1308,30 @@ module Type = struct
   include TypeSexp
 
   let count = ref 0
-  let all_uninterpreted = ref []
-  let reset() =
-    reset();
-    all_uninterpreted := []; count := 0
+  let all_uninterpreted = ref (Some [])
+  let () = Global.register_cleanup
+             (fun ~after ->
+               count := 0;
+               match after with
+               | `GC -> all_uninterpreted := None; 
+               | _   -> all_uninterpreted := Some [])
 
-  let new_uninterpreted ?contexts ?name () =
+  let new_uninterpreted ?(contexts=[]) ?name () =
     let name = match name with
       | Some name -> name
       | None -> incr count; "x"^string_of_int !count
     in
     let t = new_uninterpreted ~name () in
-    all_uninterpreted := t::!all_uninterpreted;
+    all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
     let action = Action.DeclareType name in
     global_log := action::!global_log;
-    let () = match contexts with
-      | Some contexts ->
-         List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts
-      | None -> ()
-    in
+    List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
     t
 
-  let all_uninterpreted() = !all_uninterpreted
+  let all_uninterpreted() =
+    Option.get_exn_or
+      "Can't safely tell you all uninterpreted types after garbage collection"
+      !all_uninterpreted
 
 end
 
@@ -1347,32 +1359,18 @@ module Types = struct
       Type.pp type2
 end
 
+module GC = struct
+  include GC
+  let garbage_collect ?(record_log=false) ?(contexts=[]) term_list type_list keep_named =
+    (* If the users asks, we compile the current log *)
+    let sexps  = if record_log then List.fold_left Action.to_sexp [] !global_log else [] in
+    let action = Action.GarbageCollect sexps in
+    List.iter (fun x -> if !(x.Context.is_alive) then Context.garbage_collect x) contexts;
+    garbage_collect term_list type_list keep_named;
+    global_log := [action]
+end
+
 module Param = struct
   include Param
   let default Context.{context; _} = default context 
-end
-
-module Global = struct
-
-  include Global
-
-  let reset_ocaml() =
-    reset_is_free();
-    reset_fv();
-    ExtTerm.reset();
-    reset_global_log();
-    Context.all_reset();
-    Term.reset();
-    Type.reset();
-    Purification.reset()
-
-  let init() =
-    init();
-    reset_ocaml()
-    
-
-  let reset() =
-    reset();
-    reset_ocaml()
-    
 end

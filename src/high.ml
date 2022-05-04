@@ -615,22 +615,6 @@ module SafeMake
     val to_name : t -> string EH.t
   end
 
-  module Global = struct
-
-    let version    = let* x = yices_version    in toStringR !@x
-    let build_arch = let* x = yices_build_arch in toStringR !@x
-    let build_mode = let* x = yices_build_mode in toStringR !@x
-    let build_date = let* x = yices_build_date in toStringR !@x
-    let has_mcsat      = toBool1 yices_has_mcsat
-    let is_thread_safe = toBool1 yices_is_thread_safe
-
-    let init  = yices_init
-    let exit  = yices_exit
-    let reset = yices_reset
-
-    let set_out_of_mem_callback = yices_set_out_of_mem_callback
-  end
-
   module ErrorPrint = struct
     let print    = yices_print_error    <.> return_sint
     let print_fd = yices_print_error_fd <.> return_sint
@@ -1272,6 +1256,60 @@ module SafeMake
 
   end
 
+  module HTypes = CCHashtbl.Make(Type)
+  module HTerms = CCHashtbl.Make(Term)
+
+  module Global = struct
+
+    let version    = let* x = yices_version    in toStringR !@x
+    let build_arch = let* x = yices_build_arch in toStringR !@x
+    let build_mode = let* x = yices_build_mode in toStringR !@x
+    let build_date = let* x = yices_build_date in toStringR !@x
+    let has_mcsat      = toBool1 yices_has_mcsat
+    let is_thread_safe = toBool1 yices_is_thread_safe
+
+    (* List of hashtables of types / terms *)
+    let hTypes = ref []
+    let hTerms = ref []
+
+    let cleanup_ocaml = ref (fun ~after:_ -> ())
+
+    let register_cleanup f =
+      let current = !cleanup_ocaml in
+      let aux ~after = current ~after; f ~after in
+      cleanup_ocaml := aux
+      
+    let create create reset ?after_gc:f capacity =
+      let r = create capacity in
+      let reset = match f with
+        | Some f ->
+           (fun ~after   ->
+             match after with
+             | `GC -> f r
+             | _   -> reset r)
+        | None   -> fun ~after:_ -> reset r
+      in
+      register_cleanup reset;
+      r
+
+    let hTypes_create ?after_gc cap = create HTypes.create HTypes.reset ?after_gc cap
+    let hTerms_create ?after_gc cap = create HTerms.create HTerms.reset ?after_gc cap
+
+    let cleanup_ocaml ~after = !cleanup_ocaml ~after
+
+    let init() =
+      yices_init();
+      cleanup_ocaml ~after:`Init  
+
+    let reset() =
+      yices_reset();
+      cleanup_ocaml ~after:`Reset
+
+    let exit  = yices_exit
+
+    let set_out_of_mem_callback = yices_set_out_of_mem_callback
+  end
+
   module GC = struct
     let num_terms   = yices_num_terms <.> UInt.to_int
     let num_types   = yices_num_types <.> UInt.to_int
@@ -1285,6 +1323,10 @@ module SafeMake
       yices_garbage_collect |> swap |> ofList1 term_t
       <.> swap <.> ofList1 type_t
       <..> (fun f -> Conv.bool.write <.> f)
+
+    let garbage_collect terms types keep_named =
+      garbage_collect terms types keep_named;
+      Global.cleanup_ocaml ~after:`GC
   end
 
   module Config = struct

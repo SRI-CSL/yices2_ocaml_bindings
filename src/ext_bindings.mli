@@ -7,8 +7,6 @@ include High.API with type 'a eh := 'a
 
 module List : module type of List
 
-module HTypes   : CCHashtbl.S with type key = Type.t
-module HTerms   : CCHashtbl.S with type key = Term.t
 module HStrings : CCHashtbl.S with type key = String.t
 
 val sexp : string -> Sexp.t list -> Sexp.t
@@ -108,6 +106,7 @@ module Action : sig
                                   other_assertions : Assertions.t;
                                   other_log : t list }
     | GetModelInterpolant
+    | GarbageCollect of Sexp.t list
 
   (** Appends the action sexp(s) on top of input list *)
   val to_sexp : Sexp.t list -> t -> Sexp.t list
@@ -203,7 +202,7 @@ module Type : sig
 
   val to_sexp : t -> Sexplib.Type.t
 
-  (** All uninterpreted types *)
+  (** All uninterpreted types; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
 
 end
@@ -236,7 +235,7 @@ module Term : sig
   (** For bitvector terms *)
   val width_of_term : t -> int
 
-  (** All uninterpreted terms *)
+  (** All uninterpreted terms; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
 
 end
@@ -310,5 +309,17 @@ module ExtTerm : sig
 
 end
 
-
-module Global : module type of Global
+module GC : sig
+  include module type of GC
+                       
+  (** Like regular GC, with two additional arguments.
+   record_log (default is false):
+   true means that the logs (referencing terms and types that may disappear)
+   are converted to S-expressions, at a computational cost; otherwise logs are erased.
+   contexts (default is []):
+   which contexts are we looking at for editing their logs (global log is always edited) *)
+  val garbage_collect :
+    ?record_log:bool ->
+    ?contexts:Context.t list ->
+    Term.t list -> Type.t list -> bool -> unit
+end
