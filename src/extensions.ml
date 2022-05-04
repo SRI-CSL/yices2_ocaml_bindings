@@ -13,7 +13,6 @@ module type YicesContext = sig
   val malloc : ?config:config -> unit -> t
   val free : t -> unit
   val status : t -> Types.smt_status
-  val reset  : t -> unit
   val push   : t -> unit
   val pop    : t -> unit
   val enable_option   : t -> option:string -> unit
@@ -22,8 +21,6 @@ module type YicesContext = sig
   val assert_formulas : t -> term list -> unit
   val check : ?param:Param.t -> t -> Types.smt_status
   val get_model : ?keep_subst:bool -> t -> model
-
-  val global_reset : unit -> unit
 
   val pp_log : t Format.printer
 end
@@ -38,7 +35,6 @@ module Context : StandardYicesContext with type t = Context.t = struct
   type model  = Model.t
   type config = Config.t
   type term   = Term.t
-  let global_reset () = ()
 end
 
 type ('model, 'interpolant) answer =
@@ -58,12 +54,8 @@ module type Ext = sig
 
   val malloc : ?config:config -> unit -> old_config option * t
   val free : t -> unit
-  val reset  : t -> unit
   val push   : t -> unit
   val pop    : t -> unit
-
-  val init  : unit -> unit
-  val global_reset : unit -> unit
 
   val assert_formula : (old_term -> unit) -> t -> term -> unit
   val check : old_model -> (model, old_term) answer
@@ -133,7 +125,6 @@ YicesContext with type term = C.term
 
   let push t = Context.push t.old_context; C.push t.state
   let pop t  = Context.pop t.old_context; C.pop t.state
-  let reset t = Context.reset t.old_context; C.reset t.state
 
   let enable_option t = Context.enable_option t.old_context
   let disable_option t = Context.disable_option t.old_context
@@ -145,7 +136,6 @@ YicesContext with type term = C.term
 
   let status t = !(t.status)
 
-  let global_reset() = Context.global_reset(); C.global_reset()
   let pp_log fmt t = Context.pp_log fmt t.old_context
 end
 
@@ -155,12 +145,8 @@ module Trivial = struct
 
   let malloc ?config () = config, ()
   let free _ = ()
-  let reset _ = ()
   let push _ = ()
   let pop _ = ()
-
-  let init _ = ()
-  let global_reset _ = ()
 
 end
 
@@ -173,10 +159,8 @@ module AddDiff = struct
 
   include Trivial
 
-  let diff_table   = HTypes.create 10
-  let diff_symbols = HTerms.create 10
-  let init ()      = HTypes.reset diff_table; HTerms.reset diff_symbols
-  let global_reset = init
+  let diff_table   = Global.hTypes_create 10
+  let diff_symbols = Global.hTerms_create 10
 
   module ExtraType = struct
 
@@ -222,8 +206,7 @@ module AddDiff = struct
 
   type t = unit HTerms.t
 
-  let reset t = HTerms.reset t
-  let malloc ?config () = config, HTerms.create 10
+  let malloc ?config () = config, Global.hTerms_create 10
   let free = HTerms.reset
 
   (* Looks at an equality term t of the form a === b,
@@ -326,8 +309,8 @@ module AddLength = struct
   module HLFun = CCHashtbl.Make(LFun)
 
   (* Map from lengthed array types to lfun records *)
-  let lfun_types = HTypes.create 10
-                 
+  let lfun_types = Global.hTypes_create 10
+
   (* Map from triples (dom, codom, admissible) to already constructed lengthed array types,
      to avoid reconstructing same lengthed array types several times *)
   let lfun_table = HLFun.create 10
@@ -335,14 +318,14 @@ module AddLength = struct
   (* Table of all uninterpreted symbols pertaining to a lengthed array type:
      update, application, length, as_fun *)
   let lfun_symbols : ([`Update | `Application | `Length | `AsFun] * Type.t ) HTerms.t =
-    HTerms.create 10
+    Global.hTerms_create 10
 
-  let init () = HTypes.reset lfun_types;
-                HLFun.reset  lfun_table;
-                HTerms.reset lfun_symbols
-  let global_reset = init
-                        
+  let cleanup ~after =
+    match after with
+    | `GC -> failwith "You cannot use the GC in this extension of arrays with lengths"
+    | `Init | `Reset -> HLFun.reset lfun_table
 
+  let () = Global.register_cleanup cleanup
 
   module ExtraType = struct
 
@@ -457,8 +440,7 @@ module AddLength = struct
 
   type t = unit HTerms.t
 
-  let reset t = HTerms.reset t
-  let malloc ?config () = config, HTerms.create 10
+  let malloc ?config () = config, Global.hTerms_create 10
   let free = HTerms.reset
                    
   let assert_formula old_assert state f =

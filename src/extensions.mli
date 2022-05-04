@@ -11,7 +11,6 @@ module type YicesContext = sig
   val malloc : ?config:config -> unit -> t
   val free : t -> unit
   val status : t -> Types.smt_status
-  val reset  : t -> unit
   val push   : t -> unit
   val pop    : t -> unit
   val enable_option   : t -> option:string -> unit
@@ -20,8 +19,6 @@ module type YicesContext = sig
   val assert_formulas : t -> term list -> unit
   val check : ?param:Param.t -> t -> Types.smt_status
   val get_model : ?keep_subst:bool -> t -> model
-
-  val global_reset : unit -> unit
 
   val pp_log : t Format.printer
 end
@@ -50,12 +47,8 @@ module type Ext = sig
 
   val malloc : ?config:config -> unit -> old_config option * t
   val free : t -> unit
-  val reset  : t -> unit
   val push   : t -> unit
   val pop    : t -> unit
-
-  val init  : unit -> unit
-  val global_reset : unit -> unit
 
   val assert_formula : (old_term -> unit) -> t -> term -> unit
   val check : old_model -> (model, old_term) answer
@@ -83,11 +76,8 @@ module Trivial : sig
   type t = unit
   val malloc : ?config:'a -> t -> 'a option * t
   val free : 'a -> t
-  val reset : 'a -> t
   val push : 'a -> t
   val pop : 'a -> t
-  val init : 'a -> t
-  val global_reset : 'a -> t
 end
 
 module AddDiff : sig
