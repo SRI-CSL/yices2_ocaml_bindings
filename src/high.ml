@@ -1556,7 +1556,7 @@ module SafeMake
       let c = yices_get_value_as_term m t in
       if sintcheck c then return_sint c
       else get_value m t |+> val_as_term m
-      
+
     let formula_true_in_model  = yices_formula_true_in_model <..> toBool
     let formulas_true_in_model = yices_formulas_true_in_model <.> ofList1 term_t <..> toBool
     let terms_value m l =

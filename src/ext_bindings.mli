@@ -138,6 +138,7 @@ module Context : sig
   val pp_log : t Format.printer
 
   val malloc : ?config:Config.t -> unit -> t
+  val malloc_mcsat : unit -> t
 
   (** All contexts ever created *)
   val all  : unit -> t list

@@ -1,161 +1,16 @@
 open Containers
 open Sexplib
-open Type
+
 open Ext_bindings
-
-module type YicesContext = sig
-
-  type term     
-  type t
-  type config
-  type model
-
-  val malloc : ?config:config -> unit -> t
-  val free : t -> unit
-  val status : t -> Types.smt_status
-  val push   : t -> unit
-  val pop    : t -> unit
-  val enable_option   : t -> option:string -> unit
-  val disable_option  : t -> option:string -> unit
-  val assert_formula  : t -> term -> unit
-  val assert_formulas : t -> term list -> unit
-  val check : ?param:Param.t -> t -> Types.smt_status
-  val get_model : ?keep_subst:bool -> t -> model
-
-  val pp_log : t Format.printer
-end
-
-module type StandardYicesContext =
-  YicesContext with type term   = Term.t
-                and type config = Config.t
-                and type model  = Model.t
-
-module Context : StandardYicesContext with type t = Context.t = struct
-  include Context
-  type model  = Model.t
-  type config = Config.t
-  type term   = Term.t
-end
-
-type ('model, 'interpolant) answer =
-  | Sat of 'model
-  | Unsat of 'interpolant
-
-module type Ext = sig
-
-  type old_term
-  type old_config
-  type old_model
-
-  type term
-  type config
-  type model
-  type t (* mutable state *)
-
-  val malloc : ?config:config -> unit -> old_config option * t
-  val free : t -> unit
-  val push   : t -> unit
-  val pop    : t -> unit
-
-  val assert_formula : (old_term -> unit) -> t -> term -> unit
-  val check : old_model -> (model, old_term) answer
-
-end
-
-module type StandardExt =
-  Ext with type old_term   := Term.t
-       and type old_config := Config.t
-       and type old_model  := Model.t
-       and type term   := Term.t
-       and type config := Config.t
-       and type model  := Model.t
-
-module Make
-         (Context : YicesContext)
-         (C : Ext with type old_term   := Context.term
-                   and type old_config := Context.config
-                   and type old_model  := Context.model) :
-YicesContext with type term = C.term
-              and type config = C.config
-              and type model  = C.model
-  = struct
-
-  type term   = C.term
-  type config = C.config
-  type model  = C.model
-
-  type t = {
-      old_context : Context.t;
-      model : C.model option ref;
-      status : Types.smt_status ref;
-      state : C.t
-    }
-
-  let malloc ?config () =
-    let old_config, state = C.malloc ?config () in
-    let old_context = Context.malloc ?config:old_config () in
-    { old_context;
-      model  = ref None;
-      status = ref (Context.status old_context);
-      state }
-
-  let free t = Context.free t.old_context; C.free t.state
-
-  let assert_formula t  = C.assert_formula (Context.assert_formula t.old_context) t.state
-  let assert_formulas t = List.iter (assert_formula t)
-
-  let rec check ?param t =
-    match Context.check ?param t.old_context with
-    | `STATUS_SAT ->
-       begin
-         match Context.get_model t.old_context |> C.check with
-         | Sat model ->
-            t.model  := Some model;
-            t.status := `STATUS_SAT;
-            `STATUS_SAT
-         | Unsat interpolant ->
-            Context.assert_formula t.old_context interpolant;
-            check ?param t
-       end
-
-    | status ->
-       t.model := None;
-       t.status := status;
-       status
-
-  let push t = Context.push t.old_context; C.push t.state
-  let pop t  = Context.pop t.old_context; C.pop t.state
-
-  let enable_option t = Context.enable_option t.old_context
-  let disable_option t = Context.disable_option t.old_context
-  let get_model ?keep_subst:_ t =
-    match !(t.model) with
-    | Some model -> model
-    | None -> High.ExceptionsErrorHandling.raise_bindings_error
-                "No model: last status was %a" Types.pp_smt_status !(t.status)
-
-  let status t = !(t.status)
-
-  let pp_log fmt t = Context.pp_log fmt t.old_context
-end
-
-module Trivial = struct
-
-  type t = unit
-
-  let malloc ?config () = config, ()
-  let free _ = ()
-  let push _ = ()
-  let pop _ = ()
-
-end
-
+open Extension_builder
 
 module AddDiff = struct
 
   type term   = Term.t 
   type config = Config.t
   type model  = Model.t
+
+  let config_set = Config.set
 
   include Trivial
 
@@ -274,11 +129,18 @@ module AddDiff = struct
     (* print_endline "---close"; *)
     old_assert f
 
-  let check old_model = Sat old_model
+  let check _t old_model = Sat old_model
+
+  let interpolant _t old_interpolant = old_interpolant
 
 end
 
 module Diff = Make(Context)(AddDiff)
+
+
+
+
+
 
 
 module AddLength = struct
@@ -286,6 +148,8 @@ module AddLength = struct
   type term   = Term.t 
   type config = Config.t
   type model  = Model.t
+
+  let config_set = Config.set
 
   include Trivial
 
@@ -490,8 +354,9 @@ module AddLength = struct
     scan f;
     old_assert f
 
-  let check old_model = Sat old_model
+  let check _t old_model = Sat old_model
     
+  let interpolant _t old_interpolant = old_interpolant
 
 end
 

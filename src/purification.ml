@@ -52,21 +52,32 @@ module Term = struct
 
   let get_body k = HTerms.get_or to_body ~default:k k
 
-  let get_var k =
+  let get_var ?(get_typ=(fun x -> x)) k =
+    let typ    = Term.type_of_term k in
+    let newtyp = get_typ typ in
+    let pure ?name () =
+      let name =
+        match name with
+        | None      -> Format.sprintf "pure_%i" (Term.hash k)
+        | Some name -> Format.sprintf "pure_%s" name
+      in
+      let var  = Term.new_uninterpreted ~name newtyp in
+      HTerms.replace to_body var k;
+      HTerms.add to_var k var;
+      var, true
+    in
     match Term.constructor k with
     | `YICES_VARIABLE ->
        ExceptionsErrorHandling.raise_bindings_error
          "Cannot purify possibly bound variable %s" (PP.term_string k)
-    | `YICES_UNINTERPRETED_TERM -> k, false
+    | `YICES_UNINTERPRETED_TERM ->
+       if HighAPI.Type.equal typ newtyp then k, false
+       else
+         if HTerms.mem to_var k then HTerms.find to_var k, false
+         else pure ~name:(PP.term_string k) ()
     | _ ->
        if HTerms.mem to_var k then HTerms.find to_var k, false
-       else
-         let typ  = Term.type_of_term k in
-         let name = Format.sprintf "pure_%i" (Term.hash k) in
-         let var  = Term.new_uninterpreted ~name typ in
-         HTerms.replace to_body var k;
-         HTerms.add to_var k var;
-         var, true
+       else pure ()
     
   module Accu = struct
     type accu = (Term.t * Term.t) list

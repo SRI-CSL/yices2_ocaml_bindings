@@ -48,7 +48,7 @@ let match_nn use_notation get_notation use_names get_names t =
 
 let notation replace hooks t =
   let aux cont =
-    replace hooks t (lazy (Format.sprintf "\"%t\"" cont))
+    replace hooks t (lazy (Format.sprintf "%t" cont))
   in
   Format.kdprintf aux
 
@@ -836,6 +836,33 @@ module Slice = struct
   let pp fmt t = to_sexp t |> pp_sexp fmt
 end
 
+module Value = struct
+
+  type t = yval
+
+  let rec pp m fmt : t -> unit = function
+    | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
+       Format.fprintf fmt "%a" TermSexp.pp (Term.const_as_term s)
+    | `Tuple(_,l) ->
+       Format.fprintf fmt "(%a)" (List.pp (pp_val m)) l
+    | `Fun { mappings = []; default; _ } ->
+       Format.fprintf fmt "{ @[<v>@[_ --> %a@]@] }"
+         (pp_val m) default
+    | `Fun { mappings; default; _ } ->
+       Format.fprintf fmt "{ @[<v>%a;@,@[_ --> %a@]@] }"
+         (List.pp (pp_mapping m)) mappings (pp_val m) default
+    | `Algebraic a ->
+       Format.fprintf fmt "%s" (High.Algebraic.to_string a.libpoly)
+  and pp_mapping m fmt { args; value } =
+    match args with
+    | [a] ->
+       Format.fprintf fmt "@[@[%a@] --> %a@]" (pp_val m) a (pp_val m) value
+    | _ ->
+       Format.fprintf fmt "@[@[(%a)@] --> %a@]" (List.pp (pp_val m)) args (pp_val m) value
+
+  and pp_val m fmt v = Model.reveal m v |> pp m fmt
+
+end
 
 module Model = struct
   include Model
@@ -886,17 +913,8 @@ module SModel = struct
 
   let pp ?pp_start ?pp_stop ?pp_sep () fmt {support;model} =
     let aux fmt u =
-      try
-        let v = Model.get_value_as_term model u in
-        Format.fprintf fmt "@[%a := %a@]" TermSexp.pp u TermSexp.pp v
-      with
-        _ ->
-        try
-          let v = Model.get_algebraic_number_value model u in
-          Format.fprintf fmt "@[%a := %s@]" TermSexp.pp u (Algebraic.to_string v.libpoly)
-        with
-          _ -> Format.fprintf fmt "@[%a := Can't print@]" TermSexp.pp u 
-           
+      let v = Model.get_value model u in
+      Format.fprintf fmt "@[%a := %a@]" TermSexp.pp u (Value.pp_val model) v
     in
     match support with
     | [] -> Format.fprintf fmt "[]"
@@ -1100,6 +1118,12 @@ module Context = struct
     all := context::!all;
     context
 
+  let malloc_mcsat () =
+    let cfg = Config.malloc () in
+    Config.set cfg ~name:"solver-type" ~value:"mcsat";
+    Config.set cfg ~name:"model-interpolation" ~value:"true";
+    malloc ~config:cfg ()
+    
   let all() = !all
 
   let free {context; is_alive; _ } = Context.free context; is_alive := false

@@ -24,7 +24,7 @@ module Term : sig
      Several calls on the same argument give the same output.
      Extra boolean indicates whether a fresh uninterpreted type has been created.
    *)
-  val get_var  : Term.t -> Term.t * bool
+  val get_var  : ?get_typ:(HighAPI.Type.t -> HighAPI.Type.t) -> Term.t -> Term.t * bool
   val get_body : Term.t -> Term.t
   type accu := (Term.t * Term.t) list
   (* Traverses the term and purify sub-term that do not satisfy the predicate;

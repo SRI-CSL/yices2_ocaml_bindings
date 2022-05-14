@@ -1,84 +1,13 @@
-open Containers
 open Ext_bindings
+open Extension_builder
 
-module type YicesContext = sig
+(*************************************)
+(* Now let's define some extensions! *)
+(*************************************)
 
-  type term
-  type t
-  type config
-  type model
-
-  val malloc : ?config:config -> unit -> t
-  val free : t -> unit
-  val status : t -> Types.smt_status
-  val push   : t -> unit
-  val pop    : t -> unit
-  val enable_option   : t -> option:string -> unit
-  val disable_option  : t -> option:string -> unit
-  val assert_formula  : t -> term -> unit
-  val assert_formulas : t -> term list -> unit
-  val check : ?param:Param.t -> t -> Types.smt_status
-  val get_model : ?keep_subst:bool -> t -> model
-
-  val pp_log : t Format.printer
-end
-
-module type StandardYicesContext =
-  YicesContext with type term   = Term.t
-                and type config = Config.t
-                and type model  = Model.t
-
-module Context : StandardYicesContext with type t = Context.t
-
-type ('model, 'interpolant) answer =
-  | Sat of 'model
-  | Unsat of 'interpolant
-
-module type Ext = sig
-
-  type old_term
-  type old_config
-  type old_model
-
-  type term
-  type config
-  type model
-  type t (* mutable state *)
-
-  val malloc : ?config:config -> unit -> old_config option * t
-  val free : t -> unit
-  val push   : t -> unit
-  val pop    : t -> unit
-
-  val assert_formula : (old_term -> unit) -> t -> term -> unit
-  val check : old_model -> (model, old_term) answer
-
-end
-
-module type StandardExt =
-  Ext with type old_term   := Term.t
-       and type old_config := Config.t
-       and type old_model  := Model.t
-       and type term   := Term.t
-       and type config := Config.t
-       and type model  := Model.t
-
-module Make
-         (Context : YicesContext)
-         (C : Ext with type old_term   := Context.term
-                   and type old_config := Context.config
-                   and type old_model  := Context.model) :
-YicesContext with type term = C.term
-              and type config = C.config
-              and type model  = C.model
-
-module Trivial : sig
-  type t = unit
-  val malloc : ?config:'a -> t -> 'a option * t
-  val free : 'a -> t
-  val push : 'a -> t
-  val pop : 'a -> t
-end
+(*******************************************************************************)
+(* First extension: the diff symbol for extensionality in the theory of arrays *)
+(*******************************************************************************)
 
 module AddDiff : sig
 
@@ -96,6 +25,10 @@ module AddDiff : sig
 end
 
 module Diff : StandardYicesContext
+
+(*****************************************)
+(* Second extension: arrays with lengths *)
+(*****************************************)
 
 module AddLength : sig
 

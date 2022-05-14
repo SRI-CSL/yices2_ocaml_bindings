@@ -373,12 +373,73 @@ let test_lfun () =
     | `STATUS_UNSAT ->
        (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx); *)       
        (* print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
-       ()
+       print_endline "Done with Extension \"Arrays with Length\""
     | `STATUS_SAT ->
        CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (DiffLength.get_model ctx);
        CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx;
        assert false
     | _ -> assert false
+  with
+  | ExceptionsErrorHandling.YicesException(_,report) as exc ->
+     let bcktrace = Printexc.get_backtrace() in
+     CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string());
+     CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@,"
+       Types.pp_error_report report;
+     CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace;
+     raise exc
+
+let test_mcsat_arrays () =
+  let open Yices2.Ext_bindings in
+  let open Yices2.Extension_MCSATarrays in
+  Global.init();
+  let real  = Type.(real()) in
+  let typ   = Type.func [ real ] real in
+  let a     = Term.new_uninterpreted ~name:"a" typ in
+  let b     = Term.new_uninterpreted ~name:"b" typ in
+  let index = [ Term.Arith.int 1 ] in
+  let a_mod = Term.update a index (Term.Arith.int 2) in
+  let i     = Term.new_uninterpreted ~name:"i" real in
+  let index2 = [i] in
+  try
+
+    let () = (* Read over write: same index *)
+      let ctx = Arrays.malloc_mcsat () in
+      Arrays.assert_formula ctx Term.(b === a_mod);
+      Arrays.assert_formula ctx Term.(application b index2 =/= Term.Arith.int 2);
+      let smodel = Model.from_map [i , Term.Arith.int 1] |> SModel.make ~support:[i] in 
+      match Arrays.check_with_smodel ctx smodel with
+      | `STATUS_UNSAT ->
+         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx); *)
+         print_endline (CCFormat.sprintf "@[UNSAT@]");
+         print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx));
+         Arrays.free ctx
+      | `STATUS_SAT ->
+         CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx);
+         CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx;
+         assert false
+      | _ -> assert false
+    in
+
+    let () = (* Read over write: different index *)
+      let ctx = Arrays.malloc () in
+      Arrays.assert_formula ctx Term.(b === a_mod);
+      Arrays.assert_formula ctx Term.(application b index2 =/= application a index2);
+      let smodel = Model.from_map [i , Term.Arith.int 0] |> SModel.make ~support:[i] in
+      match Arrays.check_with_smodel ctx smodel with
+      | `STATUS_UNSAT ->
+         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx); *)       
+         print_endline (CCFormat.sprintf "@[UNSAT@]");
+         print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx));
+         Arrays.free ctx
+      | `STATUS_SAT ->
+         CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx);
+         CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx;
+         assert false
+      | _ -> assert false
+    in
+
+    print_endline "Done with Extension \"Arrays in MCSAT\""
+
   with
   | ExceptionsErrorHandling.YicesException(_,report) as exc ->
      let bcktrace = Printexc.get_backtrace() in
