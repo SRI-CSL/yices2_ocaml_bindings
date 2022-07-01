@@ -8,7 +8,17 @@
  (name yices2)
  (public_name yices2_bindings)
  (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings config)
- (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
+ (flags (:standard
+        -cclib -Wl,-force_load
+        -cclib %{env:LIBRARY_PATH=/usr/local/lib/}/libyices.a
+        -cclib %{env:LIBRARY_PATH=/usr/local/lib/}/libcudd.a)) ; MAC
+ ; (flags (:standard
+ ;         -ccopt -L/usr/local/lib
+ ;         -cclib -Wl,--verbose
+ ;         -cclib -Wl,-Bstatic
+ ;         -cclib -Wl,-force_load
+ ;         -cclib -l:yices
+ ;         -cclib -l:cudd)) ; Linux
  (preprocess (pps ppx_deriving.std ppx_optcomp))
  (synopsis "Yices2 bindings")
 )
