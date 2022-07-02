@@ -3065,6 +3065,12 @@ module type API = sig
      calls reveal and then the above function *)
     val val_as_term  : t -> yval_t ptr -> term_t eh
 
+    (** Hilbert's epsilon for given type (takes a lambda as argument) *)
+    val epsilon : ?name:string -> Type.t -> term_t eh
+
+    (** Hilbert's epsilon for the reals (takes a lambda as argument) *)
+    val epsilon_real : unit -> term_t eh
+
     (** Value of term t in model converted to a constant term.
 
         For primitive types, this is the same as extracting the value
