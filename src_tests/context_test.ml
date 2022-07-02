@@ -121,6 +121,8 @@ let test_context (type a) (type c)
       assert(Types.equal_smt_status status `STATUS_SAT);
       let model = Context.get_model ctx in
       let sq2 = EH1.Model.get_algebraic_number_value model x in
+      let _sq2_term = EH1.Model.get_value_as_term model x in
+      (* print_endline(EH1.PP.term_string sq2_term); *)
       assert Q.(equal sq2.a (of_ints (-23) 16));
       assert Q.(equal sq2.b (of_ints (-45) 32));
       assert CCList.(equal Z.equal sq2.coeffs (List.map Z.of_int [-2;0;1]));
