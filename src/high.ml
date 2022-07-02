@@ -1539,7 +1539,7 @@ module SafeMake
         HTypes.add epsilon_table typ v;
         EH.return v
 
-    let epsilon_Real() = Type.real() |+> epsilon  
+    let epsilon_real() = Type.real() |+> epsilon  
       
     let rec yval_as_term m : yval -> Term.t EH.t = function
       | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
@@ -1587,7 +1587,7 @@ module SafeMake
          let+ ub = Term.Arith.(if algebraic.a_open then lt else leq) var ub in
          let+ predicate_body = Term.andN [poly_is0; lb; ub] in
          let+ predicate = Term.lambda [var] predicate_body in 
-         let+ epsilon = epsilon_Real() in
+         let+ epsilon = epsilon_real() in
          Term.application epsilon [predicate]
          
     and val_as_term m v = reveal m v |+> yval_as_term m
