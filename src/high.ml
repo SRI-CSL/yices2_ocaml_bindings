@@ -1426,30 +1426,30 @@ module SafeMake
                                   |> alloc yval_t
                                   |> check1 (fun x -> x))
 
-    let val_is_int32           = yices_val_is_int32      <..> toBool
-    let val_is_int64           = yices_val_is_int64      <..> toBool
-    let val_is_rational32      = yices_val_is_rational32 <..> toBool
-    let val_is_rational64      = yices_val_is_rational64 <..> toBool
-    let val_is_integer         = yices_val_is_integer    <..> toBool
+    let val_is_int32       = yices_val_is_int32      <..> toBool
+    let val_is_int64       = yices_val_is_int64      <..> toBool
+    let val_is_rational32  = yices_val_is_rational32 <..> toBool
+    let val_is_rational64  = yices_val_is_rational64 <..> toBool
+    let val_is_integer     = yices_val_is_integer    <..> toBool
 
-    let val_bitsize            = yices_val_bitsize        <..> toIntu
-    let val_tuple_arity        = yices_val_tuple_arity    <..> toIntu
-    let val_mapping_arity      = yices_val_mapping_arity  <..> toIntu
-    let val_function_arity     = yices_val_function_arity <..> toIntu
-    let val_function_type      = yices_val_function_type  <..> return_sint
+    let val_bitsize        = yices_val_bitsize        <..> toIntu
+    let val_tuple_arity    = yices_val_tuple_arity    <..> toIntu
+    let val_mapping_arity  = yices_val_mapping_arity  <..> toIntu
+    let val_function_arity = yices_val_function_arity <..> toIntu
+    let val_function_type  = yices_val_function_type  <..> return_sint
 
-    let val_get_bool           = yices_val_get_bool
-                                 <..> alloc1 bool_t
-                                 <++> (Conv.bool.read <.> return)
-    let val_get_int32          = yices_val_get_int32 <..> alloc1 sint
-    let val_get_int64          = yices_val_get_int64 <..> alloc1 long
-    let val_get_int            = val_get_int64 <++> (Long.to_int <.> return)
-    let val_get_rational32     = yices_val_get_rational32 <..> alloc2 sint uint
-    let val_get_rational64     = yices_val_get_rational64 <..> alloc2 long ulong
-    let val_get_double         = yices_val_get_double <..> alloc1 float
+    let val_get_bool       = yices_val_get_bool
+                             <..> alloc1 bool_t
+                             <++> (Conv.bool.read <.> return)
+    let val_get_int32      = yices_val_get_int32 <..> alloc1 sint
+    let val_get_int64      = yices_val_get_int64 <..> alloc1 long
+    let val_get_int        = val_get_int64 <++> (Long.to_int <.> return)
+    let val_get_rational32 = yices_val_get_rational32 <..> alloc2 sint uint
+    let val_get_rational64 = yices_val_get_rational64 <..> alloc2 long ulong
+    let val_get_double     = yices_val_get_double <..> alloc1 float
 [%%if gmp_present]
-    let val_get_mpz            = yices_val_get_mpz    <..> toZ1
-    let val_get_mpq            = yices_val_get_mpq    <..> toQ1
+    let val_get_mpz        = yices_val_get_mpz    <..> toZ1
+    let val_get_mpq        = yices_val_get_mpq    <..> toQ1
 [%%endif]
 
 
@@ -1458,15 +1458,15 @@ module SafeMake
              |> alloc Algebraic.t
              |> check1 algebraic_treat)
 
-    let val_get_bv m t         =
+    let val_get_bv m t =
       let+ n = val_bitsize m t in
       t |> yices_val_get_bv m |> allocL ~n bool_t |+> (List.map Conv.bool.read <.> return)
 
-    let val_get_scalar m t     =
+    let val_get_scalar m t =
       let+ s, typ = yices_val_get_scalar m t |> alloc2 sint type_t in
       return(SInt.to_int s, typ)
                   
-    let val_expand_tuple m t   =
+    let val_expand_tuple m t =
       let+ arity = val_tuple_arity m t in
       Alloc.(load (Array.start <.> yices_val_expand_tuple m t)
              |> allocN arity yval_t
@@ -1518,6 +1518,29 @@ module SafeMake
         | `YVAL_MAPPING -> raise_bindings_error "reveal does not apply to mapping values"
         | `YVAL_UNKNOWN -> raise_bindings_error "value is unknown"
 
+    let epsilon_table = Global.hTypes_create 10
+
+    let epsilon ?name typ =
+      try HTypes.find epsilon_table typ |> EH.return
+      with Not_found ->
+        let+ name = match name with
+          | Some name -> EH.return name
+          | None ->
+             let+ typ_string = PP.type_string typ in
+             EH.return("ε_" ^ typ_string)
+        in
+        let+ epsilon_type =
+          let open Type in
+          let+ bool = bool() in
+          let+ predicate_type = func [typ] bool in
+          func [predicate_type] typ
+        in
+        let+ v = Term.new_uninterpreted ~name epsilon_type in
+        HTypes.add epsilon_table typ v;
+        EH.return v
+
+    let epsilon_Real() = Type.real() |+> epsilon  
+      
     let rec yval_as_term m : yval -> Term.t EH.t = function
       | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
          Term.const_as_term s
@@ -1547,8 +1570,25 @@ module SafeMake
            Term.ite cond value sofar
          in
          fold aux default mappings |+> Term.lambda variables
-      | `Algebraic _ ->
-         raise_bindings_error "algebraic val as terms not supported"
+      | `Algebraic algebraic ->
+         let+ var = Type.real() |+> Term.new_variable in
+         let aux (powered, sofar) coeff =
+           let monomial = coeff, powered in
+           let+ powered = Term.Arith.(var ** powered) in
+           EH.return (powered, monomial::sofar)
+         in
+         let+ zero = Term.Arith.zero() in
+         let+ one  = Term.Arith.int 1 in
+         let+ _,poly = fold aux (EH.return(one,[])) algebraic.coeffs in
+         let+ poly_is0 = Term.(Arith.poly_mpz poly |+> eq zero) in
+         let+ lb = Term.Arith.mpq algebraic.a in
+         let+ ub = Term.Arith.mpq algebraic.b in
+         let+ lb = Term.Arith.(if algebraic.a_open then lt else leq) lb var in
+         let+ ub = Term.Arith.(if algebraic.a_open then lt else leq) var ub in
+         let+ predicate_body = Term.andN [poly_is0; lb; ub] in
+         let+ predicate = Term.lambda [var] predicate_body in 
+         let+ epsilon = epsilon_Real() in
+         Term.application epsilon [predicate]
          
     and val_as_term m v = reveal m v |+> yval_as_term m
 
