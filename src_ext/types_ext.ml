@@ -1,5 +1,5 @@
 open Containers
-open Ext_bindings
+open Yices2.Ext_bindings
 
 (**************************************************************)
 (* This module is here to help you build extensions to Yices. *)
@@ -40,10 +40,6 @@ module type StandardYicesContext =
   YicesContext with type term   = Term.t
                 and type config = Config.t
                 and type model  = Model.t
-
-(* This is the initial Yices implementation of the above.
-   That's the base implementation you are extending. *)
-module Context : StandardYicesContext with type t = Context.t
 
 (* Generic type of answers for satisfiability queries. *)
 type ('model, 'interpolant) answer =
@@ -98,24 +94,25 @@ module type StandardExt =
        and type config := Config.t
        and type model  := Model.t
 
-(* Here's the meat of this solver extension. It takes
-   - the solver you're extending,
-   - the specs of your extension,
-   and it produces a new solver. *)
-module Make
-         (Context : YicesContext)                      (* The solver you're extending *)
-         (C : Ext with type old_term   := Context.term (* The specs of your extension *)
-                   and type old_config := Context.config
-                   and type old_model  := Context.model) :
-YicesContext with type term = C.term
-              and type config = C.config
-              and type model  = C.model
+(* Module types for syntax extensions *)
 
-(* A trivial seed for your extension specs, with no state *)
-module Trivial : sig
-  type t = unit
-  val malloc : ?config:'a -> t -> 'a option * t
-  val free : 'a -> t
-  val push : 'a -> t
-  val pop : 'a -> t
+module type TypeIndex = sig
+  include Hashtbl.HashedType
+  val name : string
+  val pp : t Format.printer
+end
+
+module type TermIndex = sig
+  include TypeIndex
+  val get_type : t -> Type.t list * Type.t
+end
+                  
+module type NewTypes = sig
+  include Dmap.DORDERED
+  val index : 'a t -> (module TypeIndex with type t = 'a)
+end
+
+module type NewTerms = sig
+  include Dmap.DORDERED
+  val index : 'a t -> (module TermIndex with type t = 'a)
 end

@@ -3,12 +3,14 @@
  (deps (:gmp ../config/gmp.mlh))
  (mode (promote (until-clean)))
  (action (copy %{gmp} %{targets})))
- 
-(test
- (name test)
- (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings yices2 extensions)
+
+(library
+ (name extensions)
+ (public_name yices2.extensions)
+ (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings config yices2 dmap)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))
+ (synopsis "Yices2 extensions")
 )
 
 (env (dev

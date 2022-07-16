@@ -41,6 +41,10 @@ module Types = struct
   type yices_gen_mode_t   = uint [@@deriving eq, ord]
   type error_code_t       = uint [@@deriving eq, ord]
 
+  module Hsint = CCHashtbl.Make(struct include SInt let hash = hash_sint end)
+  module HTypes = Hsint
+  module HTerms = Hsint
+             
 end
 
 open Types

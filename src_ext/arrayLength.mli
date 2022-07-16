@@ -1,34 +1,9 @@
-open Ext_bindings
-open Extension_builder
+open Yices2.Ext_bindings
+open Types_ext
 
-(*************************************)
-(* Now let's define some extensions! *)
-(*************************************)
-
-(*******************************************************************************)
-(* First extension: the diff symbol for extensionality in the theory of arrays *)
-(*******************************************************************************)
-
-module AddDiff : sig
-
-  include StandardExt
-
-  module ExtraType : sig
-    val diff : Types.uninterpreted -> Term.t list
-  end
-
-  module ExtraTerm : sig
-    val diff : Term.t -> Term.t -> Term.t list
-    val reveal : 'a Types.termstruct -> (Term.t * Term.t) option
-  end
-
-end
-
-module Diff : StandardYicesContext
-
-(*****************************************)
-(* Second extension: arrays with lengths *)
-(*****************************************)
+(***********************)
+(* Arrays with lengths *)
+(***********************)
 
 module AddLength : sig
 
@@ -68,4 +43,4 @@ module AddLength : sig
 
 end
 
-module DiffLength : StandardYicesContext
+include StandardYicesContext

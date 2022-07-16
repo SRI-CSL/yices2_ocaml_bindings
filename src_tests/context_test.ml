@@ -340,16 +340,16 @@ let test_ext_context () =
 
 let test_lfun () =
   let open Yices2.Ext_bindings in
-  let open Yices2.Extensions in
+  let open Extensions in
   Global.init();
-  let ctx = DiffLength.malloc () in
+  let ctx = ArrayLength.malloc () in
   let int = Type.(int()) in
   let admissible =
     let length = Term.new_variable int in
     let index  = Term.new_variable int in
     Term.(lambda [length; index] Arith.(leq (zero()) index &&& lt index length))
   in
-  let open AddLength in
+  let open ArrayLength.AddLength in
   let typ = ExtraType.lfun ~admissible ~length_type:int ~dom:[int] ~codom:int () in
   (* print_endline (CCFormat.sprintf "%a" Type.pp typ); *)
   let a = Term.new_uninterpreted ~name:"a" typ in
@@ -359,26 +359,26 @@ let test_lfun () =
   try
     let la = Term.( ExtraTerm.length a === Arith.int 2) in
     (* print_endline (CCFormat.sprintf "%a" Term.pp la); *)
-    DiffLength.assert_formula ctx la;
+    ArrayLength.assert_formula ctx la;
     let lb = Term.( ExtraTerm.length b === Arith.int 2) in
     (* print_endline (CCFormat.sprintf "%a" Term.pp lb); *)
-    DiffLength.assert_formula ctx lb;
+    ArrayLength.assert_formula ctx lb;
     let l = Term.( [
                      ExtraTerm.application a [Arith.zero()] === Arith.zero();
                      ExtraTerm.application b [Arith.zero()] === Arith.zero();
                      ExtraTerm.application a [Arith.int 1] === Arith.int 1;
                      ExtraTerm.application b [Arith.int 1] === Arith.int 1 ])
     in
-    DiffLength.assert_formulas ctx l;
-    DiffLength.assert_formula ctx Term.(a =/= b);
-    match DiffLength.check ctx with
+    ArrayLength.assert_formulas ctx l;
+    ArrayLength.assert_formula ctx Term.(a =/= b);
+    match ArrayLength.check ctx with
     | `STATUS_UNSAT ->
-       (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx); *)       
+       (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *)       
        (* print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
        print_endline "Done with Extension \"Arrays with Length\""
     | `STATUS_SAT ->
-       CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (DiffLength.get_model ctx);
-       CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx;
+       CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (ArrayLength.get_model ctx);
+       CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx;
        assert false
     | _ -> assert false
   with
@@ -392,7 +392,7 @@ let test_lfun () =
 
 let test_mcsat_arrays () =
   let open Yices2.Ext_bindings in
-  let open Yices2.Extension_MCSATarrays in
+  let open Extensions.MCSATarrays in
   Global.init();
   let real  = Type.(real()) in
   let typ   = Type.func [ real ] real in
@@ -411,7 +411,7 @@ let test_mcsat_arrays () =
       let smodel = Model.from_map [i , Term.Arith.int 1] |> SModel.make ~support:[i] in 
       match Arrays.check_with_smodel ctx smodel with
       | `STATUS_UNSAT ->
-         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx); *)
+         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *)
          print_endline (CCFormat.sprintf "@[UNSAT@]");
          print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx));
          Arrays.free ctx
@@ -429,7 +429,7 @@ let test_mcsat_arrays () =
       let smodel = Model.from_map [i , Term.Arith.int 0] |> SModel.make ~support:[i] in
       match Arrays.check_with_smodel ctx smodel with
       | `STATUS_UNSAT ->
-         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" DiffLength.pp_log ctx); *)       
+         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *)       
          print_endline (CCFormat.sprintf "@[UNSAT@]");
          print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx));
          Arrays.free ctx

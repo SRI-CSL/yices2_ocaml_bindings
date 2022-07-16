@@ -261,6 +261,10 @@ module type API = sig
     type yval_tag_t       [@@deriving eq, ord]
     type yices_gen_mode_t [@@deriving eq, ord]
     type error_code_t     [@@deriving eq, ord]
+
+    module HTypes : CCHashtbl.S with type key = type_t
+    module HTerms : CCHashtbl.S with type key = term_t
+
   end
 
   open Types

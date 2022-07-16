@@ -7,6 +7,29 @@ module HighAPI = Make(ExceptionsErrorHandling)
 
 open HighAPI
 
+module type StateMonad = sig
+  type state
+  include Monad with type 'a t = state -> 'a * state
+end
+
+module StateMonad(State : sig type t end) : StateMonad with type state := State.t = struct
+  type 'a t = State.t -> 'a * State.t
+  let return a accu = a, accu
+  let bind a f accu = let a, accu = a accu in f a accu
+end
+
+type 'a purified = { proxy : 'a; body : 'a }
+                  
+module type PurificationMonad = sig
+  type accu
+  include StateMonad with type state := accu purified list
+end
+
+module PurificationMonad(Accu : sig type t end)
+       : PurificationMonad with type accu := Accu.t =
+  StateMonad(struct type t = Accu.t purified list end)
+  
+
 module Type = struct
 
   let to_body = Global.hTypes_create 10
@@ -26,12 +49,7 @@ module Type = struct
          HTypes.replace to_var k var;
          var, true
 
-  module Accu = struct
-    type accu = (Type.t * Type.t) list
-    type 'a t = accu -> 'a * accu
-    let return a accu = a, accu
-    let bind a f accu = let a, accu = a accu in f a accu
-  end
+  module Accu = PurificationMonad(Type)
 
   let rec purify filter ty =
     let open MType(Accu) in
@@ -41,8 +59,8 @@ module Type = struct
       Accu.return(Type.build tstruct)
     else
       fun accu ->
-      let r, fresh = get_var ty in
-      r, if fresh then (r, ty)::accu else accu
+      let proxy, fresh = get_var ty in
+      proxy, if fresh then { proxy; body = ty }::accu else accu
 end
 
 module Term = struct
@@ -79,12 +97,7 @@ module Term = struct
        if HTerms.mem to_var k then HTerms.find to_var k, false
        else pure ()
     
-  module Accu = struct
-    type accu = (Term.t * Term.t) list
-    type 'a t = accu -> 'a * accu
-    let return a accu = a, accu
-    let bind a f accu = let a, accu = a accu in f a accu
-  end
+  module Accu = PurificationMonad(Term)
 
   let rec purify filter t =
     let open MTerm(Accu) in
@@ -95,7 +108,7 @@ module Term = struct
       Accu.return(Term.build tstruct)
     else
       fun accu ->
-      let r, fresh = get_var t in
-      r, if fresh then (r, t)::accu else accu
+      let proxy, fresh = get_var t in
+      proxy, if fresh then { proxy; body = t }::accu else accu
 
 end

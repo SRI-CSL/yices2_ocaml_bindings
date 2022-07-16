@@ -6,7 +6,7 @@
 
 (library
  (name yices2)
- (public_name yices2_bindings)
+ (public_name yices2)
  (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings config)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))

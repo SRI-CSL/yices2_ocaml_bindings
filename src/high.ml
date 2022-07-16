@@ -606,15 +606,6 @@ module SafeMake
 
   end
 
-  module type Names = sig
-    type t
-    val set     : t -> string -> unit EH.t
-    val remove  : string -> unit
-    val of_name : string -> t EH.t
-    val clear   : t -> unit EH.t
-    val to_name : t -> string EH.t
-  end
-
   module ErrorPrint = struct
     let print    = yices_print_error    <.> return_sint
     let print_fd = yices_print_error_fd <.> return_sint
@@ -1258,9 +1249,6 @@ module SafeMake
 
   end
 
-  module HTypes = CCHashtbl.Make(Type)
-  module HTerms = CCHashtbl.Make(Term)
-
   module Global = struct
 
     let version    = let* x = yices_version    in toStringR !@x
@@ -1517,29 +1505,6 @@ module SafeMake
            
         | `YVAL_MAPPING -> raise_bindings_error "reveal does not apply to mapping values"
         | `YVAL_UNKNOWN -> raise_bindings_error "value is unknown"
-
-    let epsilon_table = Global.hTypes_create 10
-
-    let epsilon ?name typ =
-      try HTypes.find epsilon_table typ |> EH.return
-      with Not_found ->
-        let+ name = match name with
-          | Some name -> EH.return name
-          | None ->
-             let+ typ_string = PP.type_string typ in
-             EH.return("ε_" ^ typ_string)
-        in
-        let+ epsilon_type =
-          let open Type in
-          let+ bool = bool() in
-          let+ predicate_type = func [typ] bool in
-          func [predicate_type] typ
-        in
-        let+ v = Term.new_uninterpreted ~name epsilon_type in
-        HTypes.add epsilon_table typ v;
-        EH.return v
-
-    let epsilon_real() = Type.real() |+> epsilon  
       
     let rec yval_as_term m : yval -> Term.t EH.t = function
       | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
@@ -1570,25 +1535,8 @@ module SafeMake
            Term.ite cond value sofar
          in
          fold aux default mappings |+> Term.lambda variables
-      | `Algebraic algebraic ->
-         let+ var = Type.real() |+> Term.new_variable in
-         let aux (powered, sofar) coeff =
-           let monomial = coeff, powered in
-           let+ powered = Term.Arith.(var ** powered) in
-           EH.return (powered, monomial::sofar)
-         in
-         let+ zero = Term.Arith.zero() in
-         let+ one  = Term.Arith.int 1 in
-         let+ _,poly = fold aux (EH.return(one,[])) algebraic.coeffs in
-         let+ poly_is0 = Term.(Arith.poly_mpz poly |+> eq zero) in
-         let+ lb = Term.Arith.mpq algebraic.a in
-         let+ ub = Term.Arith.mpq algebraic.b in
-         let+ lb = Term.Arith.(if algebraic.a_open then lt else leq) lb var in
-         let+ ub = Term.Arith.(if algebraic.a_open then lt else leq) var ub in
-         let+ predicate_body = Term.andN [poly_is0; lb; ub] in
-         let+ predicate = Term.lambda [var] predicate_body in 
-         let+ epsilon = epsilon_real() in
-         Term.application epsilon [predicate]
+      | `Algebraic _algebraic ->
+         raise_bindings_error "Cannot convert an algebraic value to a term"
          
     and val_as_term m v = reveal m v |+> yval_as_term m
 
@@ -1728,4 +1676,5 @@ module SafeMake
 
 end
 
-module Make(EH: ErrorHandling) = SafeMake(struct include Low type 'a checkable = 'a end)(EH)
+module Make(EH: ErrorHandling) =
+                  SafeMake(struct include Low type 'a checkable = 'a end)(EH)

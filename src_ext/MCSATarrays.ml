@@ -1,8 +1,10 @@
 open Containers
 
-open Ext_bindings
-open Extension_builder
-
+open Yices2.Ext_bindings
+open Types
+open Builder
+open Types_ext
+   
 module AddArrays = struct
 
   type term = Term.t             
@@ -51,10 +53,10 @@ module AddArrays = struct
   module ExtraType = struct
 
     let f typ =
-      let typ = Purification.Type.get_body typ in
+      let typ = Yices2.Purification.Type.get_body typ in
       match Type.reveal typ with
       | Fun {dom; codom} ->
-         let old_typ, _ = Purification.Type.get_var typ in
+         let old_typ, _ = Yices2.Purification.Type.get_var typ in
          let name = Format.sprintf "write_%a" Type.pp typ in
          let write =
            Term.new_uninterpreted ~name (Type.(func (old_typ::codom::dom) old_typ))
@@ -67,7 +69,7 @@ module AddArrays = struct
          HTerms.add symbols read (`Read, typ);
          {write; read}
          
-      | _ -> High.ExceptionsErrorHandling.raise_bindings_error
+      | _ -> Yices2.High.ExceptionsErrorHandling.raise_bindings_error
                "Trying to get the write symbol of what should be a functional type, not %a" Type.pp typ
     
     (* get the write symbol of type typ *)
@@ -145,7 +147,7 @@ module AddArrays = struct
          let array = old2new array in
          let index = List.map old2new index in
          Term.application array index
-      | `Var t -> Purification.Term.get_body t
+      | `Var t -> Yices2.Purification.Term.get_body t
       | `Other -> ts |> Term.map old2new |> Term.build
 
     let rec new2old state t =
@@ -153,8 +155,8 @@ module AddArrays = struct
       let Types.Term ts = Term.reveal t in
       match ts with
       | A0(`YICES_UNINTERPRETED_TERM, _) when Type.is_function(Term.type_of_term t) ->
-         let get_typ typ = Purification.Type.get_var typ |> fst in
-         let r = Purification.Term.get_var ~get_typ t |> fst in
+         let get_typ typ = Yices2.Purification.Type.get_var typ |> fst in
+         let r = Yices2.Purification.Term.get_var ~get_typ t |> fst in
          (* print_endline(Format.sprintf "purify %a into %a" Term.pp t Term.pp r); *)
          r
       | Update { array; index; value } ->  
