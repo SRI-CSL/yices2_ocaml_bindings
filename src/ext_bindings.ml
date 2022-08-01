@@ -914,7 +914,7 @@ module SModel = struct
   let pp ?pp_start ?pp_stop ?pp_sep () fmt {support;model} =
     let aux fmt u =
       let v = Model.get_value model u in
-      Format.fprintf fmt "@[%a := @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
+      Format.fprintf fmt "@[<2>%a :=@ @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
     in
     match support with
     | [] -> Format.fprintf fmt "[]"
