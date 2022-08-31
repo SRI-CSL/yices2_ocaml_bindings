@@ -105,7 +105,10 @@ module Session = struct
     set_logic : string -> Config.t -> unit
   }
 
-  let set_logic logic config = Config.default config ~logic
+  let set_logic logic config =
+    match logic with
+    | "all" -> Config.default config
+    | _ -> Config.default config ~logic
 
   let create ?(set_logic=set_logic) verbosity =
     print verbosity 1 "Now initialising Yices version %s@," Global.version;
@@ -159,14 +162,26 @@ module ParseType = struct
 
   let rec parse types : Sexp.t -> (type_t,type_t) Cont.t = function
     | Atom s -> atom types s
-    | List l as sexp -> match l with
-      | [Atom "Array"; a; b]         ->
-        let* a = parse types a in
-        let* b = parse types b in
-        return(Type.func [a] b)
-      | [_;Atom "BitVec"; Atom size] ->
-        return(Type.bv (int_of_string size))
-      | _ -> raise(Yices_SMT2_exception("ParseType.parse does not understand: "^Sexp.to_string sexp))
+    | List l as sexp ->
+       match l with
+       | (Atom "Array"::(_::_ as l)) ->
+          let* l = parse_list types l in
+          let codom, dom = List.(l |> rev |> hd_tl) in
+          return(Type.func (List.rev dom) codom)
+       | [_;Atom "BitVec"; Atom size] ->
+          return(Type.bv (int_of_string size))
+       | (Atom "Tuple")::l
+       | (Atom "tuple")::l ->
+          let* l = parse_list types l in
+          return(Type.tuple l)
+       | _ ->
+          raise(Yices_SMT2_exception("ParseType.parse does not understand: "^Sexp.to_string sexp))
+  and parse_list types = function
+    | [] -> return []
+    | hd::tl ->
+       let* hd = parse types hd in
+       let* tl = parse_list types tl in
+       return(hd::tl)
 
 end
 
@@ -188,7 +203,7 @@ module ParseTerm = struct
             with _ ->
                   try Term.Arith.parse_float s
                   with ExceptionsErrorHandling.YicesException _
-                       -> raise (Yices_SMT2_exception "s is not a declared symbol, nor a bitvector/rational/float constant")
+                       -> raise (Yices_SMT2_exception (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
           in
           if String.length s < 2 then aux s
           else
@@ -305,6 +320,7 @@ module ParseTerm = struct
           | "=", _::_::_    -> let* l = chainable env eq l in return !&l
           | "distinct", _   -> list env Term.distinct l
           | "ite", [a;b;c]  -> ternary env ite a b c
+          | "tuple", l      -> list env Term.tuple l
           (* Arithmetic theor(ies) *)
           | "-", [a]        -> let* a = parse_rec env a in return (Arith.neg a)
           | "-", _::_::_    -> left_assoc env Arith.sub l
@@ -322,8 +338,26 @@ module ParseTerm = struct
           | "to_int",  [a] -> unary env Arith.floor a
           | "is_int",  [a] -> unary env Arith.is_int_atom a
           (* ArraysEx theory *)
-          | "select", [a;b] -> binary env (fun a b -> application a [b]) a b
-          | "store", [a;b;c]-> ternary env (fun a b c -> update a [b] c) a b c
+          | "select", a::b ->
+             let default() =
+               let* a = parse_rec env a in
+               list env (application a) b
+             in
+             begin
+               match a, b with
+               | Atom s, [b] ->
+                  int_of_string_opt s
+                  |> Option.map_lazy default (fun i -> unary env (Term.select i) b)
+               | _ -> default()
+             end
+          | "store", a::l ->
+             let* a = parse_rec env a in
+             let aux l =
+               let open List in
+               let hd, tl = hd_tl(rev l) in
+               update a (rev tl) hd
+             in
+             list env aux l
           (* BV theory *)
           | "concat", l -> list env BV.bvconcat  l
           | "bvand", l  -> list env BV.bvand     l
