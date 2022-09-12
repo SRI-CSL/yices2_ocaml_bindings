@@ -124,12 +124,12 @@ module TypeSexp = struct
        | BV i -> List[Atom "_"; Atom "BitVec"; Atom(string_of_int i)]
        | Scalar _
          | Uninterpreted _ -> Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
-       | Tuple l -> l |> List.map to_sexp |> sexp "tuple"
+       | Tuple l -> l |> List.map to_sexp |> sexp "Tuple"
        | Fun { dom; codom } ->
           let dom = List.map to_sexp dom in
           match dom with
           | [dom] -> sexp "Array" [dom; to_sexp codom]
-          | _ -> sexp "Array" [ List dom; to_sexp codom]
+          | _ -> sexp "Array" (dom @ [to_sexp codom])
 
   let pp fmt t = t |> to_sexp |> pp_sexp fmt
 
@@ -333,7 +333,7 @@ module TermTMP = struct
        let args = List.map to_sexp l in
        begin
          match c with
-         | `YICES_TUPLE_TERM    -> sexp "tuple"    args
+         | `YICES_TUPLE_TERM    -> sexp "tuple"    args (* Not official SMTLib syntax *)
          | `YICES_DISTINCT_TERM -> sexp "distinct" args
          | `YICES_OR_TERM       ->
             begin
@@ -371,27 +371,19 @@ module TermTMP = struct
     | App(f,l) ->
        let f = to_sexp f in
        let l = List.map to_sexp l in
-       begin
-         match l with
-         | [a] -> sexp "select" [f;a]
-         | l -> sexp "select" [f;List l]
-       end
+       sexp "select" (f::l)
     | Update { array; index; value} ->
        let array = to_sexp array in
        let indices = List.map to_sexp index in
        let value = to_sexp value in
-       begin
-         match indices with
-         | [index] -> sexp "store" [array;index;value]
-         | _ -> sexp "store" [array;List indices;value]
-       end
-    | Projection(c,i,t) ->
+       sexp "store" (array::(indices @ [value]))
+    | Projection(c,i,t) -> (* Not official SMTLib syntax *)
        let t = to_sexp t in
-       begin
-         match c with
-         | `YICES_SELECT_TERM -> sexp "select" [Atom(string_of_int i);t]
-         | `YICES_BIT_TERM    -> sexp "bitextract" [Atom(string_of_int i);t] (* Not official SMTLib syntax *)
-       end
+       sexp
+         (match c with
+          | `YICES_SELECT_TERM -> "select"
+          | `YICES_BIT_TERM    -> "bitextract")
+         [Atom(string_of_int i);t]
     | BV_Sum l ->
        let width = match l with
          | (coeff,_)::_ -> List.length coeff
@@ -914,7 +906,7 @@ module SModel = struct
   let pp ?pp_start ?pp_stop ?pp_sep () fmt {support;model} =
     let aux fmt u =
       let v = Model.get_value model u in
-      Format.fprintf fmt "@[%a := @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
+      Format.fprintf fmt "@[<2>%a :=@ @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
     in
     match support with
     | [] -> Format.fprintf fmt "[]"

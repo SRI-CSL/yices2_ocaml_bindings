@@ -10,6 +10,7 @@
  (libraries ctypes ctypes.foreign sexplib containers yices2)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))
+ (promote (until-clean) (into ".."))
 )
 
 (env (dev
