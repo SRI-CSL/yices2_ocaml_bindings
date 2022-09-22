@@ -1,22 +1,12 @@
 open Containers
 
+open Common
 open High
 open Types
 
 module HighAPI = Make(ExceptionsErrorHandling)
 
 open HighAPI
-
-module type StateMonad = sig
-  type state
-  include Monad with type 'a t = state -> 'a * state
-end
-
-module StateMonad(State : sig type t end) : StateMonad with type state := State.t = struct
-  type 'a t = State.t -> 'a * State.t
-  let return a accu = a, accu
-  let bind a f accu = let a, accu = a accu in f a accu
-end
 
 type 'a purified = { proxy : 'a; body : 'a }
                   

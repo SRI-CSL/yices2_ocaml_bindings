@@ -7,6 +7,7 @@ open Ctypes_zarith
 [%%endif]
 open Signed
 open Unsigned
+open Common
 open Low
 
 (* Abbreviation *)
@@ -20,38 +21,6 @@ end
 open Types
 
 module Array = CArray
-
-module List = struct
-  include List
-  let map f l = rev(rev_map f l) (* Tail-recursive version of map to avoid stack overflows *)
-end
-
-module type Monad = sig
-  type 'a t
-  val return : 'a -> 'a t
-  val bind : 'a t -> ('a -> 'b t) -> 'b t
-end
-
-(* Monadic fold and map on lists *)
-module MList(M : Monad) = struct
-
-  open M
-  let (let++) = bind
-  
-  let fold  (aux : 'a -> 'b -> 'a M.t) =
-    let aux sofar c =
-      let++ sofar = sofar in
-      aux sofar c
-    in
-    List.fold_left aux
-
-  let map f l =
-    let aux sofar c =
-      let++ c = f c in
-      return(c::sofar)
-    in
-    List.rev l |> fold aux (return [])
-end
 
 (* Monadic map on types *)
 module MType(M : Monad) = struct
@@ -128,6 +97,7 @@ module MTerm(M : Monad) = struct
         return(Product(isBV, l))
 end
 
+                        
 (* Mnemotechnic: ! represents OCaml's int.
    No possibility of error checking in unsigned int conversion *)
 let (!>)  = UInt.of_int
@@ -312,7 +282,8 @@ module SafeMake
   (* let (<+++>) f g x1 x2 x3 = let+ x = f x1 x2 x3 in g x *)
 
   (* Monadic fold and map *)
-  open MList(EH)
+  module ML = MList(EH)
+  open ML
 
   (* Conversions to/from bools *)
   let toBool  x     = let<= x = x in return(Conv.bool.read x)
@@ -1247,6 +1218,38 @@ module SafeMake
       | `BV(_,l)    -> BV.bvconst_from_list l
       | `Scalar(typ, id) -> constant typ ~id
 
+    let yval_as_term val_as_term : yval -> t EH.t = function
+      | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
+         const_as_term s
+      | `Tuple(_,l) ->
+         ML.map val_as_term l |+> tuple
+      | `Fun { mappings; default; typ; _ } ->
+         let+ input_types =
+           let+ ytyp = Type.reveal typ in
+           match ytyp with
+           | Fun{ dom; _ } -> return dom
+           | _ -> raise_bindings_error "fun val should have fun type"
+         in
+         let+ variables = ML.map new_variable input_types in
+         let default = val_as_term default in
+         let aux sofar mapping =
+           let rec aux accu vars vals =
+             match vars, vals with
+             | [], [] -> return accu
+             | var::vars, v::vals ->
+                let+ v = val_as_term v in
+                let+ cond = (var === v) in
+                aux (cond::accu) vars vals
+             | _ -> failwith "bug in yval_as_term"
+           in
+           let+ cond = aux [] variables mapping.args |+> andN in
+           let+ value = val_as_term mapping.value in
+           ite cond value sofar
+         in
+         fold aux default mappings |+> lambda variables
+      | `Algebraic _algebraic ->
+         raise_bindings_error "Cannot convert an algebraic value to a term"
+
   end
 
   module Global = struct
@@ -1505,39 +1508,8 @@ module SafeMake
            
         | `YVAL_MAPPING -> raise_bindings_error "reveal does not apply to mapping values"
         | `YVAL_UNKNOWN -> raise_bindings_error "value is unknown"
-      
-    let rec yval_as_term m : yval -> Term.t EH.t = function
-      | `Bool _ | `Rational _ | `BV _ | `Scalar _ as s ->
-         Term.const_as_term s
-      | `Tuple(_,l) ->
-         map (val_as_term m) l |+> Term.tuple
-      | `Fun { mappings; default; typ; _ } ->
-         let+ input_types =
-           let+ ytyp = Type.reveal typ in
-           match ytyp with
-           | Fun{ dom; _ } -> return dom
-           | _ -> raise_bindings_error "fun val should have fun type"
-         in
-         let+ variables = map Term.new_variable input_types in
-         let default = val_as_term m default in
-         let aux sofar mapping =
-           let rec aux accu vars vals =
-             match vars, vals with
-             | [], [] -> return accu
-             | var::vars, v::vals ->
-                let+ v = val_as_term m v in
-                let+ cond = Term.(var === v) in
-                aux (cond::accu) vars vals
-             | _ -> failwith "bug in yval_as_term"
-           in
-           let+ cond = aux [] variables mapping.args |+> Term.andN in
-           let+ value = val_as_term m mapping.value in
-           Term.ite cond value sofar
-         in
-         fold aux default mappings |+> Term.lambda variables
-      | `Algebraic _algebraic ->
-         raise_bindings_error "Cannot convert an algebraic value to a term"
-         
+
+    let rec yval_as_term m : yval -> Term.t EH.t = Term.yval_as_term (val_as_term m)
     and val_as_term m v = reveal m v |+> yval_as_term m
 
     let get_value_as_term m t =
@@ -1635,17 +1607,21 @@ module SafeMake
       let extract status ((),interpolation_context) =
         let status = Conv.smt_status.read status in
         match status with
+        | #smt_inconclusive_status as x -> x
         | `STATUS_UNSAT ->
            let interpolant =
              getf !@interpolation_context (interpolation_context_s#members#interpolant)
            in
-           status, Some interpolant, None
-        | `STATUS_SAT when build_model ->
-           let model =
-             getf !@interpolation_context (interpolation_context_s#members#model)
-           in
-           status, None, Some model
-        | _ -> status, None, None
+           `STATUS_UNSAT interpolant
+        | `STATUS_SAT ->
+           if build_model
+           then
+             let model =
+               getf !@interpolation_context (interpolation_context_s#members#model)
+             in
+             `STATUS_SAT(Some model)
+           else
+             `STATUS_SAT None
       in
       let to_load interpolation_context =
         setf !@interpolation_context (interpolation_context_s#members#ctx_A) ctx_A;

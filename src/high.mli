@@ -1,5 +1,6 @@
 open Ctypes_static
-
+open Common
+   
 module type API = High_types.API
 
 module LowTypes  := Low.Types
@@ -11,17 +12,6 @@ module Types : sig
 end
 
 open Types
-
-module type Monad = sig
-  type 'a t
-  val return : 'a -> 'a t
-  val bind : 'a t -> ('a -> 'b t) -> 'b t
-end
-
-module MList(M : Monad) : sig
-    val fold : ('a -> 'b -> 'a M.t) -> 'a M.t -> 'b list -> 'a M.t
-    val map : ('a -> 'b M.t) -> 'a list -> 'b list M.t
-end
 
 module MType(M : Monad) : sig
     val map : (type_t -> type_t M.t) -> ytype -> ytype M.t
@@ -88,7 +78,7 @@ module Error : sig
 end
 
 (** Small abbreviation *)
-val status_is_not_error : smt_status -> bool
+val status_is_not_error : [> `STATUS_ERROR] -> bool
 
 module type ErrorHandling = sig
   type 'a t

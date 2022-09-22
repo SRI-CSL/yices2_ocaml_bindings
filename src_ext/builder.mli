@@ -1,5 +1,5 @@
 open! Containers
-open Yices2.Ext_bindings
+open Yices2.Ext
 
 open Types_ext
    

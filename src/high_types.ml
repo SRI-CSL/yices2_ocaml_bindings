@@ -7,6 +7,11 @@ open Low.Types
 
 module Types = struct
 
+  type ('a,'b) smt_status_with_answers =
+    [ smt_inconclusive_status
+    | `STATUS_SAT of 'b
+    | `STATUS_UNSAT of 'a ]
+
   type scalar = type_t [@@deriving eq]
   type uninterpreted = type_t [@@deriving eq]
 
@@ -2053,9 +2058,11 @@ module type Term = sig
   val const_value : [`a0] termstruct -> [ atomic_const | `SYMBOLIC ] eh
   (** Converse function from atomic_const to terms *)
   val const_as_term : atomic_const -> t eh
+  (** Generalizing to all yval, given a conversion from yval_t ptr to terms *)
+  val yval_as_term : (yval_t ptr -> t eh) -> yval -> t eh
 
                                         
-                                        (** Components of a sum t
+  (** Components of a sum t
         - i = index (must be between 0 and t's number of children - 1)
         - for an arithmetic sum, each component is a pair (rational, term)
         - for a bitvector sum, each component is a pair (bvconstant, term)
@@ -3614,8 +3621,9 @@ module type Context = sig
    *
    * build_model is true by default.
    *)
-  val check_with_interpolation : ?build_model:bool -> ?param:param
-                                 -> t -> t -> smt_status * term option * model option
+  val check_with_interpolation :
+    ?build_model:bool -> ?param:param -> t -> t
+    -> (term, model option) Types.smt_status_with_answers
     
   (** Interrupt the search:
         - this can be called from a signal handler to stop the search,

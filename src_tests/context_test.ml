@@ -27,7 +27,7 @@ module type Context = sig
   val get_model_interpolant : t -> Term.t
   val check_with_interpolation : ?build_model:bool ->
                                  ?param:Param.t ->
-                                 t -> t -> Types.smt_status * Term.t option * Model.t option
+                                 t -> t -> (Term.t, Model.t option) Types.smt_status_with_answers
 
   module Param : sig
     type context := t
@@ -106,7 +106,7 @@ let test_context (type a) (type c)
   Context.assert_formula ctx Term.(application f [BV.bvnot a] === BV.bvnot a);
   let _status = Context.check ctx in
   let _model  = Context.get_model ctx in
-  (* print_endline (CCFormat.sprintf "%a" Yices2.Ext_bindings.Model.pp model); *)
+  (* print_endline (CCFormat.sprintf "%a" Yices2.Ext.Model.pp model); *)
   (* Next line is commented out because it is not supported yet *)
   (* let _ = EH1.Model.get_value_as_term model f in *)
   Context.reset ctx;
@@ -208,7 +208,7 @@ let test_interpolation (type a) (type c)
   let () =
     match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [] with
       
-    | `STATUS_SAT, None, Some model ->
+    | `STATUS_SAT(Some model) ->
        let v1 = EH1.Model.get_rational64_value model r1 in
        assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v1
                 (Signed.Long.of_int 7, Unsigned.ULong.of_int 2));
@@ -216,7 +216,7 @@ let test_interpolation (type a) (type c)
        assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v2
                 (Signed.Long.of_int 5, Unsigned.ULong.of_int 1))
        
-    | status, _, _ -> if status_is_not_error status || mcsat then assert false
+    | status -> if status_is_not_error status || mcsat then assert false
   in
   
   let fmla4 = Term.parse "(< r2 3)" in
@@ -224,12 +224,12 @@ let test_interpolation (type a) (type c)
   let () = 
       match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [fmla4] with
 
-      | `STATUS_UNSAT, Some interpolant, None ->
+      | `STATUS_UNSAT interpolant ->
          let string = CCFormat.sprintf "%s" (EH1.PP.term_string interpolant) in
-         (* print_endline (CCFormat.sprintf "UNSAT with interpolant %a" Yices2.Ext_bindings.Term.pp interpolant); *)
+         (* print_endline (CCFormat.sprintf "UNSAT with interpolant %a" Yices2.Ext.Term.pp interpolant); *)
          assert(String.equal string "(>= (+ -3 r2) 0)")
         
-      | status, _, _ -> if status_is_not_error status || mcsat then assert false
+      | status -> if status_is_not_error status || mcsat then assert false
        
   in
   
@@ -301,8 +301,24 @@ module NativeContext = struct
 end
 
 module ExtContext = struct
-  open Yices2.Ext_bindings
+  open Yices2.Ext
   include Context
+  let check_with_assumptions ?param context assumptions = check ?param ~assumptions context
+  let check_with_model ?param context model support =
+    check ?param ~smodel:(SModel.make ~support model) context
+  let check ?param context = check ?param context
+  let get_model ?keep_subst context =
+    let SModel.{model;_} = get_model ?keep_subst context in
+    model
+
+  let check_with_interpolation ?build_model ?param ctxa ctxb =
+    match build_model, check_with_interpolation ?build_model ?param ctxa ctxb with
+    | None, `STATUS_SAT _
+      | Some false, `STATUS_SAT _ -> `STATUS_SAT None
+    | Some true, `STATUS_SAT f -> let SModel.{ model; _} = f () in `STATUS_SAT(Some model)
+    | _, `STATUS_UNSAT t -> `STATUS_UNSAT t
+    | _, (#Yices2.Low.Types.smt_inconclusive_status as s) -> s
+
   type config = Config.t
   module Param = Param
 end
@@ -312,7 +328,7 @@ let test_native_context mcsat cfg =
   test_interpolation (module NativeContext) mcsat cfg
   
 let test_ext_context mcsat cfg =
-  let open Yices2.Ext_bindings in
+  let open Yices2.Ext in
 
   let ctx = Context.malloc ~config:cfg () in
   assert(Bool.equal mcsat (Context.is_mcsat ctx));
@@ -325,7 +341,6 @@ let test_ext_context mcsat cfg =
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
   Context.free ctx;
 
-    
   test_context       (module ExtContext) mcsat cfg;
   test_interpolation (module ExtContext) mcsat cfg
 
@@ -336,10 +351,10 @@ let test_context () =
 
 let test_ext_context () =
   print_endline "Extended bindings tests";
-  cfg_makeNtest (module Yices2.Ext_bindings.Config) test_ext_context
+  cfg_makeNtest (module Yices2.Ext.Config) test_ext_context
 
 let test_lfun () =
-  let open Yices2.Ext_bindings in
+  let open Yices2.Ext in
   let open Extensions in
   Global.init();
   let ctx = ArrayLength.malloc () in
@@ -391,7 +406,7 @@ let test_lfun () =
      raise exc
 
 let test_mcsat_arrays () =
-  let open Yices2.Ext_bindings in
+  let open Yices2.Ext in
   let open Extensions.MCSATarrays in
   Global.init();
   let real  = Type.(real()) in

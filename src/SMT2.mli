@@ -2,7 +2,7 @@ open Sexplib
 
 open High
 open Types
-open Ext_bindings
+open Ext
 
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string
@@ -39,7 +39,7 @@ module Session : sig
     variables : Variables.t;
     context : Context.t;
     param   : Param.t;
-    model   : Model.t option
+    model   : SModel.t option
   }
 
   (** Turns the log within context into SMT2 string. *)

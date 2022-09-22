@@ -26,14 +26,17 @@ module BaseTypes = struct
 
   type lp_dyadic_rational_t  = [ `lp_dyadic_rational_struct ]  structure
   type lp_algebraic_number_t = [ `lp_algebraic_number_struct ] structure
-                               
-  type smt_status = 
+
+  type smt_inconclusive_status = 
     [ `STATUS_ERROR
     | `STATUS_IDLE
     | `STATUS_INTERRUPTED
-    | `STATUS_SAT
     | `STATUS_SEARCHING
-    | `STATUS_UNKNOWN
+    | `STATUS_UNKNOWN ] [@@deriving eq,show]
+
+  type smt_status =
+    [ smt_inconclusive_status
+    | `STATUS_SAT
     | `STATUS_UNSAT ] [@@deriving eq,show]
 
   type term_constructor =

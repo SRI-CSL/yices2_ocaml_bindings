@@ -5,7 +5,7 @@ open Type
     
 open High
 open Types
-open Ext_bindings
+open Ext
 
 module Cont : sig
   type ('a, 'r) t
@@ -38,8 +38,8 @@ end
 
 open Cont
 
-module StringHashtbl = CCHashtbl.Make(String)
-module VarMap = StringHashtbl
+module StringHashtbl = Common.HStrings
+module VarMap = Common.HStrings
 
 module Variables : sig
   type t
@@ -85,7 +85,7 @@ module Session = struct
     variables : Variables.t;
     context : Context.t;
     param   : Param.t;
-    model   : Model.t option
+    model   : SModel.t option
   }
 
   let to_SMT2 {logic; context; _} =
@@ -529,9 +529,7 @@ module ParseInstruction = struct
       | "assert", [formula], Some env ->
         let formula = ParseTerm.parse env formula |> get in
         Context.assert_formula env.context formula;
-        (match env.model with
-         | Some model -> Model.free model
-         | None -> ());
+        Option.iter (fun SModel.{model;_} -> Model.free model) env.model;
         session.env := Some { env with model = None};
 
       | "check-sat", [], Some env          ->
@@ -540,13 +538,14 @@ module ParseInstruction = struct
 
       | "check-sat-assuming", l, Some env  ->
         let assumptions = List.map (fun x -> get(ParseTerm.parse env x)) l in
-        Context.check_with_assumptions env.context ~param:env.param assumptions
+        Context.check ~assumptions ~param:env.param env.context
         |> print 0 "%a@," Types.pp_smt_status
 
       | "get-value", l, Some env ->
         let model = get_model env in
         let terms = List.map (fun x -> get(ParseTerm.parse env x)) l in
-        print 0 "@[<v>%a@]@," (List.pp Term.pp) (Model.terms_value model terms);
+        print 0 "@[<v>%a@]@," (List.pp Term.pp)
+          (Model.terms_value (SModel.(model.model)) terms);
         session.env := Some { env with model = Some model }
 
       | "get-assignment", [], Some _env ->
@@ -554,7 +553,7 @@ module ParseInstruction = struct
 
       | "get-model", [], Some env -> 
         let model = get_model env in
-        print 0 "%s@," (PP.model_string model ~display);
+        print 0 "%s@," (PP.model_string SModel.(model.model) ~display);
         session.env := Some { env with model = Some model }
 
       | "get-unsat-assumptions", [], Some _env ->
@@ -586,9 +585,9 @@ module ParseInstruction = struct
           let b = ParseTerm.parse env b |> get in
           (a,b)::map , a::tlist
         in
-        let map,terms = List.fold_left2 f ([],[]) vars vals in
+        let map,support = List.fold_left2 f ([],[]) vars vals in
         let model = Model.from_map map in
-        Context.check_with_model env.context ~param:env.param model terms
+        Context.check ~param:env.param ~smodel:(SModel.make ~support model) env.context
         |> print 0 "%a@," Types.pp_smt_status
       
       | "get-unsat-model-interpolant", [], Some env ->

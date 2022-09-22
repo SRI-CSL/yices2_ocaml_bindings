@@ -1,10 +1,21 @@
 open Containers
 
 open Yices2
-open Ext_bindings
+open Ext
 open Builder
 open Types_ext
    
+module NewTerms = struct
+  type _ t    = Epsilon : Type.t t
+  let compare (type a b) (Epsilon : a t) (Epsilon : b t) = (Dmap.Eq : (a,b) Dmap.cmp)
+  let index (type a) (Epsilon : a t) =
+    (module struct
+       include Type
+       let name = "ε"
+       let get_type typ = Type.[func [typ] (bool())], typ
+     end : TermIndex with type t = a)
+end
+
 module Arg = struct
 
   type term   = Term.t 
@@ -14,17 +25,6 @@ module Arg = struct
   let config_set = Config.set
 
   include Trivial
-
-  module NewTerms = struct
-    type _ t    = Epsilon : Type.t t
-    let compare (type a b) (Epsilon : a t) (Epsilon : b t) = (Dmap.Eq : (a,b) Dmap.cmp)
-    let index (type a) (Epsilon : a t) =
-      (module struct
-        include Type
-        let name = "ε"
-        let get_type typ = Type.[func [typ] (bool())], typ
-      end : TermIndex with type t = a)
-  end
 
   include SyntaxExtensions.DeclareTerms(NewTerms)
 

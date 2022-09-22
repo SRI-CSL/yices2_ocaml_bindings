@@ -1,7 +1,7 @@
 open Containers
 open Sexplib
 
-open Yices2.Ext_bindings
+open Yices2.Ext
 open Types
 open Builder
 open Types_ext

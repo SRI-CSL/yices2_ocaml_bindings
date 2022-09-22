@@ -1,15 +1,8 @@
-open High
+open Common
    
 module HighAPI : High.API with type 'a eh := 'a
 
 open HighAPI
-
-module type StateMonad = sig
-  type state
-  include Monad with type 'a t = state -> 'a * state
-end
-
-module StateMonad(State : sig type t end) : StateMonad with type state := State.t
 
 type 'a purified = { proxy : 'a; body : 'a }
                  

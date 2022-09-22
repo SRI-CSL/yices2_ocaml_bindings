@@ -1,5 +1,5 @@
 open Containers
-open Yices2.Ext_bindings
+open Yices2.Ext
 
 (**************************************************************)
 (* This module is here to help you build extensions to Yices. *)
