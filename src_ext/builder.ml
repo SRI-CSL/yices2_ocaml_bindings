@@ -1,5 +1,6 @@
 open Containers
 
+open Yices2.Common
 open Yices2.Ext
 open Types
 open Types_ext
@@ -7,6 +8,9 @@ open Types_ext
 module Context : StandardYicesContext with type t = Context.t = struct
   include Context
   let config_set = Config.set
+  let check_with_smodel ?param t smodel = check ?param ~smodel t
+  let check ?param t = check ?param t
+  let get_model t = let SModel.{model;_} = get_model t in model
   type model  = Model.t
   type config = Config.t
   type term   = Term.t
@@ -89,7 +93,7 @@ YicesContext with type term = C.term
             Context.assert_formula t.old_context interpolant;
             check_with_smodel ?param t smodel
        end
-
+  
     | status ->
        t.model := None;
        t.status := status;
@@ -100,7 +104,7 @@ YicesContext with type term = C.term
 
   let enable_option t = Context.enable_option t.old_context
   let disable_option t = Context.disable_option t.old_context
-  let get_model ?keep_subst:_ t =
+  let get_model t =
     match !(t.model) with
     | Some model -> model
     | None -> Yices2.High.ExceptionsErrorHandling.raise_bindings_error
@@ -177,7 +181,7 @@ module SyntaxExtensions = struct
                
     module M = Dmap.MakeWithValue(R)(Value)
     let hdlmap = ref M.empty
-    let used   = HStrings.create 10
+    let used   = Yices2.Common.HStrings.create 10
     let ()     = Global.register_cleanup (fun ~after:_ -> HStrings.reset used) 
     let htypes = Global.hTypes_create 10
 

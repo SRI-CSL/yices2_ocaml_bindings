@@ -18,7 +18,7 @@ module type YicesContext = sig
   type t (* Type of contexts in the extension of Yices *)
   val malloc : ?config:config -> unit -> t
   val malloc_mcsat : unit -> t
-  val free : t -> unit
+  val free   : t -> unit
   val status : t -> Types.smt_status
   val push   : t -> unit
   val pop    : t -> unit
@@ -28,7 +28,7 @@ module type YicesContext = sig
   val assert_formulas : t -> term list -> unit
   val check : ?param:Param.t -> t -> Types.smt_status
   val check_with_smodel : ?param:Param.t -> t -> SModel.t -> Types.smt_status
-  val get_model : ?keep_subst:bool -> t -> model
+  val get_model             : t -> model
   val get_model_interpolant : t -> term
 
   val pp_log : t Format.printer

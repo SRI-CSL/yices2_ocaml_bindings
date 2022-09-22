@@ -52,7 +52,7 @@ module Arg = struct
     List.iter generate l;
     old_assert f
 
-  let check _t old_model = Sat old_model
+  let check _ old_model = Sat old_model
 
   let interpolant _t old_interpolant = old_interpolant
 
