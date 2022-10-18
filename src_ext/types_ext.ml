@@ -78,7 +78,7 @@ module type Ext = sig
      please explain why by giving the solver you're extending a model interpolant. *)
   val check : t -> old_model -> (model, old_term) answer
 
-  (* Whenver the solver you're extending returns UNSAT, with old_term interpolant,
+  (* Whenever the solver you're extending returns UNSAT, with old_term interpolant,
      you should convert that interpolant into a term interpolant. *)
   val interpolant : t -> old_term -> term
 
