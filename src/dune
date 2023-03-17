@@ -6,7 +6,7 @@
 
 (library
  (name yices2)
- (public_name yices2_bindings)
+ (public_name yices2)
  (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings config)
  (flags (:standard
         -cclib -Wl,-force_load

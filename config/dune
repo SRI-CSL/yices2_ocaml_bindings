@@ -4,7 +4,7 @@
 
 (library
  (name config)
- (public_name yices2_bindings.config)
+ (public_name yices2.config)
  (synopsis "Config for Yices2 bindings")
  (libraries (select gmp.mlh from
               (ctypes-zarith -> gmp.yes.mlh)
