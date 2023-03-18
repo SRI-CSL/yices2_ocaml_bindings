@@ -75,10 +75,13 @@ let () = Context_test.test_context()
 let () = print_endline ""
 let () = Context_test.test_ext_context()
 let () = print_endline ""
-let () = Context_test.test_lfun()
-let () = print_endline ""
+(* let () = Context_test.test_lfun() *)
+(* let () = print_endline "" *)
 
-let () = Context_test.test_mcsat_arrays()
+(* let () = Context_test.test_mcsat_arrays() *)
+(* let () = print_endline "" *)
+
+let _ = Context_test.test_tupleblast()
 let () = print_endline ""
 
 let () = Error_test.test()

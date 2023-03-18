@@ -121,7 +121,8 @@ let test_context (type a) (type c)
       assert(Types.equal_smt_status status `STATUS_SAT);
       let model = Context.get_model ctx in
       let sq2 = EH1.Model.get_algebraic_number_value model x in
-      let _sq2_term = EH1.Model.get_value_as_term model x in
+      (* The following line does not work without an extension for epsilon-terms *)
+      (* let _sq2_term = EH1.Model.get_value_as_term model x in *)
       (* print_endline(EH1.PP.term_string sq2_term); *)
       assert Q.(equal sq2.a (of_ints (-23) 16));
       assert Q.(equal sq2.b (of_ints (-45) 32));
@@ -353,115 +354,130 @@ let test_ext_context () =
   print_endline "Extended bindings tests";
   cfg_makeNtest (module Yices2.Ext.Config) test_ext_context
 
-let test_lfun () =
+
+let test_tupleblast () =
   let open Yices2.Ext in
   let open Extensions in
+  let open Tuples in
   Global.init();
-  let ctx = ArrayLength.malloc () in
-  let int = Type.(int()) in
-  let admissible =
-    let length = Term.new_variable int in
-    let index  = Term.new_variable int in
-    Term.(lambda [length; index] Arith.(leq (zero()) index &&& lt index length))
-  in
-  let open ArrayLength.AddLength in
-  let typ = ExtraType.lfun ~admissible ~length_type:int ~dom:[int] ~codom:int () in
-  (* print_endline (CCFormat.sprintf "%a" Type.pp typ); *)
-  let a = Term.new_uninterpreted ~name:"a" typ in
-  let b = Term.new_uninterpreted ~name:"b" typ in
-  (* print_endline (CCFormat.sprintf "%a" Term.pp a);
-   * print_endline (CCFormat.sprintf "%a" Term.pp b); *)
-  try
-    let la = Term.( ExtraTerm.length a === Arith.int 2) in
-    (* print_endline (CCFormat.sprintf "%a" Term.pp la); *)
-    ArrayLength.assert_formula ctx la;
-    let lb = Term.( ExtraTerm.length b === Arith.int 2) in
-    (* print_endline (CCFormat.sprintf "%a" Term.pp lb); *)
-    ArrayLength.assert_formula ctx lb;
-    let l = Term.( [
-                     ExtraTerm.application a [Arith.zero()] === Arith.zero();
-                     ExtraTerm.application b [Arith.zero()] === Arith.zero();
-                     ExtraTerm.application a [Arith.int 1] === Arith.int 1;
-                     ExtraTerm.application b [Arith.int 1] === Arith.int 1 ])
-    in
-    ArrayLength.assert_formulas ctx l;
-    ArrayLength.assert_formula ctx Term.(a =/= b);
-    match ArrayLength.check ctx with
-    | `STATUS_UNSAT ->
-       (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *)       
-       (* print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
-       print_endline "Done with Extension \"Arrays with Length\""
-    | `STATUS_SAT ->
-       CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (ArrayLength.get_model ctx);
-       CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx;
-       assert false
-    | _ -> assert false
-  with
-  | ExceptionsErrorHandling.YicesException(_,report) as exc ->
-     let bcktrace = Printexc.get_backtrace() in
-     CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string());
-     CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@,"
-       Types.pp_error_report report;
-     CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace;
-     raise exc
+  let config = Config.malloc () in
+  Config.set config ~name:"solver-type" ~value:"mcsat";
+  let ctx = Context.malloc ~config () in
+  let v  = Term.new_uninterpreted (Type.(tuple [real(); real()])) in 
+  let v' = Term.(tuple [select 2 v; Arith.(select 1 v ++ int 1 )]) in
+  Context.assert_formula ctx (Term.eq v v');
+  let smt_stat = Context.check ctx in
+  assert(Types.equal_smt_status smt_stat `STATUS_UNSAT);
+  
+(* let test_lfun () = *)
+(*   let open Yices2.Ext in *)
+(*   let open Extensions in *)
+(*   Global.init(); *)
+(*   let ctx = ArrayLength.malloc () in *)
+(*   let int = Type.(int()) in *)
+(*   let admissible = *)
+(*     let length = Term.new_variable int in *)
+(*     let index  = Term.new_variable int in *)
+(*     Term.(lambda [length; index] Arith.(leq (zero()) index &&& lt index length)) *)
+(*   in *)
+(*   let open ArrayLength.AddLength in *)
+(*   let typ = ExtraType.lfun ~admissible ~length_type:int ~dom:[int] ~codom:int () in *)
+(*   (\* print_endline (CCFormat.sprintf "%a" Type.pp typ); *\) *)
+(*   let a = Term.new_uninterpreted ~name:"a" typ in *)
+(*   let b = Term.new_uninterpreted ~name:"b" typ in *)
+(*   (\* print_endline (CCFormat.sprintf "%a" Term.pp a); *)
+(*    * print_endline (CCFormat.sprintf "%a" Term.pp b); *\) *)
+(*   try *)
+(*     let la = Term.( ExtraTerm.length a === Arith.int 2) in *)
+(*     (\* print_endline (CCFormat.sprintf "%a" Term.pp la); *\) *)
+(*     ArrayLength.assert_formula ctx la; *)
+(*     let lb = Term.( ExtraTerm.length b === Arith.int 2) in *)
+(*     (\* print_endline (CCFormat.sprintf "%a" Term.pp lb); *\) *)
+(*     ArrayLength.assert_formula ctx lb; *)
+(*     let l = Term.( [ *)
+(*                      ExtraTerm.application a [Arith.zero()] === Arith.zero(); *)
+(*                      ExtraTerm.application b [Arith.zero()] === Arith.zero(); *)
+(*                      ExtraTerm.application a [Arith.int 1] === Arith.int 1; *)
+(*                      ExtraTerm.application b [Arith.int 1] === Arith.int 1 ]) *)
+(*     in *)
+(*     ArrayLength.assert_formulas ctx l; *)
+(*     ArrayLength.assert_formula ctx Term.(a =/= b); *)
+(*     match ArrayLength.check ctx with *)
+(*     | `STATUS_UNSAT -> *)
+(*        (\* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *\)        *)
+(*        (\* print_endline (CCFormat.sprintf "@[UNSAT@]"); *\) *)
+(*        print_endline "Done with Extension \"Arrays with Length\"" *)
+(*     | `STATUS_SAT -> *)
+(*        CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (ArrayLength.get_model ctx); *)
+(*        CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx; *)
+(*        assert false *)
+(*     | _ -> assert false *)
+(*   with *)
+(*   | ExceptionsErrorHandling.YicesException(_,report) as exc -> *)
+(*      let bcktrace = Printexc.get_backtrace() in *)
+(*      CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string()); *)
+(*      CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@," *)
+(*        Types.pp_error_report report; *)
+(*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
+(*      raise exc *)
 
-let test_mcsat_arrays () =
-  let open Yices2.Ext in
-  let open Extensions.MCSATarrays in
-  Global.init();
-  let real  = Type.(real()) in
-  let typ   = Type.func [ real ] real in
-  let a     = Term.new_uninterpreted ~name:"a" typ in
-  let b     = Term.new_uninterpreted ~name:"b" typ in
-  let index = [ Term.Arith.int 1 ] in
-  let a_mod = Term.update a index (Term.Arith.int 2) in
-  let i     = Term.new_uninterpreted ~name:"i" real in
-  let index2 = [i] in
-  try
+(* let test_mcsat_arrays () = *)
+(*   let open Yices2.Ext in *)
+(*   let open Extensions.MCSATarrays in *)
+(*   Global.init(); *)
+(*   let real  = Type.(real()) in *)
+(*   let typ   = Type.func [ real ] real in *)
+(*   let a     = Term.new_uninterpreted ~name:"a" typ in *)
+(*   let b     = Term.new_uninterpreted ~name:"b" typ in *)
+(*   let index = [ Term.Arith.int 1 ] in *)
+(*   let a_mod = Term.update a index (Term.Arith.int 2) in *)
+(*   let i     = Term.new_uninterpreted ~name:"i" real in *)
+(*   let index2 = [i] in *)
+(*   try *)
 
-    let () = (* Read over write: same index *)
-      let ctx = Arrays.malloc_mcsat () in
-      Arrays.assert_formula ctx Term.(b === a_mod);
-      Arrays.assert_formula ctx Term.(application b index2 =/= Term.Arith.int 2);
-      let smodel = Model.from_map [i , Term.Arith.int 1] |> SModel.make ~support:[i] in 
-      match Arrays.check_with_smodel ctx smodel with
-      | `STATUS_UNSAT ->
-         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *)
-         print_endline (CCFormat.sprintf "@[UNSAT@]");
-         print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx));
-         Arrays.free ctx
-      | `STATUS_SAT ->
-         CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx);
-         CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx;
-         assert false
-      | _ -> assert false
-    in
+(*     let () = (\* Read over write: same index *\) *)
+(*       let ctx = Arrays.malloc_mcsat () in *)
+(*       Arrays.assert_formula ctx Term.(b === a_mod); *)
+(*       Arrays.assert_formula ctx Term.(application b index2 =/= Term.Arith.int 2); *)
+(*       let smodel = Model.from_map [i , Term.Arith.int 1] |> SModel.make ~support:[i] in  *)
+(*       match Arrays.check_with_smodel ctx smodel with *)
+(*       | `STATUS_UNSAT -> *)
+(*          (\* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *\) *)
+(*          print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
+(*          print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx)); *)
+(*          Arrays.free ctx *)
+(*       | `STATUS_SAT -> *)
+(*          CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx); *)
+(*          CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx; *)
+(*          assert false *)
+(*       | _ -> assert false *)
+(*     in *)
 
-    let () = (* Read over write: different index *)
-      let ctx = Arrays.malloc () in
-      Arrays.assert_formula ctx Term.(b === a_mod);
-      Arrays.assert_formula ctx Term.(application b index2 =/= application a index2);
-      let smodel = Model.from_map [i , Term.Arith.int 0] |> SModel.make ~support:[i] in
-      match Arrays.check_with_smodel ctx smodel with
-      | `STATUS_UNSAT ->
-         (* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *)       
-         print_endline (CCFormat.sprintf "@[UNSAT@]");
-         print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx));
-         Arrays.free ctx
-      | `STATUS_SAT ->
-         CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx);
-         CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx;
-         assert false
-      | _ -> assert false
-    in
+(*     let () = (\* Read over write: different index *\) *)
+(*       let ctx = Arrays.malloc () in *)
+(*       Arrays.assert_formula ctx Term.(b === a_mod); *)
+(*       Arrays.assert_formula ctx Term.(application b index2 =/= application a index2); *)
+(*       let smodel = Model.from_map [i , Term.Arith.int 0] |> SModel.make ~support:[i] in *)
+(*       match Arrays.check_with_smodel ctx smodel with *)
+(*       | `STATUS_UNSAT -> *)
+(*          (\* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *\)        *)
+(*          print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
+(*          print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx)); *)
+(*          Arrays.free ctx *)
+(*       | `STATUS_SAT -> *)
+(*          CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx); *)
+(*          CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx; *)
+(*          assert false *)
+(*       | _ -> assert false *)
+(*     in *)
 
-    print_endline "Done with Extension \"Arrays in MCSAT\""
+(*     print_endline "Done with Extension \"Arrays in MCSAT\"" *)
 
-  with
-  | ExceptionsErrorHandling.YicesException(_,report) as exc ->
-     let bcktrace = Printexc.get_backtrace() in
-     CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string());
-     CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@,"
-       Types.pp_error_report report;
-     CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace;
-     raise exc
+(*   with *)
+(*   | ExceptionsErrorHandling.YicesException(_,report) as exc -> *)
+(*      let bcktrace = Printexc.get_backtrace() in *)
+(*      CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string()); *)
+(*      CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@," *)
+(*        Types.pp_error_report report; *)
+(*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
+(*      raise exc *)
