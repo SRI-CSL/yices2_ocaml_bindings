@@ -170,6 +170,8 @@ module type SModel = sig
     ?pp_stop:unit Format.printer ->
     ?pp_sep:unit Format.printer -> unit -> t Format.printer
 
+  val from_map  : (term * term) list -> t
+
   val as_map  : t -> (term * term) list
 
   (* turns every assignment (x |-> v) into (x === v);

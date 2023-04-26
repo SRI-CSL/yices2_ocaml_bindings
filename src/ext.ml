@@ -13,6 +13,8 @@ open Types
 open Purification
 include HighAPI
 
+let extended_SMTLib = ref true
+
 exception PopLastLevel
 
 let pp_sep fmt () = Format.fprintf fmt "@ "
@@ -122,10 +124,16 @@ module TypeSexp = struct
          | Uninterpreted _ -> Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
        | Tuple l -> l |> List.map to_sexp |> sexp "Tuple"
        | Fun { dom; codom } ->
-          let dom = List.map to_sexp dom in
-          match dom with
-          | [dom] -> sexp "Array" [dom; to_sexp codom]
-          | _ -> sexp "Array" (dom @ [to_sexp codom])
+          if !extended_SMTLib
+          then (* Not official SMTLib syntax *)
+            let dom = List.map to_sexp dom in
+            match dom with
+            | [dom] -> sexp "Array" [dom; to_sexp codom]
+            | _ -> sexp "Array" (dom @ [to_sexp codom])
+          else
+            let aux sofar domi = sexp "Array" [to_sexp domi; sofar] in
+            dom |> List.rev |> List.fold_left aux (to_sexp codom)
+
 
   let pp fmt t = t |> to_sexp |> pp_sexp fmt
 
@@ -357,17 +365,27 @@ module TermTMP = struct
        end
     | Bindings{c;vars;body} ->
        let aux v = List[to_sexp v; TypeSexp.to_sexp(type_of_term v)] in  
-       let vars = List(List.map aux vars) in
        let body = to_sexp body in
        begin
          match c with
-         | `YICES_FORALL_TERM -> sexp "forall" [vars; body]
-         | `YICES_LAMBDA_TERM -> sexp "lambda" [vars; body]
+         | `YICES_FORALL_TERM -> sexp "forall" [List(List.map aux vars); body]
+         | `YICES_LAMBDA_TERM ->
+            if !extended_SMTLib
+            then (* Not official SMTLib syntax *)
+              sexp "lambda" [List(List.map aux vars); body]
+            else
+              let aux sofar vari = sexp "lambda" [List [aux vari]; sofar] in
+              vars |> List.rev |> List.fold_left aux body
        end
     | App(f,l) ->
-       let f = to_sexp f in
-       let l = List.map to_sexp l in
-       sexp "select" (f::l)
+       if !extended_SMTLib
+       then (* Not official SMTLib syntax *)
+         let f = to_sexp f in
+         let l = List.map to_sexp l in
+         sexp "select" (f::l)
+       else
+         let aux sofar argi = sexp "select" [sofar; to_sexp argi] in
+         List.fold_left aux (to_sexp f) l
     | Update { array; index; value} ->
        let array = to_sexp array in
        let indices = List.map to_sexp index in
@@ -1126,7 +1144,7 @@ module Context = struct
 
   let to_sexp {log; _} = !log |> List.fold_left Action.to_sexp [] 
 
-  let pp_log fmt ctx = Format.fprintf fmt "%a" (List.pp pp_sexp) (to_sexp ctx)
+  let pp_log fmt ctx = Format.fprintf fmt "%a" (List.pp ~pp_sep pp_sexp) (to_sexp ctx)
 
   let malloc ?config () =
     let yconfig = Option.map (fun config -> Config.(config.config)) config in
