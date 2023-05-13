@@ -61,7 +61,8 @@ let sintcheck i = Signed.SInt.(compare zero i) <= 0
 let uintcheck i = Unsigned.UInt.(compare zero i) < 0
 let ptrcheck  p = not(is_null p)
 
-include Header
+include Types_generated
+include Header.Function
 
 module type Conv64 = sig
   type t
@@ -94,4 +95,3 @@ module Conv = struct
   let yices_gen_mode   = make (module UInt) yices_gen_mode
   let error_code       = make (module UInt) error_code
 end  
-

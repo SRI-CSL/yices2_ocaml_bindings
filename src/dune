@@ -11,6 +11,23 @@
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))
  (synopsis "Yices2 bindings")
+
+(ctypes
+    (external_library_name yices)
+    ; (build_flags_resolver pkg_config)
+    (build_flags_resolver (vendored (c_flags ) (c_library_flags )))
+    (headers (include "yices.h"))
+    (type_description
+      (instance Type)
+      (functor Type_description))
+    (function_description
+      (instance Function)
+      (functor Function_description)
+      ; <optional-function-description-fields>
+      )
+    (generated_entry_point Header)
+    ; <optional-ctypes-fields>
+    )
 )
 
 (env (dev
