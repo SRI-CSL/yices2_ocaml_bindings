@@ -2,12 +2,13 @@ open Containers
 
 open Yices2
 open Ext
+
+open Ext.WithExceptionsErrorHandling
 open Builder
-(* open Types_ext *)
 
 module Arg = struct
 
-  type term   = Term.t 
+  type term   = Term.t
   type config = Config.t
   type model  = Model.t
 
@@ -214,7 +215,7 @@ end
 
 module Context = struct
 
-  include Ext.Context
+  include Ext.WithExceptionsErrorHandling.Context
 
   let pp_log fmt ctx =
     let open Action in

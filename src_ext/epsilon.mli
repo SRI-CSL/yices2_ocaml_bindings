@@ -2,6 +2,7 @@ open! Containers
 
 open Yices2
 open Ext
+open WithExceptionsErrorHandling
 open Types_ext
 
 module NewTerms : sig

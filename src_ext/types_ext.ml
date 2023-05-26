@@ -1,5 +1,8 @@
 open Containers
-open Yices2.Ext
+
+open Yices2
+open Ext
+open Ext.WithExceptionsErrorHandling
 
 (**************************************************************)
 (* This module is here to help you build extensions to Yices. *)

@@ -230,6 +230,20 @@ let status_is_not_error = function
 
 module type ErrorHandling = SafeErrorHandling with type 'a checkable := 'a
 
+module NoErrorHandling = struct
+  type 'a t = 'a
+  exception YicesException of error_code * error_report
+  exception YicesBindingsException of string
+  let raise_yices_error ()   = raise(YicesException(Error.code(),Error.report()))
+  let raise_bindings_error a = Format.ksprintf ~f:(fun s -> raise(YicesBindingsException s)) a
+  let return_status t = t
+  let return_sint t = t
+  let return_uint t = t
+  let return_ptr t  = t
+  let return x = x
+  let bind x f = f x
+end
+
 module ExceptionsErrorHandling = struct
   type 'a t = 'a
   exception YicesException of error_code * error_report
@@ -263,7 +277,7 @@ end
 
 module SafeMake
     (L : Low_types.API with type 'a Types.sintbase = 'a sintbase
-                               and type 'a Types.uintbase = 'a uintbase)
+                        and type 'a Types.uintbase = 'a uintbase)
     (EH: SafeErrorHandling with type 'a checkable := 'a L.checkable) = struct
 
   open L
@@ -1653,4 +1667,4 @@ module SafeMake
 end
 
 module Make(EH: ErrorHandling) =
-                  SafeMake(struct include Low type 'a checkable = 'a end)(EH)
+  SafeMake(struct include Low type 'a checkable = 'a end)(EH)

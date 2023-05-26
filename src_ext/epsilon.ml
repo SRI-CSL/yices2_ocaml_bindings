@@ -2,6 +2,7 @@ open Containers
 
 open Yices2
 open Ext
+open Ext.WithExceptionsErrorHandling
 open Builder
 open Types_ext
    
@@ -43,7 +44,7 @@ module Arg = struct
   let assert_formula old_assert () f =
     let is_epsilon t = match reveal t with Some _ -> true | None -> false in
     let f, l = Purification.Term.purify is_epsilon f [] in
-    let generate Purification.{ proxy; body } =
+    let generate Purification_types.{ proxy; body } =
       match reveal body with
       | Some(var, _, body) ->
          Term.subst_term [var, proxy] body |> old_assert

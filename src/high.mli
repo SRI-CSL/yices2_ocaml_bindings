@@ -1,84 +1,10 @@
 open Ctypes_static
-open Common
-   
+
 module type API = High_types.API
 
-module LowTypes  := Low.Types
-module HighTypes := High_types.Types
-
-module Types : sig
-  include module type of LowTypes
-  include module type of HighTypes
-end
+include High_types.BaseAPI
 
 open Types
-
-module MType(M : Monad) : sig
-    val map : (type_t -> type_t M.t) -> ytype -> ytype M.t
-end
-
-module MTerm(M : Monad) : sig
-    val map : (term_t -> term_t M.t) -> 'a termstruct -> 'a termstruct M.t
-end
-
-module Algebraic : sig
-
-  open Libpoly
-     
-  module DyadicRational : sig
-    type t = DyadicRational.t
-    val num   : t ptr -> Z.t
-    val pow   : t ptr -> int
-    val to_string : t ptr -> string
-  end
-       
-  type t = AlgebraicNumber.t
-
-  val sgn_at_a : t ptr -> bool
-  val sgn_at_b : t ptr -> bool
-  val is_point : t ptr -> bool
-
-  val a_open : t ptr -> bool
-  val b_open : t ptr -> bool
-
-  val a : t ptr -> DyadicRational.t ptr
-  val b : t ptr -> DyadicRational.t ptr
-
-  val a_num : t ptr -> Z.t
-  val a_pow : t ptr -> int
-
-  val b_num : t ptr -> Z.t
-  val b_pow : t ptr -> int
-
-  val to_string : t ptr -> string
- 
-end
-
-module Error : sig
-  (** ********************
-      ERROR REPORTING  *
-   ****************** *)
-
-  (** Error codes and the error_report data structure are defined in
-      yices_types.h. When an API function is called with invalid
-      arguments or when some error occurs for whatever reason, then the
-      function returns a specific value (typically a negative value) and
-      stores information about the error in a global error_report
-      structure.  This structure can be examined by calling
-      yices_error_report().  The most important component of the
-      error_report is an error code that is returned by a call to
-      yices_error_code().  *)
-
-  (** Get the last error code  *)
-  val code   : unit -> error_code
-  (** Get the last error report  *)
-  val report : unit -> error_report
-  (** Clear the error report  *)
-  val clear  : unit -> unit
-end
-
-(** Small abbreviation *)
-val status_is_not_error : [> `STATUS_ERROR] -> bool
 
 module type ErrorHandling = sig
   type 'a t
@@ -104,6 +30,12 @@ module type ErrorHandling = sig
 
   (** Error monad's bind combinator  *)
   val bind : 'a t -> ('a -> 'b t) -> 'b t
+end
+
+module NoErrorHandling : sig
+  exception YicesException of error_code * error_report
+  exception YicesBindingsException of string
+  include ErrorHandling with type 'a t = 'a
 end
 
 module ExceptionsErrorHandling : sig

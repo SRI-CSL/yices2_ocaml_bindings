@@ -2832,105 +2832,105 @@ module type Model = sig
   (** GENERIC FORM: VALUE DESCRIPTORS AND NODES  *)
 
   (** The previous functions work for terms t of atomic types, but they
-        can't be used if t has a tuple or function type. Internally, yices
-        represent the tuple and function values as nodes in a DAG. The
-        following functions allows one to query and explore this DAG.
-        A node in the DAG is represented by a structure of type yval_t defined
-        as follows in yices_types.h: *)
+      can't be used if t has a tuple or function type. Internally, yices
+      represent the tuple and function values as nodes in a DAG. The
+      following functions allows one to query and explore this DAG.
+      A node in the DAG is represented by a structure of type yval_t defined
+      as follows in yices_types.h: *)
 
   (**  typedef struct yval_s {
-         int32_t node_id;
-         yval_tag_t node_tag;
-        } yval_t;
+       int32_t node_id;
+       yval_tag_t node_tag;
+       } yval_t;
    *)
 
   (** This descriptor includes the node id (all nodes have a unique id) and
-        a tag that identifies the node type. Leaf nodes represent atomic constants.
-        Non-leaf nodes represent tuples and functions.
+      a tag that identifies the node type. Leaf nodes represent atomic constants.
+      Non-leaf nodes represent tuples and functions.
 
-        The possible tags for a leaf node are:
+      The possible tags for a leaf node are:
 
-        YVAL_BOOL       Boolean constant
-        YVAL_RATIONAL   Rational (or integer) constant
-        YVAL_ALGEBRAIC  Algebraic number
-        YVAL_BV         Bitvector constant
-        YVAL_SCALAR     Constant of a scalar or uninterpreted type
+      YVAL_BOOL       Boolean constant
+      YVAL_RATIONAL   Rational (or integer) constant
+      YVAL_ALGEBRAIC  Algebraic number
+      YVAL_BV         Bitvector constant
+      YVAL_SCALAR     Constant of a scalar or uninterpreted type
 
-        The following tags are used for non-leaf nodes:
+      The following tags are used for non-leaf nodes:
 
-        YVAL_TUPLE      Constant tuple
-        YVAL_FUNCTION   Function
-        YVAL_MAPPING    Mapping of the form [val_1 .. val_k -> val]
+      YVAL_TUPLE      Constant tuple
+      YVAL_FUNCTION   Function
+      YVAL_MAPPING    Mapping of the form [val_1 .. val_k -> val]
 
-        There is also the special leaf node to indicate an error or that a value
-        is not known:
+      There is also the special leaf node to indicate an error or that a value
+      is not known:
 
-        YVAL_UNKNOWN
+      YVAL_UNKNOWN
 
 
-        The children of a tuple node denote the tuple components. For
-        example Yices will represent the tuple (true, -1/2, 0b0011) as a
-        node with tag YVAL_TUPLE and three children. Each children is a
-        leaf node in this case.
+      The children of a tuple node denote the tuple components. For
+      example Yices will represent the tuple (true, -1/2, 0b0011) as a
+      node with tag YVAL_TUPLE and three children. Each children is a
+      leaf node in this case.
 
-        All functions used in the model have a simple form. They are defined
-        by a finite list of mappings and a default value. Each mapping specifies the
-        value of the function at a single point in its domain. For example, we could
-        have a function f of type [int, int -> int] defined by the clauses:
-         f(0, 0) = 0
-         f(3, 1) = 1
-         f(x, y) = -2 in all other cases.
+      All functions used in the model have a simple form. They are defined
+      by a finite list of mappings and a default value. Each mapping specifies the
+      value of the function at a single point in its domain. For example, we could
+      have a function f of type [int, int -> int] defined by the clauses:
+      f(0, 0) = 0
+      f(3, 1) = 1
+      f(x, y) = -2 in all other cases.
 
-        Yices represents such a function as a node with tag YVAL_FUNCTION
-        and with three children. Two of these children are nodes with tag
-        YVAL_MAPPING that represent the mappings:
-          [0, 0 -> 0]
-          [3, 1 -> 1]
-        The third children represents the default value for f. In this case,
-        it's a leaf node for the constant -2 (tag YVAL_RATIONAL and value -2).
+      Yices represents such a function as a node with tag YVAL_FUNCTION
+      and with three children. Two of these children are nodes with tag
+      YVAL_MAPPING that represent the mappings:
+      [0, 0 -> 0]
+      [3, 1 -> 1]
+      The third children represents the default value for f. In this case,
+      it's a leaf node for the constant -2 (tag YVAL_RATIONAL and value -2).
 
-        The following functions return the value of a term t as a node in
-        the DAG, and allow one to query and collect the children of
-        non-leaf nodes.  *)
+      The following functions return the value of a term t as a node in
+      the DAG, and allow one to query and collect the children of
+      non-leaf nodes.  *)
 
   (** Value of term t as a node descriptor.
 
-        The function returns 0 it t's value can be computed, -1 otherwise.
-        If t's value can be computed, the corresponding node descriptor is
-        returned in *val.
+      The function returns 0 it t's value can be computed, -1 otherwise.
+      If t's value can be computed, the corresponding node descriptor is
+      returned in *val.
 
-        Error codes are as in all evaluation functions.
-        If t is not valid:
-         code = INVALID_TERM
-         term1 = t
-        If t contains a subterm whose value is not known
-         code = EVAL_UNKNOWN_TERM
-        If t contains free variables
-         code = EVAL_FREEVAR_IN_TERM
-        If t contains quantifier(s)
-         code = EVAL_QUANTIFIER
-        If t contains lambda terms
-         code = EVAL_LAMBDA
-        If the evaluation fails for other reasons:
-         code = EVAL_FAILED  *)
+      Error codes are as in all evaluation functions.
+      If t is not valid:
+      code = INVALID_TERM
+      term1 = t
+      If t contains a subterm whose value is not known
+      code = EVAL_UNKNOWN_TERM
+      If t contains free variables
+      code = EVAL_FREEVAR_IN_TERM
+      If t contains quantifier(s)
+      code = EVAL_QUANTIFIER
+      If t contains lambda terms
+      code = EVAL_LAMBDA
+      If the evaluation fails for other reasons:
+      code = EVAL_FAILED  *)
   val get_value : t -> term -> yval_t ptr eh
 
   (** Queries on the value of a rational node:
-        - if v->node_tag is YVAL_RATIONAL, the functions below check whether v's value
-          can be converted to an integer or a pair num/den of the given size.
-        - if v->node_tag != YVAL_RATIONAL, these functions return false (i.e. 0).
+      - if v->node_tag is YVAL_RATIONAL, the functions below check whether v's value
+      can be converted to an integer or a pair num/den of the given size.
+      - if v->node_tag != YVAL_RATIONAL, these functions return false (i.e. 0).
 
-        yices_val_is_int32: check whether v's value fits in a signed, 32bit integer
+      yices_val_is_int32: check whether v's value fits in a signed, 32bit integer
 
-        yices_val_is_int64: check whether v's value fits in a signed, 64bit integer
+      yices_val_is_int64: check whether v's value fits in a signed, 64bit integer
 
-        yices_val_is_rational32: check whether v's value can be written num/den where num
-          is a signed 32bit integer and den is an unsigned 32bit integer
+      yices_val_is_rational32: check whether v's value can be written num/den where num
+      is a signed 32bit integer and den is an unsigned 32bit integer
 
-        yices_val_is_rational64: check whether v's value can be written num/den where num
-          is a signed 64bit integer and den is an unsigned 64bit integer
+      yices_val_is_rational64: check whether v's value can be written num/den where num
+      is a signed 64bit integer and den is an unsigned 64bit integer
 
-        yices_val_is_integer: check whether v's value is an integer  *)
+      yices_val_is_integer: check whether v's value is an integer  *)
 
   val val_is_int32      : t -> yval_t ptr -> bool eh
   val val_is_int64      : t -> yval_t ptr -> bool eh
@@ -2940,39 +2940,39 @@ module type Model = sig
 
 
   (** Get the number of bits in a bv constant, the number of components in a tuple,
-        or the arity of a mapping. These function return 0 if v has the wrong tag (i.e.,
-        not a bitvector constant, or not a tuple, or not a mapping).  *)
+      or the arity of a mapping. These function return 0 if v has the wrong tag (i.e.,
+      not a bitvector constant, or not a tuple, or not a mapping).  *)
 
   val val_bitsize       : t -> yval_t ptr -> int eh
   val val_tuple_arity   : t -> yval_t ptr -> int eh
   val val_mapping_arity : t -> yval_t ptr -> int eh
 
   (** Arity of a function node. This function returns 0 if v has tag
-        other than YVAL_FUNCTION, otherwise it returns the function's
-        arity (i.e., the number of parameters that the function takes).  *)
+      other than YVAL_FUNCTION, otherwise it returns the function's
+      arity (i.e., the number of parameters that the function takes).  *)
   val val_function_arity : t -> yval_t ptr -> int eh
 
   (** Type of a function node. This function returns -1 if v has tag
-        other than YVAL_FUNCTION. Otherwise, it returns the type of the
-        object v.
-        Since 2.6.2.  *)
+      other than YVAL_FUNCTION. Otherwise, it returns the type of the
+      object v.
+      Since 2.6.2.  *)
   val val_function_type : t -> yval_t ptr -> typ eh
 
   (** Get the value of a Boolean node v.
-        - returns 0 if there's no error and store v's value in *val:
-         *val is either 0 (for false) or 1 (for true).
-        - returns -1 if v does not have tag YVAL_BOOL and sets the error code
-          to YVAL_INVALID_OP.  *)
+      - returns 0 if there's no error and store v's value in *val:
+      *val is either 0 (for false) or 1 (for true).
+      - returns -1 if v does not have tag YVAL_BOOL and sets the error code
+      to YVAL_INVALID_OP.  *)
   val val_get_bool : t -> yval_t ptr -> bool eh
 
   (** Get the value of a rational node v
-        - the functions return 0 if there's no error and store v's value in *val
-          or in the pair *num, *den (v's value is ( *num )/( *den ).
-        - they return -1 if there's an error.
+      - the functions return 0 if there's no error and store v's value in *val
+      or in the pair *num, *den (v's value is ( *num )/( *den ).
+      - they return -1 if there's an error.
 
-        The error code is set to YVAL_INVALID_OP if v's tag is not YVAL_RATIONAL.
-        The error code is set to YVAL_OVERFLOW if v's value does not fit in
-        ( *val ) or in ( *num )/( *den ).  *)
+      The error code is set to YVAL_INVALID_OP if v's tag is not YVAL_RATIONAL.
+      The error code is set to YVAL_OVERFLOW if v's value does not fit in
+      ( *val ) or in ( *num )/( *den ).  *)
   val val_get_int32      : t -> yval_t ptr -> sint eh
   val val_get_int64      : t -> yval_t ptr -> long eh
   val val_get_int        : t -> yval_t ptr -> int eh
@@ -2982,13 +2982,13 @@ module type Model = sig
   (** Value converted to a floating point number  *)
   val val_get_double : t -> yval_t ptr -> float eh
 
-  [%%if gmp_present]
+                                            [%%if gmp_present]
 
   (** GMP values *)
 
   val val_get_mpz : model_t ptr -> yval_t ptr -> Z.t eh
   val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
-  [%%endif]
+                                                   [%%endif]
 
   (**  * Export an algebraic number
    * - v->tag must be YVAL_ALGEBRAIC
@@ -3003,47 +3003,47 @@ module type Model = sig
   val val_get_algebraic_number_value : t -> yval_t ptr -> Types.algebraic eh
 
   (** Get the value of a bitvector node:
-        - val must have size at least equal to n = yices_val_bitsize(mdl, v)
-        - v's value is returned in val[0] = low-order bit, ..., val[n-1] = high-order bit.
-          every val[i] is either 0 or 1.
-        - the function returns 0 if v has tag YVAL_BV
-        - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP.  *)
+      - val must have size at least equal to n = yices_val_bitsize(mdl, v)
+      - v's value is returned in val[0] = low-order bit, ..., val[n-1] = high-order bit.
+      every val[i] is either 0 or 1.
+      - the function returns 0 if v has tag YVAL_BV
+      - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP.  *)
   val val_get_bv : t -> yval_t ptr -> bool list eh
 
   (** Get the value of a scalar node:
-        - the function returns 0 if v's tag is YVAL_SCALAR
-          the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
-        - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP.  *)
+      - the function returns 0 if v's tag is YVAL_SCALAR
+      the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
+      - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP.  *)
   val val_get_scalar : t -> yval_t ptr -> (int*typ) eh
 
   (** Expand a tuple node:
-        - child must be an array large enough to store all children of v (i.e.,
-          at least n elements where n = yices_val_tuple_arity(mdl, v))
-        - the children nodes of v are stored in child[0 ... n-1]
+      - child must be an array large enough to store all children of v (i.e.,
+      at least n elements where n = yices_val_tuple_arity(mdl, v))
+      - the children nodes of v are stored in child[0 ... n-1]
 
-        Return code = 0 if v's tag is YVAL_TUPLE.
-        Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
+      Return code = 0 if v's tag is YVAL_TUPLE.
+      Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
   val val_expand_tuple : t -> yval_t ptr -> yval_t ptr list eh
 
   (** Expand a function node f
-        - the default value for f is stored in *def
-        - the set of mappings for f is stored in vector *v.
-          This vector must be initialized using yices_init_yval_vector.
-          The number of mappings is v->size and the mappings are stored
-          in v->data[0 ... n-1] where n = v->size
+      - the default value for f is stored in *def
+      - the set of mappings for f is stored in vector *v.
+      This vector must be initialized using yices_init_yval_vector.
+      The number of mappings is v->size and the mappings are stored
+      in v->data[0 ... n-1] where n = v->size
 
-        Return code = 0 if v's tag is YVAL_FUNCTION.
-        Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
+      Return code = 0 if v's tag is YVAL_FUNCTION.
+      Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
   val val_expand_function : t -> yval_t ptr -> ((yval_t ptr) * (yval_t ptr list)) eh
 
   (** Expand a mapping node m
-        - the mapping is of the form [x_1 ... x_k -> v] where k = yices_val_mapping_arity(mdl, m)
-        - tup must be an array of size at least k
-        - the nodes (x_1 ... x_k) are stored in tup[0 ... k-1]
-          the node v is stored in val.
+      - the mapping is of the form [x_1 ... x_k -> v] where k = yices_val_mapping_arity(mdl, m)
+      - tup must be an array of size at least k
+      - the nodes (x_1 ... x_k) are stored in tup[0 ... k-1]
+      the node v is stored in val.
 
-        Return code = 0 if v's tag is YVAL_MAPPING.
-        Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
+      Return code = 0 if v's tag is YVAL_MAPPING.
+      Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
   val val_expand_mapping : t -> yval_t ptr -> Types.mapping eh
 
   (** Expand a node m, of any kind, calling the functions above. *)
@@ -3052,26 +3052,26 @@ module type Model = sig
   (** CHECK THE VALUE OF BOOLEAN FORMULAS  *)
 
   (** Check whether f is true in mdl
-        - the returned value is
-           1 if f is true in mdl,
-           0 if f is false in mdl,
-          -1 if f's value can't be evaluated (then an error code is set)
+      - the returned value is
+      1 if f is true in mdl,
+      0 if f is false in mdl,
+      -1 if f's value can't be evaluated (then an error code is set)
 
-        Error codes:
-        - same as yices_get_bool_value  *)
+      Error codes:
+      - same as yices_get_bool_value  *)
   val formula_true_in_model : t -> term -> bool eh
 
   (** Check whether f[0 ... n-1] are all true in mdl
-        - the returned value is as in the previous function:
-           1 if all f[i] are true
-           0 if one f[i] is false (and f[0 ... i-1] are all true)
-          -1 if one f[i] can't be evaluated (and f[0 ... i-1] are all true)
+      - the returned value is as in the previous function:
+      1 if all f[i] are true
+      0 if one f[i] is false (and f[0 ... i-1] are all true)
+      -1 if one f[i] can't be evaluated (and f[0 ... i-1] are all true)
 
-        Error codes:
-        - same as yices_get_bool_value
+      Error codes:
+      - same as yices_get_bool_value
 
-        NOTE: if n>1, it's more efficient to call this function once than to
-        call the previous function n times.  *)
+      NOTE: if n>1, it's more efficient to call this function once than to
+      call the previous function n times.  *)
   val formulas_true_in_model : t -> term list -> bool eh
 
   (** CONVERSION OF VALUES TO CONSTANT TERMS  *)
@@ -3080,42 +3080,42 @@ module type Model = sig
   val yval_as_term : t -> Types.yval -> term eh
 
   (** Model value (from C yval pointer) converted to constant term.
-     calls reveal and then the above function *)
+      calls reveal and then the above function *)
   val val_as_term  : t -> yval_t ptr -> term eh
 
   (** Value of term t in model converted to a constant term.
 
-        For primitive types, this is the same as extracting the value
-        then converting it to a constant term:
-        - if t is a Boolean term, then val is either true or false (as
-          returned by functions yices_true() or yices_false()).
-        - if t is an arithmetic term and its value is a rational or integer constant,
-          then the value is reflected in the returned term
-          (as built by functions yices_mpq or yices_mpz).
-        - if t is an arithmetic term and its value is an algebraic number from libpoly,
-          this function raises an exception.
-        - if t has uninterpreted or scalar type, then val is a constant term
-          of that type (as built by function yices_constant).
-        - if t has a bitvector type, then val is a bitvector constant term
-          (as in yices_bvconst_from_array)
+      For primitive types, this is the same as extracting the value
+      then converting it to a constant term:
+      - if t is a Boolean term, then val is either true or false (as
+      returned by functions yices_true() or yices_false()).
+      - if t is an arithmetic term and its value is a rational or integer constant,
+      then the value is reflected in the returned term
+      (as built by functions yices_mpq or yices_mpz).
+      - if t is an arithmetic term and its value is an algebraic number from libpoly,
+      this function raises an exception.
+      - if t has uninterpreted or scalar type, then val is a constant term
+      of that type (as built by function yices_constant).
+      - if t has a bitvector type, then val is a bitvector constant term
+      (as in yices_bvconst_from_array)
 
-        For functional types, the functional values is converted to a lambda-term
-        and a series of if-then-else constructs; the last else branch is the default value.
+      For functional types, the functional values is converted to a lambda-term
+      and a series of if-then-else constructs; the last else branch is the default value.
 
-        If t has tuple type tau, then val is a tuple of constant terms.
+      If t has tuple type tau, then val is a tuple of constant terms.
    *)   
   val get_value_as_term : t -> term -> term eh
 
   (** Get the values of terms a[0 .. n-1] in mdl and convert the values to terms.
-        - a must be an array of n terms
-        - b must be large enough to store n terms
+      - a must be an array of n terms
+      - b must be large enough to store n terms
 
-        This function has the same behavior and limitations as yices_get_value_as_term.
-        If there's no error, the function returns 0 and store the values in array b:
-        - b[i] = value of a[i] in mdl, converted to a term
+      This function has the same behavior and limitations as yices_get_value_as_term.
+      If there's no error, the function returns 0 and store the values in array b:
+      - b[i] = value of a[i] in mdl, converted to a term
 
-        Otherwise, the function returns -1 and sets the error report.
-        The error codes are the same as for yices_get_value_as_term.  *)
+      Otherwise, the function returns -1 and sets the error report.
+      The error codes are the same as for yices_get_value_as_term.  *)
   val terms_value : t -> term list -> term list eh
 
   (** SUPPORTS *)
@@ -3124,7 +3124,7 @@ module type Model = sig
       terms whose values are sufficient to fix the value of t in mdl. For example, if
       t is (if x>0 then x+z else y) and x has value 1 in mdl, then the value of t doesn't depend
       on the value of y in mdl. In this case, support(t) = \{ x, z \}.
-     
+      
       This extends to an array of terms a[0 ... n-1]. The support of a is a set of terms whose
       values in mdl are sufficient to determine the values of a[0] .... a[n-1]. *)
 
@@ -3132,138 +3132,138 @@ module type Model = sig
       - the support is returned in vector *v; v must be initialized by calling yices_init_term_vector.
       - if t is not a valid term, the function returns -1 and leaves v unchanged.
       - otherwise, the function returns 0 and the support of t is stored in *v:
-         v->size = number of terms in the support
-         v->data[0 ... v->size-1] = the terms
-     
+      v->size = number of terms in the support
+      v->data[0 ... v->size-1] = the terms
+      
       Error report:
       if t is not a valid term:
-         code = INVALID_TERM
-         term1 = t
-     
+      code = INVALID_TERM
+      term1 = t
+      
       Since 2.6.2. *)
   val model_term_support : t -> term -> term list eh
 
   (** Get the support of terms a[0...n-1] in mdl
       - the support is returned in vector *v;
-        v must be initialized by calling yices_init_term_vector.
+      v must be initialized by calling yices_init_term_vector.
       - if one  is not a valid term, the function returns -1 and leaves v unchanged.
       - otherwise, the function returns 0 and the support is stored in *v:
-         v->size = number of terms in the support
-         v->data[0 ... v->size-1] = the terms
-     
+      v->size = number of terms in the support
+      v->data[0 ... v->size-1] = the terms
+      
       Error report:
       if a[i] is not a valid term,
-        code = INVALID_TERM
-        term1 = a[i]
-     
+      code = INVALID_TERM
+      term1 = a[i]
+      
       Since 2.6.2. *)
   val model_terms_support : t -> term list -> term list eh
 
   (** IMPLICANTS  *)
 
   (** Compute an implicant for t in mdl
-        - t must be a Boolean term that's true in mdl
-        - the implicant is a list of Boolean terms a[0] ... a[n-1] such that
-          1) a[i] is a literal (atom or negation of an atom)
-          2) a[i] is true in mdl
-          3) the conjunction a[0] /\ ... /\ a[n-1] implies t
+      - t must be a Boolean term that's true in mdl
+      - the implicant is a list of Boolean terms a[0] ... a[n-1] such that
+      1) a[i] is a literal (atom or negation of an atom)
+      2) a[i] is true in mdl
+      3) the conjunction a[0] /\ ... /\ a[n-1] implies t
 
-        The implicant is returned in vector v, which must be initialized by
-        yices_init_term_vector:
-          v->size is the number of literals in the implicant (i.e., n)
-          v->data[0] ... v->data[n-1] = the n literals
-        If there's an error (return code -1) then v is empty:
-          v->size is set to 0.
+      The implicant is returned in vector v, which must be initialized by
+      yices_init_term_vector:
+      v->size is the number of literals in the implicant (i.e., n)
+      v->data[0] ... v->data[n-1] = the n literals
+      If there's an error (return code -1) then v is empty:
+      v->size is set to 0.
 
-        The function returns 0 if the implicant can be computed. Otherwise
-        it returns -1.
+      The function returns 0 if the implicant can be computed. Otherwise
+      it returns -1.
 
-        Error report:
-        if t is not valid
-         code = INVALID_TERM
-         term1 = t
-        if t is not a Boolean term
-         code = TYPE_MISMATCH
-         term1 = t
-         type1 = bool
-        if t is false in the model:
-         code = EVAL_NO_IMPLICANT
-        any of the error codes for evaluation functions is also possible:
-         EVAL_UNKNOWN_TERM
-         EVAL_FREEVAR_IN_TERM
-         EVAL_QUANTIFIER
-         EVAL_LAMBDA
-         EVAL_FAILED  *)
+      Error report:
+      if t is not valid
+      code = INVALID_TERM
+      term1 = t
+      if t is not a Boolean term
+      code = TYPE_MISMATCH
+      term1 = t
+      type1 = bool
+      if t is false in the model:
+      code = EVAL_NO_IMPLICANT
+      any of the error codes for evaluation functions is also possible:
+      EVAL_UNKNOWN_TERM
+      EVAL_FREEVAR_IN_TERM
+      EVAL_QUANTIFIER
+      EVAL_LAMBDA
+      EVAL_FAILED  *)
   val implicant_for_formula : t -> term -> term list eh
 
   (** Variant: compute an implicant for an array of formulas in mdl.
-        - n = size of the array
-        - a[0 ... n-1] = n input terms.
-          each a[i] must be a Boolean term and must be true in mdl
+      - n = size of the array
+      - a[0 ... n-1] = n input terms.
+      each a[i] must be a Boolean term and must be true in mdl
 
-        The function computes an implicant for the conjunction (and a[0] ... a[n-1]).
+      The function computes an implicant for the conjunction (and a[0] ... a[n-1]).
 
-        Return codes and errors are as in the previous function.
-        The implicant is returned in vector v.
+      Return codes and errors are as in the previous function.
+      The implicant is returned in vector v.
 
-        If the return code is 0, then
-          v->size = number of literals
-          v->data contains the array of literals.
-        Otherwise, v->size is set to 0.  *)
+      If the return code is 0, then
+      v->size = number of literals
+      v->data contains the array of literals.
+      Otherwise, v->size is set to 0.  *)
   val implicant_for_formulas : t -> term list -> term list eh
 
   (** MODEL GENERALIZATION  *)
 
   (** Given a model mdl for a formula F(X, Y). The following generalization functions
-        eliminate variables Y from F(X, Y) in a way that is guided by the model.
+      eliminate variables Y from F(X, Y) in a way that is guided by the model.
 
-        The result is a formula G(X) such that:
-        1) mdl satisfies G(X)
-        2) G(X) implies (exists Y. F(X, Y))
+      The result is a formula G(X) such that:
+      1) mdl satisfies G(X)
+      2) G(X) implies (exists Y. F(X, Y))
 
-        Yices supports the following generalization methods:
+      Yices supports the following generalization methods:
 
-        1) generalization by substitution: eliminate the Y variables
-          by replacing them by their value in mdl
-          (this is the simplest approach)
+      1) generalization by substitution: eliminate the Y variables
+      by replacing them by their value in mdl
+      (this is the simplest approach)
 
-        2) generalization by projection:
-        - first compute an implicant for formula F(X, Y)
-            this produces a set of literals L_1(X, Y) .... L_k(X, Y)
-        - then Y is eliminated from the literals by projection
-            (this is a hybrid of Fourier-Motzkin elimination
-             and virtual term substitution)
+      2) generalization by projection:
+      - first compute an implicant for formula F(X, Y)
+      this produces a set of literals L_1(X, Y) .... L_k(X, Y)
+      - then Y is eliminated from the literals by projection
+      (this is a hybrid of Fourier-Motzkin elimination
+      and virtual term substitution)
 
-        In the functions below, the generalization method can be selected
-        by setting parameter mode to one of the following values:
+      In the functions below, the generalization method can be selected
+      by setting parameter mode to one of the following values:
 
-         mode = YICES_GEN_BY_SUBST  ---> generalize by substitution
-         mode = YICES_GEN_BY_PROJ   ---> projection
-         mode = YICES_GEN_DEFAULT   ---> automatically choose the mode
-                                         depending on the variables to eliminate
+      mode = YICES_GEN_BY_SUBST  ---> generalize by substitution
+      mode = YICES_GEN_BY_PROJ   ---> projection
+      mode = YICES_GEN_DEFAULT   ---> automatically choose the mode
+      depending on the variables to eliminate
 
-        Any value other than these is interpreted the same as YICES_GEN_DEFAULT  *)
+      Any value other than these is interpreted the same as YICES_GEN_DEFAULT  *)
 
   (** Compute a generalization of mdl for formula t
-        - nelims = number of variables to eliminate
-        - elim = variables to eliminate
-        - each term in elim[i] must be an uninterpreted term (as returned by yices_new_uninterpreted_term)
-          of one of the following types: Boolean, (bitvector k), or Real
-        - mode defines the generalization algorithm
-        - v: term_vector to return the result
+      - nelims = number of variables to eliminate
+      - elim = variables to eliminate
+      - each term in elim[i] must be an uninterpreted term (as returned by yices_new_uninterpreted_term)
+      of one of the following types: Boolean, (bitvector k), or Real
+      - mode defines the generalization algorithm
+      - v: term_vector to return the result
 
-        The generalization G(X) is returned in term_vector v that must be initialized
-        using yices_init_term_vector. G(X) is the conjunction of all formulas in v.
-          v->size = number of formulas returned
-          v->data[0] ....  v->data[v->size-1] = the formulas themselves.
+      The generalization G(X) is returned in term_vector v that must be initialized
+      using yices_init_term_vector. G(X) is the conjunction of all formulas in v.
+      v->size = number of formulas returned
+      v->data[0] ....  v->data[v->size-1] = the formulas themselves.
 
-        If mode = YICES_GEN_BY_PROJ, then every element of v is guaranteed to be a literal
+      If mode = YICES_GEN_BY_PROJ, then every element of v is guaranteed to be a literal
 
-        Important: t must be true in mdl, otherwise, the returned data may be garbage.
+      Important: t must be true in mdl, otherwise, the returned data may be garbage.
 
-        Returned code:
-         0 means success
-        -1 means that the generalization failed.  *)
+      Returned code:
+      0 means success
+      -1 means that the generalization failed.  *)
   val generalize_model : t -> term -> term list -> yices_gen_mode -> term list eh
 
   (** Compute a generalization of mdl for the conjunct (a[0] /\ ... /\ a[n-1])  *)
@@ -3281,269 +3281,269 @@ module type Context = sig
   type model
   type config
   type param
-     
+  
   (** ************
-        CONTEXTS   *
-     *********** *)
+      CONTEXTS   *
+      *********** *)
 
   (** A context is a stack of assertions.
 
-        The intended use is:
-        1) create a context (empty)
-        2) assert one or more formulas in the context.
-          (it's allowed to call assert several times before check).
-        3) check satisfiability
-        4) if the context is satisfiable, optionally build a model
-        5) reset the context or call push or pop, then go back to 2
-        6) delete the context
+      The intended use is:
+      1) create a context (empty)
+      2) assert one or more formulas in the context.
+      (it's allowed to call assert several times before check).
+      3) check satisfiability
+      4) if the context is satisfiable, optionally build a model
+      5) reset the context or call push or pop, then go back to 2
+      6) delete the context
 
 
-        A context can be in one of the following states:
-        1) STATUS_IDLE: this is the initial state.
-          In this state, it's possible to assert formulas.
-          After assertions, the status may change to STATUS_UNSAT (if
-          the assertions are trivially unsatisfiable). Otherwise
-          the state remains STATUS_IDLE.
+      A context can be in one of the following states:
+      1) STATUS_IDLE: this is the initial state.
+      In this state, it's possible to assert formulas.
+      After assertions, the status may change to STATUS_UNSAT (if
+      the assertions are trivially unsatisfiable). Otherwise
+      the state remains STATUS_IDLE.
 
-        2) STATUS_SEARCHING: this is the context status during search.
-          The context moves into that state after a call to 'check'
-          and remains in that state until the solver completes
-          or the search is interrupted.
+      2) STATUS_SEARCHING: this is the context status during search.
+      The context moves into that state after a call to 'check'
+      and remains in that state until the solver completes
+      or the search is interrupted.
 
-        3) STATUS_SAT/STATUS_UNSAT/STATUS_UNKNOWN: status returned after a search
-        - STATUS_UNSAT means the assertions are not satisfiable.
-        - STATUS_SAT means they are satisfiable.
-        - STATUS_UNKNOWN means that the solver could not determine whether
-            the assertions are satisfiable or not. This may happen if
-            Yices is not complete for the specific logic used (e.g.,
-            if the formula includes quantifiers).
+      3) STATUS_SAT/STATUS_UNSAT/STATUS_UNKNOWN: status returned after a search
+      - STATUS_UNSAT means the assertions are not satisfiable.
+      - STATUS_SAT means they are satisfiable.
+      - STATUS_UNKNOWN means that the solver could not determine whether
+      the assertions are satisfiable or not. This may happen if
+      Yices is not complete for the specific logic used (e.g.,
+      if the formula includes quantifiers).
 
-        4) STATUS_INTERRUPTED: if the context is in the STATUS_SEARCHING state,
-          then it can be interrupted via a call to stop_search.
-          The status STATUS_INTERRUPTED indicates that.
+      4) STATUS_INTERRUPTED: if the context is in the STATUS_SEARCHING state,
+      then it can be interrupted via a call to stop_search.
+      The status STATUS_INTERRUPTED indicates that.
 
-        For fine tuning: there are options that determine which internal
-        simplifications are applied when formulas are asserted, and
-        other options to control heuristics used by the solver.  *)
+      For fine tuning: there are options that determine which internal
+      simplifications are applied when formulas are asserted, and
+      other options to control heuristics used by the solver.  *)
 
   (** Create a new context:
-        - config is an optional argument that defines the context configuration
-        - the configuration specifies which components the context should
-          include (e.g., egraph, bv_solver, simplex_solver, etc),
-          and which features should be supported (e.g., whether push/pop are
-          needed).
+      - config is an optional argument that defines the context configuration
+      - the configuration specifies which components the context should
+      include (e.g., egraph, bv_solver, simplex_solver, etc),
+      and which features should be supported (e.g., whether push/pop are
+      needed).
 
-        If config is NULL, the default configuration is used:
-         push/pop are enabled
-         the solvers are: egraph + array solver + bv solver + simplex
-         mixed real/integer linear arithmetic is supported
+      If config is NULL, the default configuration is used:
+      push/pop are enabled
+      the solvers are: egraph + array solver + bv solver + simplex
+      mixed real/integer linear arithmetic is supported
 
-        Otherwise the context is configured as specified by config, provided
-        that configuration is valid.
+      Otherwise the context is configured as specified by config, provided
+      that configuration is valid.
 
-        If there's an error (i.e., the configuration is not supported), the
-        function returns NULL and set an error code: CTX_INVALID_CONFIG.  *)
+      If there's an error (i.e., the configuration is not supported), the
+      function returns NULL and set an error code: CTX_INVALID_CONFIG.  *)
   val malloc : ?config:config -> unit -> t eh
 
   (** Deletion  *)
   val free : t -> unit
 
   (** Get status: return the context's status flag
-        - return one of the codes defined in yices_types.h,
-          namely one of the constants
+      - return one of the codes defined in yices_types.h,
+      namely one of the constants
 
-          STATUS_IDLE
-          STATUS_SEARCHING
-          STATUS_UNKNOWN
-          STATUS_SAT
-          STATUS_UNSAT
-          STATUS_INTERRUPTED
+      STATUS_IDLE
+      STATUS_SEARCHING
+      STATUS_UNKNOWN
+      STATUS_SAT
+      STATUS_UNSAT
+      STATUS_INTERRUPTED
    *)
   val status : t -> smt_status
 
   (** Reset: remove all assertions and restore ctx's
-        status to STATUS_IDLE.  *)
+      status to STATUS_IDLE.  *)
   val reset : t -> unit
 
   (** Push: mark a backtrack point
-        - return 0 if this operation is supported by the context
-               -1 otherwise
+      - return 0 if this operation is supported by the context
+      -1 otherwise
 
-        Error report:
-        - if the context is not configured to support push/pop
-          code = CTX_OPERATION_NOT_SUPPORTED
-        - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
-          code = CTX_INVALID_OPERATION  *)
+      Error report:
+      - if the context is not configured to support push/pop
+      code = CTX_OPERATION_NOT_SUPPORTED
+      - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
+      code = CTX_INVALID_OPERATION  *)
   val push : t -> unit eh
 
   (** Pop: backtrack to the previous backtrack point (i.e., the matching
-        call to yices_push).
-        - return 0 if the operation succeeds, -1 otherwise.
+      call to yices_push).
+      - return 0 if the operation succeeds, -1 otherwise.
 
-        Error report:
-        - if the context is not configured to support push/pop
-          code = CTX_OPERATION_NOT_SUPPORTED
-        - if there's no matching push (i.e., the context stack is empty)
-          or if the context's status is STATUS_SEARCHING
-          code = CTX_INVALID_OPERATION  *)
+      Error report:
+      - if the context is not configured to support push/pop
+      code = CTX_OPERATION_NOT_SUPPORTED
+      - if there's no matching push (i.e., the context stack is empty)
+      or if the context's status is STATUS_SEARCHING
+      code = CTX_INVALID_OPERATION  *)
   val pop  : t -> unit eh
 
   (** Several options determine how much simplification is performed
-        when formulas are asserted. It's best to leave them untouched
-        unless you really know what you're doing.
+      when formulas are asserted. It's best to leave them untouched
+      unless you really know what you're doing.
 
-        The following functions selectively enable/disable a preprocessing
-        option. In the description below we use "variable" for what should be
-        "uninterpreted term" (in the sense of Yices), to stick to standard
-        terminology. The current options include:
+      The following functions selectively enable/disable a preprocessing
+      option. In the description below we use "variable" for what should be
+      "uninterpreted term" (in the sense of Yices), to stick to standard
+      terminology. The current options include:
 
-         var-elim: whether to eliminate variables by substitution
+      var-elim: whether to eliminate variables by substitution
 
-         arith-elim: more variable elimination for arithmetic (Gaussian elimination)
+      arith-elim: more variable elimination for arithmetic (Gaussian elimination)
 
-         bvarith-elim: more variable elimination for bitvector arithmetic
+      bvarith-elim: more variable elimination for bitvector arithmetic
 
-         eager-arith-lemmas: if enabled and the simplex solver is used, the simplex
-         solver will eagerly generate lemmas such as (x >= 1) => (x >= 0) (i.e.,
-         the lemmas that involve two inequalities on the same variable x).
+      eager-arith-lemmas: if enabled and the simplex solver is used, the simplex
+      solver will eagerly generate lemmas such as (x >= 1) => (x >= 0) (i.e.,
+      the lemmas that involve two inequalities on the same variable x).
 
-         flatten: whether to flatten nested (or ...)
-         if this is enabled the term (or (or a b) (or c d) ) is
-         flattened to (or a b c d)
+      flatten: whether to flatten nested (or ...)
+      if this is enabled the term (or (or a b) (or c d) ) is
+      flattened to (or a b c d)
 
-         learn-eq: enable/disable heuristics to learn implied equalities
+      learn-eq: enable/disable heuristics to learn implied equalities
 
-         keep-ite: whether to eliminate term if-then-else or keep them as terms
-        - this requires the context to include the egraph
+      keep-ite: whether to eliminate term if-then-else or keep them as terms
+      - this requires the context to include the egraph
 
-         break-symmetries: attempt to detect symmetries and add constraints
-         to remove them (this can be used only if the context is created for QF_UF)
+      break-symmetries: attempt to detect symmetries and add constraints
+      to remove them (this can be used only if the context is created for QF_UF)
 
-         assert-ite-bounds: try to determine upper and lower bound on if-then-else
-         terms and assert these bounds. For example, if term t is defined as
-         (ite c 10 (ite d 3 20)), then the context with include the assertion
-         3 <= t <= 20.
+      assert-ite-bounds: try to determine upper and lower bound on if-then-else
+      terms and assert these bounds. For example, if term t is defined as
+      (ite c 10 (ite d 3 20)), then the context with include the assertion
+      3 <= t <= 20.
 
-        The parameter must be given as a string. For example, to disable var-elim,
-        call  yices_context_disable_option(ctx, "var-elim")
+      The parameter must be given as a string. For example, to disable var-elim,
+      call  yices_context_disable_option(ctx, "var-elim")
 
-        The two functions return -1 if there's an error, 0 otherwise.
+      The two functions return -1 if there's an error, 0 otherwise.
 
-        Error codes:
-        CTX_UNKNOWN_PARAMETER if the option name is not one of the above.  *)
+      Error codes:
+      CTX_UNKNOWN_PARAMETER if the option name is not one of the above.  *)
 
   val enable_option  : t -> option:string -> unit eh
   val disable_option : t -> option:string -> unit eh
 
   (** Assert formula t in ctx
-        - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
-        - t must be a boolean term
+      - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+      - t must be a boolean term
 
-        If ctx's status is STATUS_UNSAT, nothing is done.
+      If ctx's status is STATUS_UNSAT, nothing is done.
 
-        If ctx's status is STATUS_IDLE, STATUS_SAT, or STATUS_UNKNOWN, then
-        the formula is simplified and  asserted in the context. The context
-        status is changed  to STATUS_UNSAT if the formula  is simplified to
-        'false' or to STATUS_IDLE otherwise.
+      If ctx's status is STATUS_IDLE, STATUS_SAT, or STATUS_UNKNOWN, then
+      the formula is simplified and  asserted in the context. The context
+      status is changed  to STATUS_UNSAT if the formula  is simplified to
+      'false' or to STATUS_IDLE otherwise.
 
-        This returns 0 if there's no error or -1 if there's an error.
+      This returns 0 if there's no error or -1 if there's an error.
 
-        Error report:
-        if t is invalid
-         code = INVALID_TERM
-         term1 = t
-        if t is not boolean
-         code = TYPE_MISMATCH
-         term1 = t
-         type1 = bool (expected type)
-        if ctx's status is not STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
-         code = CTX_INVALID_OPERATION
-        if ctx's status is neither STATUS_IDLE nor STATUS_UNSAT, and the context is
-        not configured for multiple checks
-         code = CTX_OPERATION_NOT_SUPPORTED
+      Error report:
+      if t is invalid
+      code = INVALID_TERM
+      term1 = t
+      if t is not boolean
+      code = TYPE_MISMATCH
+      term1 = t
+      type1 = bool (expected type)
+      if ctx's status is not STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+      code = CTX_INVALID_OPERATION
+      if ctx's status is neither STATUS_IDLE nor STATUS_UNSAT, and the context is
+      not configured for multiple checks
+      code = CTX_OPERATION_NOT_SUPPORTED
 
-        Other error codes are defined in yices_types.h to report that t is
-        outside the logic supported by ctx.  *)
+      Other error codes are defined in yices_types.h to report that t is
+      outside the logic supported by ctx.  *)
   val assert_formula : t -> term -> unit eh
 
   (** Assert an array of n formulas t[0 ... n-1]
-        - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
-        - all t[i]'s must be valid boolean terms.
+      - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+      - all t[i]'s must be valid boolean terms.
 
-        The function returns -1 on error, 0 otherwise.
+      The function returns -1 on error, 0 otherwise.
 
-        The error report is set as in the previous function.  *)
+      The error report is set as in the previous function.  *)
   val assert_formulas : t -> term list -> unit eh
 
   (** Add a blocking clause: this is intended to help enumerate different models
-        for a set of assertions.
-        - if ctx's status is STATUS_SAT or STATUS_UNKNOWN, then a new clause is added to ctx
-          to remove the current truth assignment from the search space. After this
-          clause is added, the next call to yices_check_context will either produce
-          a different truth assignment (hence a different model) or return STATUS_UNSAT.
+      for a set of assertions.
+      - if ctx's status is STATUS_SAT or STATUS_UNKNOWN, then a new clause is added to ctx
+      to remove the current truth assignment from the search space. After this
+      clause is added, the next call to yices_check_context will either produce
+      a different truth assignment (hence a different model) or return STATUS_UNSAT.
 
-        - ctx's status flag is updated to STATUS_IDLE (if the new clause is not empty) or
-          to STATUS_UNSAT (if the new clause is the empty clause).
+      - ctx's status flag is updated to STATUS_IDLE (if the new clause is not empty) or
+      to STATUS_UNSAT (if the new clause is the empty clause).
 
-        Return code: 0 if there's no error, -1 if there's an error.
+      Return code: 0 if there's no error, -1 if there's an error.
 
-        Error report:
-        if ctx's status is different from STATUS_SAT or STATUS_UNKNOWN
-          code = CTX_INVALID_OPERATION
-        if ctx is not configured to support multiple checks
-          code = CTX_OPERATION_NOT_SUPPORTED  *)
+      Error report:
+      if ctx's status is different from STATUS_SAT or STATUS_UNKNOWN
+      code = CTX_INVALID_OPERATION
+      if ctx is not configured to support multiple checks
+      code = CTX_OPERATION_NOT_SUPPORTED  *)
   val assert_blocking_clause : t -> unit eh
 
   (** Check satisfiability:
 
-        Check whether the assertions stored in ctx are satisfiable.
-        - params is an optional structure that stores heuristic parameters.
-        - if params is NULL, default parameter settings are used.
+      Check whether the assertions stored in ctx are satisfiable.
+      - params is an optional structure that stores heuristic parameters.
+      - if params is NULL, default parameter settings are used.
 
-        It's better to keep params=NULL unless you encounter performance
-        problems.  Then you may want to play with the heuristics to see if
-        performance improves.
+      It's better to keep params=NULL unless you encounter performance
+      problems.  Then you may want to play with the heuristics to see if
+      performance improves.
 
-        The behavior and returned value depend on ctx's current status.
+      The behavior and returned value depend on ctx's current status.
 
-        1) If ctx's status is STATUS_SAT, STATUS_UNSAT, or STATUS_UNKNOWN, the function
-          does nothing and just returns the status.
+      1) If ctx's status is STATUS_SAT, STATUS_UNSAT, or STATUS_UNKNOWN, the function
+      does nothing and just returns the status.
 
-        2) If ctx's status is STATUS_IDLE, then the solver searches for a
-          satisfying assignment. If param != NULL, the search parameters
-          defined by params are used.
+      2) If ctx's status is STATUS_IDLE, then the solver searches for a
+      satisfying assignment. If param != NULL, the search parameters
+      defined by params are used.
 
-          The function returns one of the following codes:
-        - STATUS_SAT: the context is satisfiable
-        - STATUS_UNSAT: the context is not satisfiable
-        - STATUS_UNKNOWN: satisfiability can't be proved or disproved
-        - STATUS_INTERRUPTED: the search was interrupted
+      The function returns one of the following codes:
+      - STATUS_SAT: the context is satisfiable
+      - STATUS_UNSAT: the context is not satisfiable
+      - STATUS_UNKNOWN: satisfiability can't be proved or disproved
+      - STATUS_INTERRUPTED: the search was interrupted
 
-          The returned status is also stored as the new ctx's status flag,
-          with the following exception. If the context was built with
-          mode = INTERACTIVE and the search was interrupted, then the
-          function returns STATUS_INTERRUPTED but the ctx's state is restored to
-          what it was before the call to 'yices_check_context' and the
-          status flag is reset to STATUS_IDLE.
+      The returned status is also stored as the new ctx's status flag,
+      with the following exception. If the context was built with
+      mode = INTERACTIVE and the search was interrupted, then the
+      function returns STATUS_INTERRUPTED but the ctx's state is restored to
+      what it was before the call to 'yices_check_context' and the
+      status flag is reset to STATUS_IDLE.
 
-        3) Otherwise, the function does nothing and returns 'STATUS_ERROR',
-          it also sets the yices error report (code = CTX_INVALID_OPERATION).  *)
+      3) Otherwise, the function does nothing and returns 'STATUS_ERROR',
+      it also sets the yices error report (code = CTX_INVALID_OPERATION).  *)
   val check : ?param:param -> t -> smt_status
 
   (** Check satisfiability under assumptions:
 
-        Check whether the assertions stored in ctx conjoined with n assumptions are
-        satisfiable.
-        - params is an optional structure to store heuristic parameters
-        - if params is NULL, default parameter settings are used.
-        - n = number of assumptions
-        - t = array of n assumptions
-        - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
+      Check whether the assertions stored in ctx conjoined with n assumptions are
+      satisfiable.
+      - params is an optional structure to store heuristic parameters
+      - if params is NULL, default parameter settings are used.
+      - n = number of assumptions
+      - t = array of n assumptions
+      - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
 
-        This function behaves the same as the previous function.
-        If it returns STATUS_UNSAT, then one can construct an unsat core by
-        calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
-        that's inconsistent with ctx. *)
+      This function behaves the same as the previous function.
+      If it returns STATUS_UNSAT, then one can construct an unsat core by
+      calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
+      that's inconsistent with ctx. *)
   val check_with_assumptions : ?param:param -> t -> term list -> smt_status
 
   (**
@@ -3624,13 +3624,13 @@ module type Context = sig
   val check_with_interpolation :
     ?build_model:bool -> ?param:param -> t -> t
     -> (term, model option) Types.smt_status_with_answers
-    
-  (** Interrupt the search:
-        - this can be called from a signal handler to stop the search,
-          after a call to yices_check_context to interrupt the solver.
   
-        If ctx's status is STATUS_SEARCHING, then the current search is
-        interrupted. Otherwise, the function does nothing.  *)
+  (** Interrupt the search:
+      - this can be called from a signal handler to stop the search,
+      after a call to yices_check_context to interrupt the solver.
+      
+      If ctx's status is STATUS_SEARCHING, then the current search is
+      interrupted. Otherwise, the function does nothing.  *)
   val stop : t -> unit
   
   (** Build a model from ctx
@@ -3667,23 +3667,23 @@ module type Context = sig
   val get_model : ?keep_subst:bool -> t -> model eh
   
   (** *************
-        UNSAT CORE  *
-     ************ *)
+      UNSAT CORE  *
+      ************ *)
   
   (** Construct an unsat core and store the result in vector *v.
-        - v must be an initialized term_vector
-  
-        If ctx status is unsat, this function stores an unsat core in v,
-        and returns 0. Otherwise, it sets an error core an returns -1.
-  
-        This is intended to be used after a call to
-        yices_check_context_with_assumptions that returned STATUS_UNSAT. In
-        this case, the function builds an unsat core, which is a subset of
-        the assumptions. If there were no assumptions or if the context is UNSAT
-        for another reason, an empty core is returned (i.e., v->size is set to 0).
-  
-        Error code:
-        - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.  *)
+      - v must be an initialized term_vector
+      
+      If ctx status is unsat, this function stores an unsat core in v,
+      and returns 0. Otherwise, it sets an error core an returns -1.
+      
+      This is intended to be used after a call to
+      yices_check_context_with_assumptions that returned STATUS_UNSAT. In
+      this case, the function builds an unsat core, which is a subset of
+      the assumptions. If there were no assumptions or if the context is UNSAT
+      for another reason, an empty core is returned (i.e., v->size is set to 0).
+      
+      Error code:
+      - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.  *)
   val get_unsat_core : t -> term list eh
   
   (**
@@ -3719,23 +3719,23 @@ module type Param = sig
   (** SEARCH PARAMETERS  *)
 
   (** A parameter record is an opaque object that stores various
-        search parameters and options that control the heuristics used by
-        the solver.
+      search parameters and options that control the heuristics used by
+      the solver.
 
-        A parameter structure is created by calling
-        - yices_new_param_record(void)
-          This returns a parameter structure initialized with default
-          settings.
+      A parameter structure is created by calling
+      - yices_new_param_record(void)
+      This returns a parameter structure initialized with default
+      settings.
 
-        Then individual parameters can be set using function
-        - yices_set_param(s, name, value) where both name and value are
-          character strings.
-        - an unknown/unsupported parameter name is ignored
+      Then individual parameters can be set using function
+      - yices_set_param(s, name, value) where both name and value are
+      character strings.
+      - an unknown/unsupported parameter name is ignored
 
-        Then the param object can be passed on as argument to yices_check_context.
+      Then the param object can be passed on as argument to yices_check_context.
 
-        When it's no longer needed, the object must be deleted by
-        calling yices_free_param_structure(param).  *)
+      When it's no longer needed, the object must be deleted by
+      calling yices_free_param_structure(param).  *)
 
   (** Return a parameter record initialized with default settings.  *)
   val malloc : unit -> t eh
@@ -3747,20 +3747,103 @@ module type Param = sig
   val default : context -> t -> unit
 
   (** Set a parameter in record p
-        - pname = parameter name
-        - value = setting
+      - pname = parameter name
+      - value = setting
 
-        The parameters are explained in doc/YICES-LANGUAGE
-        (and at http://yices.csl.sri.com/doc/parameters.html)
+      The parameters are explained in doc/YICES-LANGUAGE
+      (and at http://yices.csl.sri.com/doc/parameters.html)
 
-        Return -1 if there's an error, 0 otherwise.
+      Return -1 if there's an error, 0 otherwise.
 
-        Error codes:
-        - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
-        - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter  *)
+      Error codes:
+      - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
+      - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter  *)
   val set : t -> name:string -> value:string -> unit eh
 
 end
+
+module type BaseAPI = sig
+
+  module LowTypes  := Low.Types
+  module HighTypes := Types
+
+  module Types : sig
+    include module type of LowTypes
+    include module type of HighTypes
+  end
+
+  open Types
+
+  module MType(M : Common.Monad) : sig
+    val map : (type_t -> type_t M.t) -> ytype -> ytype M.t
+  end
+
+  module MTerm(M : Common.Monad) : sig
+    val map : (term_t -> term_t M.t) -> 'a termstruct -> 'a termstruct M.t
+  end
+
+  module Algebraic : sig
+
+    open Libpoly
+    
+    module DyadicRational : sig
+      type t = DyadicRational.t
+      val num   : t ptr -> Z.t
+      val pow   : t ptr -> int
+      val to_string : t ptr -> string
+    end
+    
+    type t = AlgebraicNumber.t
+
+    val sgn_at_a : t ptr -> bool
+    val sgn_at_b : t ptr -> bool
+    val is_point : t ptr -> bool
+
+    val a_open : t ptr -> bool
+    val b_open : t ptr -> bool
+
+    val a : t ptr -> DyadicRational.t ptr
+    val b : t ptr -> DyadicRational.t ptr
+
+    val a_num : t ptr -> Z.t
+    val a_pow : t ptr -> int
+
+    val b_num : t ptr -> Z.t
+    val b_pow : t ptr -> int
+
+    val to_string : t ptr -> string
+    
+  end
+
+  module Error : sig
+    (** ********************
+        ERROR REPORTING  *
+        ****************** *)
+
+    (** Error codes and the error_report data structure are defined in
+        yices_types.h. When an API function is called with invalid
+        arguments or when some error occurs for whatever reason, then the
+        function returns a specific value (typically a negative value) and
+        stores information about the error in a global error_report
+        structure.  This structure can be examined by calling
+        yices_error_report().  The most important component of the
+        error_report is an error code that is returned by a call to
+        yices_error_code().  *)
+
+    (** Get the last error code  *)
+    val code   : unit -> error_code
+    (** Get the last error report  *)
+    val report : unit -> error_report
+    (** Clear the error report  *)
+    val clear  : unit -> unit
+  end
+
+  (** Small abbreviation *)
+  val status_is_not_error : [> `STATUS_ERROR] -> bool
+
+
+end
+
 
 module type API = sig
 

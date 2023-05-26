@@ -2,6 +2,7 @@ open Containers
 open Sexplib
 
 open Yices2.Ext
+open WithExceptionsErrorHandling
 open Types
 open Builder
 open Types_ext

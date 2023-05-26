@@ -2,6 +2,7 @@ open Containers
 
 open Yices2.Common
 open Yices2.Ext
+open WithExceptionsErrorHandling
 open Types
 open Types_ext
 

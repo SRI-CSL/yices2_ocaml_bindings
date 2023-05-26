@@ -301,8 +301,10 @@ module NativeContext = struct
   module Param = Param
 end
 
+(* module Ext = Yices2.Ext.Make(ExceptionsErrorHandling) *)
+
 module ExtContext = struct
-  open Yices2.Ext
+  open Yices2.Ext.WithExceptionsErrorHandling
   include Context
   let check_with_assumptions ?param context assumptions = check ?param ~assumptions context
   let check_with_model ?param context model support =
@@ -327,10 +329,9 @@ end
 let test_native_context mcsat cfg =
   test_context       (module NativeContext) mcsat cfg;
   test_interpolation (module NativeContext) mcsat cfg
-  
-let test_ext_context mcsat cfg =
-  let open Yices2.Ext in
 
+let test_ext_context mcsat cfg =
+  let open Yices2.Ext.WithExceptionsErrorHandling in
   let ctx = Context.malloc ~config:cfg () in
   assert(Bool.equal mcsat (Context.is_mcsat ctx));
   Context.goto ctx 5;
@@ -352,11 +353,10 @@ let test_context () =
 
 let test_ext_context () =
   print_endline "Extended bindings tests";
-  cfg_makeNtest (module Yices2.Ext.Config) test_ext_context
-
+  cfg_makeNtest (module Yices2.Ext.WithExceptionsErrorHandling.Config) test_ext_context
 
 let test_tupleblast () =
-  let open Yices2.Ext in
+  let open Yices2.Ext.WithExceptionsErrorHandling in
   let open Extensions in
   let open Tuples in
   Global.init();

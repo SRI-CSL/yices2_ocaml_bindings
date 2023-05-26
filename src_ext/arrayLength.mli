@@ -1,4 +1,6 @@
 open Yices2.Ext
+open WithExceptionsErrorHandling
+
 open Types_ext
 
 (***********************)
