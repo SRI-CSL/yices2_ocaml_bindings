@@ -1,7 +1,6 @@
 open Sexplib
 
 open Ext
-open Types
 
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string

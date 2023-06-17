@@ -20,6 +20,7 @@ depends: [
   "ctypes"
   "ctypes-foreign"
   "ctypes-zarith"
+  "dmap"
 #  "libpoly_bindings" # commenting out until on opam
 #  "ctypes-of-clang"
 ]

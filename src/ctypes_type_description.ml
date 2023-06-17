@@ -1,33 +1,12 @@
 open Ctypes
 
 [%%import "gmp.mlh"]
-[%%if gmp_present]
-open Ctypes_zarith
-[%%endif]
 
 module Types (F : TYPE) = struct
   open F
 
-  let __int8_t = typedef schar "__int8_t"
-  let __uint8_t = typedef uchar "__uint8_t"
-  let __int16_t = typedef short "__int16_t"
-  let __uint16_t = typedef ushort "__uint16_t"
-  let __int32_t = typedef sint "__int32_t"
-  let __uint32_t = typedef uint "__uint32_t"
-  let __int64_t = typedef long "__int64_t"
-  let __uint64_t = typedef ulong "__uint64_t"
-
-  let int8_t = typedef __int8_t "int8_t"
-  let int16_t = typedef __int16_t "int16_t"
-  let int32_t = typedef __int32_t "int32_t"
-  let int64_t = typedef __int64_t "int64_t"
-  let uint8_t = typedef __uint8_t "uint8_t"
-  let uint16_t = typedef __uint16_t "uint16_t"
-  let uint32_t = typedef __uint32_t "uint32_t"
-  let uint64_t = typedef __uint64_t "uint64_t"
-
-  let term_t = typedef int32_t "term_t"
-  let type_t = typedef int32_t "type_t"
+  let term_t = typedef sint "term_t"
+  let type_t = typedef sint "type_t"
 
   let __IO_FILE_0 =
     let (_ctype : [ `__IO_FILE ] structure typ) =
@@ -124,8 +103,8 @@ module Types (F : TYPE) = struct
   let smt_status_t = typedef smt_status#ctype "smt_status_t"
 
   let term_vector_s =
-    let field_0 = field term_vector_s_0 "capacity" uint32_t in
-    let field_1 = field term_vector_s_0 "size" uint32_t in
+    let field_0 = field term_vector_s_0 "capacity" uint in
+    let field_1 = field term_vector_s_0 "size" uint in
     let field_2 = field term_vector_s_0 "data" (ptr term_t) in
     let () = seal term_vector_s_0 in
     object
@@ -140,8 +119,8 @@ module Types (F : TYPE) = struct
   let term_vector_t = typedef term_vector_s_0 "term_vector_t"
 
   let type_vector_s =
-    let field_0 = field type_vector_s_0 "capacity" uint32_t in
-    let field_1 = field type_vector_s_0 "size" uint32_t in
+    let field_0 = field type_vector_s_0 "capacity" uint in
+    let field_1 = field type_vector_s_0 "size" uint in
     let field_2 = field type_vector_s_0 "data" (ptr type_t) in
     let () = seal type_vector_s_0 in
     object
@@ -287,7 +266,7 @@ module Types (F : TYPE) = struct
   let yval_tag_t = typedef yval_tag#ctype "yval_tag_t"
 
   let yval_s =
-    let field_0 = field yval_s_0 "node_id" int32_t in
+    let field_0 = field yval_s_0 "node_id" sint in
     let field_1 = field yval_s_0 "node_tag" yval_tag_t in
     let () = seal yval_s_0 in
     object
@@ -298,8 +277,8 @@ module Types (F : TYPE) = struct
   let yval_t = typedef yval_s_0 "yval_t"
 
   let yval_vector_s =
-    let field_0 = field yval_vector_s_0 "capacity" uint32_t in
-    let field_1 = field yval_vector_s_0 "size" uint32_t in
+    let field_0 = field yval_vector_s_0 "capacity" uint in
+    let field_1 = field yval_vector_s_0 "size" uint in
     let field_2 = field yval_vector_s_0 "data" (ptr yval_t) in
     let () = seal yval_vector_s_0 in
     object
@@ -589,13 +568,13 @@ module Types (F : TYPE) = struct
 
   let error_report_s =
     let field_0 = field error_report_s_0 "code" error_code_t in
-    let field_1 = field error_report_s_0 "line" uint32_t in
-    let field_2 = field error_report_s_0 "column" uint32_t in
+    let field_1 = field error_report_s_0 "line" uint in
+    let field_2 = field error_report_s_0 "column" uint in
     let field_3 = field error_report_s_0 "term1" term_t in
     let field_4 = field error_report_s_0 "type1" type_t in
     let field_5 = field error_report_s_0 "term2" term_t in
     let field_6 = field error_report_s_0 "type2" type_t in
-    let field_7 = field error_report_s_0 "badval" int64_t in
+    let field_7 = field error_report_s_0 "badval" long in
     let () = seal error_report_s_0 in
     object
       method ctype = error_report_s_0

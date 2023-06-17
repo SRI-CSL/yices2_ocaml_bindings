@@ -62,7 +62,7 @@ let uintcheck i = Unsigned.UInt.(compare zero i) < 0
 let ptrcheck  p = not(is_null p)
 
 include Types_generated
-include Header.Function
+include Ctypes_bindings.Function
 
 module type Conv64 = sig
   type t

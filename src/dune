@@ -14,19 +14,16 @@
 
 (ctypes
     (external_library_name yices)
-    ; (build_flags_resolver pkg_config)
     (build_flags_resolver (vendored (c_flags ) (c_library_flags )))
-    (headers (include "yices.h"))
+    (headers (include "gmp.h" "poly/poly.h" "yices.h"))
     (type_description
       (instance Type)
-      (functor Type_description))
+      (functor Ctypes_type_description))
     (function_description
       (instance Function)
-      (functor Function_description)
-      ; <optional-function-description-fields>
+      (functor Ctypes_function_description)
       )
-    (generated_entry_point Header)
-    ; <optional-ctypes-fields>
+    (generated_entry_point Ctypes_bindings)
     )
 )
 
