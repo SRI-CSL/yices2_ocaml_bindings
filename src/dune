@@ -12,7 +12,7 @@
  (synopsis "Yices2 bindings")
  (ctypes
     (external_library_name yices)
-    (build_flags_resolver (vendored (c_flags ) (c_library_flags (%{env:LDFLAGS=} "-w" (:include c_library_flags.sexp)))))
+    (build_flags_resolver (vendored (c_flags "-w") (c_library_flags (%{env:LDFLAGS=} "-w" (:include c_library_flags.sexp)))))
     (headers (include "gmp.h" "poly/poly.h" "yices.h"))
     (type_description
       (instance Type)
