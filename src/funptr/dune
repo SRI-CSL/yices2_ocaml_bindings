@@ -1,0 +1,20 @@
+(rule
+ (targets c_flags.sexp c_library_flags.sexp c_flags.lines)
+ (deps (:discover ../../src_config/discover.exe))
+ (action (run %{discover} -system %{ocaml-config:system} -pkg gmp gmp -pkg yices yices)))
+
+(rule
+  (targets funptr.ml funptr_stubs.c)
+  (deps funptr.c.ml)
+  (action (run %{bin:ppx_cstubs} %{deps} -o %{targets})))
+
+(library
+ (name funptr)
+ (package yices2)
+ (foreign_stubs (language c) (names funptr_stubs) (flags (:include c_flags.sexp)))
+ (libraries ctypes ctypes-zarith sexplib containers ppx_cstubs)
+ (preprocess (pps ppx_cstubs.merlin))
+ (synopsis "libpoly bindings funptr")
+)
+
+(env (dev (flags (:standard -warn-error -A))))

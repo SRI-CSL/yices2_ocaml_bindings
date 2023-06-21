@@ -1,10 +1,6 @@
-[%%import "gmp.mlh"]
-
 open Containers
 open Ctypes
-[%%if gmp_present]
 open Ctypes_zarith
-[%%endif]
 open Signed
 open Unsigned
 open Common
@@ -189,10 +185,8 @@ let ofList3 t1 t2 t3 f l =
 
 let swap f a b = f b a
 
-[%%if gmp_present]
 let ofZ f = MPZ.of_z <.> f 
 let ofQ f = MPQ.of_q <.> f
-[%%endif]
 
 module Error = struct
   let code     = yices_error_code <.> Conv.error_code.read
@@ -335,15 +329,8 @@ module SafeMake
 
   (* Useful abbreviations *)
   type 'a vector = ('a, [`Struct]) structured
-[%%if gmp_present]
   type mpz_array = MPZ.t abstract Array.t Array.t
   type mpq_array = MPQ.t abstract Array.t Array.t
-[%%else]
-  let raise_gmp s =
-    EH.raise_bindings_error
-      "%s necessitates gmp; yices2_ocaml_bindings were not compiled with gmp support"
-         s
-[%%endif]
 
   (* Malloc memory cell(s) for a C function to place its result. *)
   module Alloc  : sig
@@ -369,12 +356,10 @@ module SafeMake
     val custom  : (unit -> 'b) -> ('a, 'b, 'c) alloc
     val alloc   :        'b typ -> ?finalise: ('b ptr     -> unit) -> ('a, 'b ptr,     'c) alloc
     val allocN  : int -> 'b typ -> ?finalise: ('b Array.t -> unit) -> ('a, 'b Array.t, 'c) alloc
-[%%if gmp_present]
     val allocZ  :        ('a, MPZ.ptr,   'c) alloc
     val allocQ  :        ('a, MPQ.ptr,   'c) alloc
     val allocZn : int -> ('a, mpz_array, 'c) alloc
     val allocQn : int -> ('a, mpq_array, 'c) alloc
-[%%endif]
 
     (* For vectors, things are a bit different:
        the first argument is the make function, producing a vector,
@@ -406,7 +391,6 @@ module SafeMake
     let alloc hdl ?finalise    = custom (fun () -> allocate_n hdl ~count:1 ?finalise)
     let allocN n hdl ?finalise = custom (fun () -> Array.make hdl n ?finalise)
 
-[%%if gmp_present]
     let allocZ a = custom MPZ.make a
     let allocQ a = custom MPQ.make a
 
@@ -427,7 +411,6 @@ module SafeMake
         r
       in
       custom make a
-[%%endif]
     let allocV make  = aux addr make
     
     let nocheck cont (y,f) = cont f y 
@@ -449,12 +432,10 @@ module SafeMake
                                |> allocN n t
                                |> check1 Array.to_list)
 
-[%%if gmp_present]
   (* Conversion to Z.t *)
   let toZ1 f = Alloc.(load f |> allocZ |> check1 MPZ.to_z)
   (* Conversion to Q.t *)
   let toQ1 f = Alloc.(load f |> allocQ |> check1 MPQ.to_q)
-[%%endif]
   
   module type Vector = sig
     type t
@@ -748,12 +729,8 @@ module SafeMake
       let rational32 = yices_rational32 <..> return_sint
       let rational64 = yices_rational64 <..> return_sint
       let rational n d = rational64 (Long.of_int n) (ULong.of_int d)
-[%%if gmp_present]
       let mpz        = yices_mpz |> ofZ <.> return_sint
       let mpq        = yices_mpq |> ofQ <.> return_sint
-[%%else]
-      let mpq _      = raise_gmp "Term.Arith.mpq"
-[%%endif]
       let parse_rational = ofString yices_parse_rational <.> return_sint
       let parse_float = ofString yices_parse_float <.> return_sint
       let add   = yices_add <..> return_sint
@@ -794,7 +771,6 @@ module SafeMake
       let poly_rational   = List.map (fun (n,d,t) -> Long.of_int n, ULong.of_int d, t)
                             <.> poly_rational64
 
-[%%if gmp_present]
       let poly_mpz l =
         let length = List.length l in
         let to_load zz tt =
@@ -824,7 +800,6 @@ module SafeMake
                |> allocQn length
                |> allocN length term_t
                |> check (fun r _ -> r))
-[%%endif]
 
       let arith_eq  = yices_arith_eq_atom <..> return_sint
       let arith_neq = yices_arith_neq_atom <..> return_sint
@@ -846,9 +821,7 @@ module SafeMake
       let bvconst_int32  ~width = yices_bvconst_int32  !> width <.> return_sint
       let bvconst_int64  ~width = yices_bvconst_int64  !> width <.> return_sint
       let bvconst_int    ~width = Long.of_int <.> bvconst_int64 ~width
-[%%if gmp_present]
       let bvconst_mpz    ~width = yices_bvconst_mpz    !> width |> ofZ <.> return_sint
-[%%endif]
       let bvconst_zero   ~width = yices_bvconst_zero   !> width |> return_sint
       let bvconst_one    ~width = yices_bvconst_one    !> width |> return_sint
       let bvconst_minus_one ~width = yices_bvconst_minus_one !> width |> return_sint
@@ -956,14 +929,12 @@ module SafeMake
 
     let term_ptr2term_opt t = if equal t null_term then None else Some t
     
-[%%if gmp_present]
     let sum_component term i =
       let cont q t = MPQ.to_q q, term_ptr2term_opt (!@ t) in
       Alloc.(load ((SInt.of_int <.> yices_sum_component term) i)
              |> allocQ
              |> alloc term_t
              |> check2 cont)
-[%%endif]
 
     let bvsum_component term i =
       let cont carray t = Array.to_list carray |> List.map Conv.bool.read, term_ptr2term_opt (!@ t) in
@@ -989,11 +960,7 @@ module SafeMake
       aux [] (x-1)
     let bvsum_components   = args bvsum_component
     let product_components = args product_component
-[%%if gmp_present]
     let sum_components     = args sum_component
-[%%else]
-    let sum_components _   = raise_gmp "Term.sum_components"
-[%%endif]
 
     let proj_index = yices_proj_index <.> toInts
     let proj_arg   = yices_proj_arg   <.> return_sint
@@ -1203,11 +1170,7 @@ module SafeMake
     let scalar_const_value   = yices_scalar_const_value
                                <.> alloc1 sint
                                <+> (SInt.to_int <.> return)
-[%%if gmp_present]
     let rational_const_value = yices_rational_const_value <.> toQ1
-[%%else]
-    let rational_const_value _ = ()
-[%%endif]
 
     let const_value (A0(c, t)) =
       match c with
@@ -1359,10 +1322,8 @@ module SafeMake
     let set_rational32 model = yices_model_set_rational32 model <...> toUnit
     let set_rational64 model = yices_model_set_rational64 model <...> toUnit
     let set_rational model x n d = set_rational64 model x (Long.of_int n) (ULong.of_int d)
-[%%if gmp_present]
     let set_mpz model x = yices_model_set_mpz model x |> ofZ <.> toUnit
     let set_mpq model x = yices_model_set_mpq model x |> ofQ <.> toUnit
-[%%endif]
 
     let set_algebraic_number model x = yices_model_set_algebraic_number model x <.> toUnit
 
@@ -1371,9 +1332,7 @@ module SafeMake
     let set_bv_int model x = Long.of_int <.> set_bv_int64 model x
     let set_bv_uint32      = yices_model_set_bv_uint32 <...> toUnit
     let set_bv_uint64      = yices_model_set_bv_uint64 <...> toUnit
-[%%if gmp_present]
     let set_bv_mpz model x = yices_model_set_bv_mpz model x |> ofZ <.> toUnit
-[%%endif]
 
     let set_bv_from_list model x =
       List.map Conv.bool.write
@@ -1389,10 +1348,8 @@ module SafeMake
     let get_rational32_value = yices_get_rational32_value <..> alloc2 sint uint
     let get_rational64_value = yices_get_rational64_value <..> alloc2 long ulong
     let get_double_value = yices_get_double_value <..> alloc1 float
-[%%if gmp_present]
     let get_mpz_value    = yices_get_mpz_value <..> toZ1
     let get_mpq_value    = yices_get_mpq_value <..> toQ1
-[%%endif]
 
     let algebraic_treat libpoly =
       let a_num = Algebraic.a_num libpoly in
@@ -1452,11 +1409,8 @@ module SafeMake
     let val_get_rational32 = yices_val_get_rational32 <..> alloc2 sint uint
     let val_get_rational64 = yices_val_get_rational64 <..> alloc2 long ulong
     let val_get_double     = yices_val_get_double <..> alloc1 float
-[%%if gmp_present]
     let val_get_mpz        = yices_val_get_mpz    <..> toZ1
     let val_get_mpq        = yices_val_get_mpq    <..> toQ1
-[%%endif]
-
 
     let val_get_algebraic_number_value model x =
       Alloc.(load (yices_val_get_algebraic_number model x)

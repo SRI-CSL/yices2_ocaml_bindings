@@ -1,5 +1,3 @@
-[%%import "gmp.mlh"]
-
 open Containers
 
 open Sexplib
@@ -241,8 +239,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                           (pph 100) t);
          failwith "Giving up"
     
-    
-           [%%if gmp_present]
     let sum_aux to_sexp (coeff, term) =
       let one = Term.Arith.int 1 in
       let coeff = Term.Arith.mpq coeff in
@@ -263,11 +259,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       if Z.equal den Z.one then sexp_gmpz num
       else
         sexp "/" [sexp_gmpz num; sexp_gmpz den]
-
-          [%%else]
-    let sum_aux   _ = raise_gmp "Term.sum_aux"
-    let sexp_gmpq _ = raise_gmp "Term.sexp_gmpq"
-                        [%%endif]
 
     let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
       fun to_sexp ->
@@ -852,11 +843,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       t |> PP.model_string ~display:Types.{ width = 100; height; offset=0}
       |> Format.fprintf fmt "%s"
     let pp = pph 1000
-
-               [%%if gmp_present]
-               [%%else]
-    let set_mpq _ _ _ = raise_gmp "Model.set"
-                          [%%endif]
 
     let set output var : yval -> unit = function
       | `Bool b      -> set_bool output var b

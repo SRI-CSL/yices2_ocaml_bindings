@@ -17,12 +17,14 @@ In the directory of this `README.md`, build and install (in findlib) with the fo
 ```
 opam install .
 ```
-This expects the yices library (and the libraries it depends on) to be present in the relevant paths (like `/usr/local/lib`). If for some reason these libraries are not in the usual paths, you can specify their paths by setting 
-the environment variables `LDFLAGS` (for the yices library) and `LD_LIBRARY_PATH` (for its dependencies, like libpoly or cudd), e.g.:
+This expects the yices library (and the libraries it depends on) to be present in the relevant paths (e.g., `/usr/local/lib`), as weel as its header files (e.g., `/usr/local/include/`). If for some reason these libraries are not in the usual paths, you can specify their paths by setting 
+the environment variables `LDFLAGS` (for the yices library) and `LD_LIBRARY_PATH` (for its dependencies, like libpoly or cudd), 
+as well as `C_INCLUDE_PATH`, e.g.:
 
 ```
 export LD_LIBRARY_PATH=[UNCONVENTIONAL_PATHS]:/usr/local/lib
 export LDFLAGS="-L[UNCONVENTIONAL_PATH]"
+export C_INCLUDE_PATH="[UNCONVENTIONAL_PATH]"
 ```
 
 #### Without opam (gmp not mandatory, but it provides additional yices bindings)
@@ -32,20 +34,12 @@ Besides Yices and its dependencies, the bindings need some OCaml dependencies, t
 ```
 opam install . --deps-only
 ```
-These dependencies are namely: `ocamlbuild`, `ctypes`, `ctypes-foreign`, `ppx_deriving`, `ppx_optcomp`, `sexplib`, `sexplib0`, and, for gmp support, `zarith`, and `ctypes-zarith`.
 
 To build, run the following command:
 ```
 make
 ```
-in the directory of this `README.md`. The build should automatically detect whether you have gmp and add the extra yices bindings if you do.
-If for some weird reason you want the non-gmp version of the bindings even though you do have it, run this before `make`:
-
-```
-echo "[%%define gmp_present false]" > src/gmp.mlh
-echo "[%%define gmp_present false]" > src_tests/gmp.mlh
-```
-and remove those two files to revert to automated detection.
+in the directory of this `README.md`.
 
 To install (in findlib), run the following command:
 ```

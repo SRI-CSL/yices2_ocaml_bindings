@@ -1,17 +1,10 @@
-(rule
- (targets gmp.mlh)
- (deps (:gmp ../config/gmp.mlh))
- (mode (promote (until-clean)))
- (action (copy %{gmp} %{targets})))
-
 (library
  (name extensions)
  (public_name yices2.extensions)
- (libraries ctypes sexplib containers libpoly_bindings config yices2 dmap)
+ (libraries ctypes sexplib containers libpoly_bindings yices2 dmap)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))
  (synopsis "Yices2 extensions")
 )
 
-(env (dev
-        (flags (:standard -warn-error -A))))
+(env (dev (flags (:standard -warn-error -A))))

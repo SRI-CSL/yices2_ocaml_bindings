@@ -1,9 +1,5 @@
-[%%import "gmp.mlh"]
-
 open Ctypes
-[%%if gmp_present]
 open Ctypes_zarith
-[%%endif]
 open Unsigned
 open Signed
 
@@ -1112,12 +1108,10 @@ module type API = sig
   val yices_rational64 : long -> ulong -> term_t checkable
 
 
-[%%if gmp_present]
   (* Constant initialized via GMP integers or rationals.
    * - q must be canonicalized *)
   val yices_mpz : MPZ.t abstract ptr -> term_t checkable
   val yices_mpq : MPQ.t abstract ptr -> term_t checkable
-[%%endif]
 
   (* Convert a string to a rational or integer term.
    * The string format is
@@ -1338,13 +1332,11 @@ module type API = sig
   val yices_poly_rational32 : uint -> sint ptr -> uint ptr -> term_t ptr -> term_t checkable
   val yices_poly_rational64 : uint -> long ptr -> ulong ptr -> term_t ptr -> term_t checkable
 
-[%%if gmp_present]
   (* Coefficients are GMP integers or rationals.
      - the rationals q[0 ... n-1] must all be canonicalized *)
 
   val yices_poly_mpz : uint -> MPZ.t abstract ptr -> term_t ptr -> term_t checkable
   val yices_poly_mpq : uint -> MPQ.t abstract ptr -> term_t ptr -> term_t checkable
-[%%endif]
   
   (* ARITHMETIC ATOMS *)
 
@@ -1441,9 +1433,7 @@ module type API = sig
   val yices_bvconst_uint64 : uint -> ulong -> term_t checkable
   val yices_bvconst_int32 : uint -> sint -> term_t checkable
   val yices_bvconst_int64 : uint -> long -> term_t checkable
-[%%if gmp_present]
   val yices_bvconst_mpz   : uint -> MPZ.t abstract ptr -> term_t checkable
-[%%endif]
 
   (* bvconst_zero: set all bits to 0
    * bvconst_one: set low-order bit to 1, all the other bits to 0
@@ -2342,11 +2332,8 @@ module type API = sig
   val yices_bool_const_value   : term_t -> bool_t ptr -> unit_t checkable
   val yices_bv_const_value     : term_t -> bool_t ptr -> unit_t checkable
   val yices_scalar_const_value : term_t -> sint ptr -> unit_t checkable
-[%%if gmp_present]
   val yices_rational_const_value : term_t -> MPQ.t abstract ptr -> unit_t checkable
-[%%endif]
 
-[%%if gmp_present]
   (* Components of a sum t
    * - i = index (must be between 0 and t's number of children - 1)
    * - for an arithmetic sum, each component is a pair (rational, term)
@@ -2364,7 +2351,6 @@ module type API = sig
    * if t is not of the right kind of the index is invalid
    *    code = INVALID_TERM_OP *)
   val yices_sum_component : term_t -> sint -> MPQ.t abstract ptr -> term_t ptr -> unit_t checkable
-[%%endif]
   val yices_bvsum_component : term_t -> sint -> bool_t ptr -> term_t ptr -> unit_t checkable
 
   (* Component of power product t
@@ -3259,10 +3245,8 @@ module type API = sig
   val yices_model_set_rational32 : model_t ptr -> term_t -> sint -> uint -> unit_t checkable
   val yices_model_set_rational64 : model_t ptr -> term_t -> long -> ulong -> unit_t checkable
 
-[%%if gmp_present]
   val yices_model_set_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
   val yices_model_set_mpq : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
-[%%endif]
 
   val yices_model_set_algebraic_number :
     model_t ptr -> term_t -> lp_algebraic_number_t ptr -> unit_t checkable
@@ -3290,9 +3274,7 @@ module type API = sig
   val yices_model_set_bv_uint32 : model_t ptr -> term_t -> uint -> unit_t checkable
   val yices_model_set_bv_uint64 : model_t ptr -> term_t -> ulong -> unit_t checkable
 
-[%%if gmp_present]
   val yices_model_set_bv_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
-[%%endif]
 
 
   (*
@@ -3551,10 +3533,8 @@ module type API = sig
   val yices_get_rational64_value : model_t ptr -> term_t -> long ptr -> ulong ptr -> unit_t checkable
   val yices_get_double_value : model_t ptr -> term_t -> float ptr -> unit_t checkable
 
-[%%if gmp_present]
   val yices_get_mpz_value : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
   val yices_get_mpq_value : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
-[%%endif]
 
   (*  * Conversion to an algebraic number.
    *
@@ -3761,11 +3741,9 @@ module type API = sig
   (* Value converted to a floating point number *)
   val yices_val_get_double : model_t ptr -> yval_t ptr -> float ptr -> unit_t checkable
 
-[%%if gmp_present]
   (* GMP values *)
   val yices_val_get_mpz : model_t ptr -> yval_t ptr -> MPZ.t abstract ptr -> unit_t checkable
   val yices_val_get_mpq : model_t ptr -> yval_t ptr -> MPQ.t abstract ptr -> unit_t checkable
-[%%endif]
   
   (*  * Export an algebraic number
    * - v->tag must be YVAL_ALGEBRAIC

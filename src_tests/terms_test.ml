@@ -1,5 +1,3 @@
-[%%import "gmp.mlh"]
-
 open Signed
 open Unsigned
 open Containers
@@ -375,7 +373,6 @@ let test () =
   print_endline "Done with Terms tests";
   exit()
 
-[%%if gmp_present]
 let test_gmp () =
   print_endline "GMP Terms tests";
   let open EH1 in
@@ -437,4 +434,3 @@ let test_gmp () =
 
   print_endline "Done with Terms tests";
   exit()
-[%%endif]

@@ -1,7 +1,5 @@
 open Ctypes
 
-[%%import "gmp.mlh"]
-
 module Types (F : TYPE) = struct
   open F
 

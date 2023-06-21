@@ -9,20 +9,17 @@ license: "GPLv3"
 homepage: "https://github.com/SRI-CSL/yices2_ocaml_bindings"
 bug-reports: "https://github.com/SRI-CSL/yices2_ocaml_bindings/issues"
 depends: [
-  "ocaml" {>= "4.08"}
-  "dune" {build}
+  "ocaml" {>= "4.12"}
+  "dune" {build & >= "3.7.0"}
   "ocamlfind" {build}
   "containers"  {>= "3.0.0"}
   "ppx_deriving"
-  "ppx_optcomp"
   "sexplib"
   "sexplib0"
   "ctypes"
-  "ctypes-foreign"
   "ctypes-zarith"
   "dmap"
 #  "libpoly_bindings" # commenting out until on opam
-#  "ctypes-of-clang"
 ]
 build: [
   make

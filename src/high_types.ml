@@ -1,5 +1,3 @@
-[%%import "gmp.mlh"]
-
 open Ctypes
 open Unsigned
 open Signed
@@ -130,11 +128,8 @@ module Types = struct
       - the child t is a bitvector term of n bits
       - i is an index between 0 and n-1  *)
 
-  [%%if gmp_present]
   type rational = Q.t
-  [%%else]
-  type rational = unit
-  [%%endif]
+
   type 'a termstruct =
     | A0 : [< `YICES_BOOL_CONSTANT
            | `YICES_ARITH_CONSTANT
@@ -969,11 +964,9 @@ module type Term = sig
     val rational32 : sint -> uint -> t eh
     val rational64 : long -> ulong -> t eh
 
-    [%%if gmp_present]
-    val mpz : Z.t -> t eh
+      val mpz : Z.t -> t eh
     val mpq : Q.t -> t eh
-    [%%endif]
-      
+        
     (** Convert a string to a rational or integer term.
      * The string format is
      *     <optional_sign> <numerator>/<denominator>
@@ -1220,14 +1213,12 @@ module type Term = sig
     val poly_rational32 : (sint*uint*t) list -> t eh
     val poly_rational64 : (long*ulong*t) list -> t eh
 
-    [%%if gmp_present]
-
+  
     (** Coefficients are GMP integers or rationals. *)
 
     val poly_mpz : (Z.t * t) list -> t eh
     val poly_mpq : (Q.t * t) list -> t eh
-    [%%endif]
-
+  
     (** ARITHMETIC ATOMS  *)
 
     (** All operations return NULL_TERM if there's an error (NULL_TERM = -1)
@@ -1328,10 +1319,8 @@ module type Term = sig
     val bvconst_uint64 : width:int -> ulong -> t eh
     val bvconst_int32  : width:int -> sint -> t eh
     val bvconst_int64  : width:int -> long -> t eh
-    [%%if gmp_present]
-    val bvconst_mpz    : width:int -> Z.t -> t eh
-    [%%endif]
-
+      val bvconst_mpz    : width:int -> Z.t -> t eh
+  
     (** bvconst_zero: set all bits to 0
      * bvconst_one: set low-order bit to 1, all the other bits to 0
      * bvconst_minus_one: set all bits to 1
@@ -2050,9 +2039,7 @@ module type Term = sig
   val bool_const_value     : t -> bool eh
   val bv_const_value       : t -> bool list eh
   val scalar_const_value   : t -> int eh
-  [%%if gmp_present]
   val rational_const_value : t -> Q.t eh
-  [%%endif]
 
   (** Packaging the above functions into a conversion into [ atomic_const | `SYMBOLIC ] *)
   val const_value : [`a0] termstruct -> [ atomic_const | `SYMBOLIC ] eh
@@ -2079,9 +2066,7 @@ module type Term = sig
         if t is not of the right kind of the index is invalid
           code = INVALID_TERM_OP  *)
 
-  [%%if gmp_present]
   val sum_component   : t -> int -> (Q.t  * (t option)) eh
-  [%%endif]
   val bvsum_component : t -> int -> (bool list * (t option)) eh
 
   (** Component of power product t
@@ -2669,11 +2654,9 @@ module type Model = sig
   val set_rational64 : t -> term -> long -> ulong -> unit eh
   val set_rational   : t -> term -> int -> int -> unit eh
 
-                                                      [%%if gmp_present]
-  val set_mpz : t -> term -> Z.t -> unit eh
+                                                      val set_mpz : t -> term -> Z.t -> unit eh
   val set_mpq : t -> term -> Q.t -> unit eh
-                                        [%%endif]
-
+                                      
   val set_algebraic_number : t -> term -> lp_algebraic_number_t ptr -> unit eh
 
   (**
@@ -2700,10 +2683,8 @@ module type Model = sig
   val set_bv_uint32 : t -> term -> uint -> unit eh
   val set_bv_uint64 : t -> term -> ulong -> unit eh
 
-                                                [%%if gmp_present]
-  val set_bv_mpz : t -> term -> Z.t -> unit eh
-                                           [%%endif]
-
+                                                val set_bv_mpz : t -> term -> Z.t -> unit eh
+                                         
 
   (**
    * Assign a bitvector value to a bitvector uninterpreted term, using an array of bits.
@@ -2781,11 +2762,9 @@ module type Model = sig
   val get_rational32_value : t -> term -> (sint*uint) eh
   val get_rational64_value : t -> term -> (long*ulong) eh
   val get_double_value     : t -> term -> float eh
-                                              [%%if gmp_present]
-  val get_mpz_value        : t -> term -> Z.t eh
+                                              val get_mpz_value        : t -> term -> Z.t eh
   val get_mpq_value        : t -> term -> Q.t eh
-                                              [%%endif]
-
+                                            
   (**  * Conversion to an algebraic number.
    *
    * t must be an arithmetic term.
@@ -2983,14 +2962,12 @@ module type Model = sig
   (** Value converted to a floating point number  *)
   val val_get_double : t -> yval_t ptr -> float eh
 
-                                            [%%if gmp_present]
-
+                                          
   (** GMP values *)
 
   val val_get_mpz : model_t ptr -> yval_t ptr -> Z.t eh
   val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
-                                                   [%%endif]
-
+                                                 
   (**  * Export an algebraic number
    * - v->tag must be YVAL_ALGEBRAIC
    * - return a copy of the algebraic number in *a
@@ -3851,11 +3828,6 @@ module type API = sig
   open Types
 
   type 'a eh
-
-  [%%if gmp_present]
-  [%%else]
-  val raise_gmp : string -> _ eh
-  [%%endif]
 
   module ErrorPrint : ErrorPrint with type 'a eh := 'a eh
   module Type   : Type with type 'a eh := 'a eh

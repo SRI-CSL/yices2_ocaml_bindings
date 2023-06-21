@@ -1,19 +1,18 @@
 (rule
- (targets gmp.mlh)
- (deps (:gmp ../config/gmp.mlh))
- (mode (promote (until-clean)))
- (action (copy %{gmp} %{targets})))
+ (targets c_flags.sexp c_library_flags.sexp c_flags.lines)
+ (deps (:discover ../src_config/discover.exe))
+ (action (run %{discover} -system %{ocaml-config:system} -pkg gmp gmp -pkg yices yices)))
 
 (library
  (name yices2)
  (public_name yices2)
- (libraries ctypes sexplib containers libpoly_bindings config funptr)
- (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
- (preprocess (pps ppx_deriving.std ppx_optcomp))
+ (libraries ctypes sexplib containers libpoly_bindings funptr)
+ (flags (:standard -w -27))
+ (preprocess (pps ppx_deriving.std))
  (synopsis "Yices2 bindings")
  (ctypes
     (external_library_name yices)
-    (build_flags_resolver (vendored (c_flags ) (c_library_flags )))
+    (build_flags_resolver (vendored (c_flags ) (c_library_flags (%{env:LDFLAGS=} "-w" (:include c_library_flags.sexp)))))
     (headers (include "gmp.h" "poly/poly.h" "yices.h"))
     (type_description
       (instance Type)
