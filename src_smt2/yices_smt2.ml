@@ -1,7 +1,9 @@
 open Containers
 
 open Yices2.Ext
-open Yices2.SMT2.WithExceptionsErrorHandling
+
+module SMT2 = Yices2.SMT2.Make(WithExceptionsErrorHandling)
+open SMT2
 
 let args = ref []
 let description = "Executable for solving smt2 files. One filename as argument.";;

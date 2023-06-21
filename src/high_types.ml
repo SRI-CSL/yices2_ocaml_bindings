@@ -2206,6 +2206,7 @@ module type Global = sig
 
        A plausible use of this callback feature is to implement an
        exception mechanism using setjmp/longjmp.  *)
+
   val set_out_of_mem_callback : (unit -> unit) static_funptr -> unit
 
 end

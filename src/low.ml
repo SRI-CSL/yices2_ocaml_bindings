@@ -63,6 +63,7 @@ let ptrcheck  p = not(is_null p)
 
 include Types_generated
 include Ctypes_bindings.Function
+include Funptr
 
 module type Conv64 = sig
   type t

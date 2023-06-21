@@ -7,12 +7,11 @@
 (library
  (name yices2)
  (public_name yices2)
- (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings config)
+ (libraries ctypes sexplib containers libpoly_bindings config funptr)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))
  (synopsis "Yices2 bindings")
-
-(ctypes
+ (ctypes
     (external_library_name yices)
     (build_flags_resolver (vendored (c_flags ) (c_library_flags )))
     (headers (include "gmp.h" "poly/poly.h" "yices.h"))
@@ -27,5 +26,4 @@
     )
 )
 
-(env (dev
-        (flags (:standard -warn-error -A))))
+(env (dev (flags (:standard -warn-error -A))))

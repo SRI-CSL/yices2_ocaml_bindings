@@ -118,9 +118,7 @@ end
 
 exception Yices_SMT2_exception of string
 
-module Make(EH : ErrorHandling) = struct
-
-  module Ext = Ext.Make(EH)
+module Make(Ext : Ext_types.API) = struct
 
   open Ext
   
@@ -733,6 +731,3 @@ module Make(EH : ErrorHandling) = struct
 
   end
 end
-
-module WithExceptionsErrorHandling = Make(ExceptionsErrorHandling)
-module WithNoErrorHandling = Make(NoErrorHandling)

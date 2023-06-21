@@ -41,12 +41,13 @@ module Functions (F : Ctypes.FOREIGN) = struct
   let yices_free_string =
     foreign "yices_free_string"
       ((@->) (ptr char) (returning void))
-  let yices_set_out_of_mem_callback =
-    Foreign.foreign "yices_set_out_of_mem_callback"
-      Ctypes.((@->)
-                (static_funptr
-                   ((@->) void (returning void)))
-                (returning void))
+  (* Need to find a way to get this without libffi: *)
+  (* let yices_set_out_of_mem_callback = *)
+  (*   Foreign.foreign "yices_set_out_of_mem_callback" *)
+  (*     Ctypes.((@->) *)
+  (*               (static_funptr *)
+  (*                  ((@->) void (returning void))) *)
+  (*               (returning void)) *)
   let yices_error_code =
     foreign "yices_error_code"
       ((@->) void (returning error_code_t))

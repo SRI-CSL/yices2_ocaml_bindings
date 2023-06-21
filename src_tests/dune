@@ -6,7 +6,7 @@
  
 (test
  (name test)
- (libraries ctypes ctypes.foreign sexplib containers libpoly_bindings yices2 extensions)
+ (libraries ctypes sexplib containers libpoly_bindings yices2 extensions)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std ppx_optcomp))
 )

@@ -1,7 +1,5 @@
 open Sexplib
 
-open Ext
-
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string
 
@@ -95,6 +93,4 @@ module type API = sig
 
 end
 
-module Make(EH : ErrorHandling) : API
-module WithExceptionsErrorHandling : API
-module WithNoErrorHandling         : API
+module Make(Ext : Ext_types.API) : API with module Ext := Ext
