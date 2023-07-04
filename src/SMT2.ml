@@ -278,13 +278,14 @@ module Make(Ext : Ext_types.API) = struct
          | "true"  -> Term.true0()
          | "false" -> Term.false0()
          | _ ->
-            let aux s = 
+            let aux s =
               try
-                Term.Arith.parse_rational s
-              with _ ->
-                try Term.Arith.parse_float s
-                with ExceptionsErrorHandling.YicesException _
-                     -> raise (Yices_SMT2_exception (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
+                if Str.(string_match (regexp {|.*[\.eE].*|}) s 0)
+                then Term.Arith.parse_float s
+                else Term.Arith.parse_rational s
+              with ExceptionsErrorHandling.YicesException _
+                   -> raise (Yices_SMT2_exception
+                               (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
             in
             if String.length s < 2 then aux s
             else
