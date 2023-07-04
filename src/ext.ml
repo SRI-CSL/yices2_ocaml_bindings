@@ -1266,9 +1266,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       end;
       Context.assert_blocking_clause x.context
 
-    let check_with_model ?param x model support =
-      Context.check_with_model ?param x.context model support
-    
     let check ?param ?assumptions ?smodel x =
       unblock x;
       HTerms.reset x.last_check_model;

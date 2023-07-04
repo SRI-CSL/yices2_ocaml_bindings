@@ -36,7 +36,6 @@ module type Context = sig
   type action
   type config
   type param
-  type model
   type smodel
 
   val pp_options        : unit HStrings.t Format.printer
@@ -81,7 +80,6 @@ module type Context = sig
   val assert_formulas : t -> term list -> unit
   val assert_blocking_clause : t -> unit
 
-  val check_with_model : ?param:param -> t -> model -> term list -> Types.smt_status
   val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> t
               -> Types.smt_status
   val stop             : t -> unit
@@ -275,7 +273,6 @@ module type API = sig
                             and type action := Action.t
                             and type config := Config.t
                             and type param  := Param.t
-                            and type model  := Model.t
                             and type smodel  := SModel.t
 
   module Param : High_types.Param with type 'a eh   := 'a
