@@ -303,7 +303,9 @@ module SafeMake
   (* Mnemotechnic: ? represents Ocaml's string, / represents freeing memory *)
 
   (* Raw conversion from char pointers to strings *)
-  let toStringR x = return(coerce (ptr char) string x)
+  let toStringR x =
+    if Ctypes.is_null x then return "NULL"
+    else return(coerce (ptr char) string x)
 
   (* Conversion from char pointers with error handling to a string; the char pointer is freed *)
   let toString x =
