@@ -14,19 +14,18 @@ val use_term_names : bool ref
 val use_type_notations : bool ref
 val use_term_notations : bool ref
 
-
 module type ErrorHandling = High.ErrorHandling with type 'a t = 'a
 
 module NoErrorHandling : sig
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
-  include ErrorHandling
+  include ErrorHandling with type 'a t = 'a
 end
 
 module ExceptionsErrorHandling : sig
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
-  include ErrorHandling
+  include ErrorHandling with type 'a t = 'a
 end
 
 module Make(EH: ErrorHandling) : Ext_types.API

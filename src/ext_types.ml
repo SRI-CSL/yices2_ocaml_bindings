@@ -27,7 +27,6 @@ type config = {
     mcsat  : bool ref
   }
 
-
 module type Context = sig
 
   type typ
@@ -52,7 +51,14 @@ module type Context = sig
 
   (** Turns the log into list of S-expressions.
       The first executed action ends up as the head of the list. *)
-  val to_sexp : t -> Sexplib.Type.t list
+  (* When representing functions in S-expressions,
+     do we want to use SMT2 arrays?
+     if not, function updates will not be compliant with SMT2 standard;
+     if yes, do we want multi-argument functions to be Curryified or expressed as tuples?
+     (tuples are not in the SMT2 standard but are accepted by, e.g., CVC5)
+     in the case of terms, which terms
+   *)
+  val to_sexp : ?smt2arrays: [`Tuple | `Curry ]*(term -> bool) -> t -> Sexplib.Type.t list
 
   (** Prints the assertions. *)
   val pp : t Format.printer
@@ -93,17 +99,18 @@ module type Context = sig
 
   (* The next two functions are just adding declarations to the log,
      they do not actually introduce new Yices types and terms *)
-  val declare_type   : t -> string -> unit    
-  val declare_fun    : t -> string -> typ -> unit
+  val declare_type   : t -> typ -> unit
+  val declare_fun    : t -> term -> typ -> unit
 
 end
+
 
 module type Type = sig
 
   include High_types.Type with type 'a eh := 'a
 
   type context
-
+  
   (** Introduce a notation for pretty-printing a type (Notation computed lazily) *)
   val notation : t -> ('a, Format.formatter, unit) format -> 'a
 
@@ -115,7 +122,7 @@ module type Type = sig
   (** Print through SMTLib expressions *)
   val pp : t Format.printer
 
-  val to_sexp : t -> Sexplib.Type.t
+  val to_sexp : ?smt2arrays:[`Tuple | `Curry ] -> t -> Sexplib.Type.t
 
   (** All uninterpreted types; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
@@ -139,8 +146,7 @@ module type Term = sig
   (** Print through SMTLib expressions *)
   val pp : t Format.printer
 
-  val to_sexp_termstruct : _ Types.termstruct -> Sexp.t
-  val to_sexp            : t -> Sexp.t
+  val to_sexp            : ?smt2arrays:[`Tuple | `Curry ]*(t -> bool) -> t -> Sexp.t
 
   val is_free_termstruct : var:t -> _ Types.termstruct -> bool
   val is_free            : var:t -> t -> bool
@@ -230,15 +236,15 @@ module type API = sig
     val assertions : t -> Term.t list (* flattens all levels into a list of assertions
                                          raises BlockingClauseUsage
                                          if None is found at any level *)
-    val to_sexp : t -> Sexp.t
+    val to_sexp : ?smt2arrays:[`Tuple | `Curry ]*(Term.t -> bool) -> t -> Sexp.t
     val pp : t Format.printer
   end
   
   module Action : sig
 
     type t =
-      | DeclareType of string
-      | DeclareFun of string * Type.t
+      | DeclareType of Type.t
+      | DeclareFun of Term.t * Type.t
       | Status
       | Reset
       | Push
@@ -263,7 +269,7 @@ module type API = sig
       | GarbageCollect of Sexp.t list
 
     (** Appends the action sexp(s) on top of input list *)
-    val to_sexp : Sexp.t list -> t -> Sexp.t list
+    val to_sexp : ?smt2arrays:[`Tuple | `Curry ]*(Term.t -> bool) -> Sexp.t list -> t -> Sexp.t list
 
   end
 
@@ -307,7 +313,6 @@ module type API = sig
                }
     val build   : ?indices:(int*int) -> Term.t -> t
     val to_term : t -> Term.t
-    val to_sexp : t -> Sexp.t
     val pp      : t Format.printer
     val width   : t -> int
     val is_free : var:Term.t -> t -> bool
@@ -340,7 +345,6 @@ module type API = sig
     type bit_struct = bit_select BoolStruct.t [@@deriving eq, ord]
 
     val return_block : _ bs closed -> _ block
-    val to_sexp      : _ base -> Sexp.t
     val pp           : _ base Format.printer
     val to_term      : _ base -> Term.t
     val build        : 'a termstruct -> 'a closed

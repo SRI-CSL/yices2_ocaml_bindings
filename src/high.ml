@@ -205,6 +205,10 @@ module Error = struct
   let clear    = yices_clear_error
 end
 
+let status_is_not_error = function
+  | `STATUS_ERROR -> false
+  | _ -> true
+
 module type SafeErrorHandling = sig
   type 'a checkable
   type 'a t
@@ -217,10 +221,6 @@ module type SafeErrorHandling = sig
   val return      : 'a -> 'a t
   val bind        : 'a t -> ('a -> 'b t) -> 'b t
 end
-
-let status_is_not_error = function
-  | `STATUS_ERROR -> false
-  | _ -> true
 
 module type ErrorHandling = SafeErrorHandling with type 'a checkable := 'a
 
@@ -303,9 +303,7 @@ module SafeMake
   (* Mnemotechnic: ? represents Ocaml's string, / represents freeing memory *)
 
   (* Raw conversion from char pointers to strings *)
-  let toStringR x =
-    if Ctypes.is_null x then return "NULL"
-    else return(coerce (ptr char) string x)
+  let toStringR x = return(coerce (ptr char) string x)
 
   (* Conversion from char pointers with error handling to a string; the char pointer is freed *)
   let toString x =
@@ -590,12 +588,15 @@ module SafeMake
     type t = type_t [@@deriving eq, ord]
     let hash = hash_sint
     let of_hash = of_hash_sint
+    let is_good = sintcheck
 
     module Names = struct
       let set x     = ofString(yices_set_type_name x) <.> toUnit
       let remove    = ofString yices_remove_type_name
       let clear     = yices_clear_type_name <.> toUnit
-      let of_name   = ofString yices_get_type_by_name <.> return_sint
+      let is_name   = (ofString yices_get_type_by_name) <.> sintcheck
+      let of_name   = (ofString yices_get_type_by_name) <.> return_sint
+      let has_name  = yices_get_type_name <.> ptrcheck
       let to_name   = yices_get_type_name <.> toString
     end
 
@@ -665,13 +666,16 @@ module SafeMake
     type t = term_t [@@deriving eq,ord]
     let hash = hash_sint
     let of_hash = of_hash_sint
+    let is_good = sintcheck
 
     module Names = struct
       let set     = yices_set_term_name <.> ofString <..> toUnit
       let remove  = yices_remove_term_name |> ofString
       let clear   = yices_clear_term_name <.> toUnit
-      let of_name = ofString yices_get_term_by_name <.> return_sint
-      let to_name = yices_get_term_name <.> toString
+      let is_name   = (ofString yices_get_term_by_name) <.> sintcheck
+      let of_name   = (ofString yices_get_term_by_name) <.> return_sint
+      let has_name  = yices_get_term_name <.> ptrcheck
+      let to_name   = yices_get_term_name <.> toString
     end
 
     let parse = ofString yices_parse_term <.> return_sint
@@ -1233,10 +1237,16 @@ module SafeMake
 
   module Global = struct
 
-    let version    = let* x = yices_version    in toStringR !@x
-    let build_arch = let* x = yices_build_arch in toStringR !@x
-    let build_mode = let* x = yices_build_mode in toStringR !@x
-    let build_date = let* x = yices_build_date in toStringR !@x
+    let toString2 x =
+      let* x = x in
+      let x = !@x in
+      if Ctypes.is_null x then EH.raise_bindings_error "String is null pointer"
+      else toStringR x
+
+    let version    = toString2 yices_version
+    let build_arch = toString2 yices_build_arch
+    let build_mode = toString2 yices_build_mode
+    let build_date = toString2 yices_build_date
     let has_mcsat      = toBool1 yices_has_mcsat
     let is_thread_safe = toBool1 yices_is_thread_safe
 

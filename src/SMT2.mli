@@ -1,5 +1,7 @@
 open Sexplib
 
+open Ext
+
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string
 
@@ -33,6 +35,7 @@ module type API = sig
 
   module Session : sig
 
+    (* What gets initialized when parsing (set-logic ...) *)
     type env = {
         verbosity : int;
         logic     : string;
@@ -40,11 +43,12 @@ module type API = sig
         variables : Variables.t;
         context : Context.t;
         param   : Param.t;
-        model   : SModel.t option
+        model   : SModel.t option;
+        smt2functions : unit Types.HTerms.t
       }
 
     (** Turns the log within context into SMT2 string. *)
-    val to_SMT2 : env -> string
+    val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string
 
     type t = {
         verbosity : int;

@@ -223,7 +223,10 @@ module Context = struct
       | DeclareFun(_, ty) when not(Arg.type_check ty) -> false
       | _ -> true
     in
-    let sexps = ctx |> log |> List.filter filter |> List.fold_left Action.to_sexp [] in
+    let sexps =
+      ctx |> log |> List.filter filter
+      |> List.fold_left Action.to_sexp []
+    in
     let pp_sep fmt () = Format.fprintf fmt "@ " in
     Format.fprintf fmt "%a" (List.pp ~pp_sep pp_sexp) (sexps)
     

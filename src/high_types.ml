@@ -296,6 +296,7 @@ module type Names = sig
 
   (** Get type or term of the given name
         - return NULL_TYPE or NULL_TERM if there's no type or term with that name  *)
+  val is_name : string -> bool
   val of_name : string -> t eh
 
   (** Remove the base name of a type tau or of a term t.
@@ -316,6 +317,7 @@ module type Names = sig
         The functions return NULL if the  term or type has no name,
         or if the term or type is not valid. The error report is set
         to INVALID_TERM or INVALID_TYPE in such cases.  *)
+  val has_name : t -> bool
   val to_name : t -> string eh
 
 end
@@ -367,6 +369,9 @@ module type Type = sig
 
   (** Getting term from hash (not resilient to garbagge collection) *)
   val of_hash : int -> t
+
+  (** Checking a type *)
+  val is_good : t -> bool
 
   (** ********************
         TYPE CONSTRUCTORS  *
@@ -572,8 +577,11 @@ module type Term = sig
   (** Its hash function *)
   val hash : t -> int
 
-  (** Getting term from hash (not resilient to garbagge collection) *)
+  (** Getting term from hash (not resilient to garbage collection) *)
   val of_hash : int -> t
+
+  (** Checking a term *)
+  val is_good : t -> bool
 
   (** ********************
         TERM CONSTRUCTORS  *

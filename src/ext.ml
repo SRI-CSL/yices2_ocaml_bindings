@@ -8,8 +8,7 @@ open Common
 include High
 open Types
 
-
-let extended_SMTLib = ref true
+open Ext_types
 
 exception PopLastLevel
 
@@ -20,20 +19,14 @@ let rec pp_sexp fmt = function
   | Atom s -> Format.fprintf fmt "@[%s@]" s
   | List l -> Format.fprintf fmt "@[<hov1>(%a)@]" (List.pp ~pp_sep pp_sexp) l
 
-(* let pp_sexp = Sexp.pp_hum *)
-
 let use_type_names = ref true
 let use_term_names = ref true
 let use_type_notations = ref true
 let use_term_notations = ref true
 
 let match_n use_ref get t =
-  if !use_ref then
-    match get t with
-    | s -> Some s
-    | exception _ -> None
-  else
-    None
+  if !use_ref then get t
+  else None
 
 let match_nn use_notation get_notation use_names get_names t =
   match match_n use_notation get_notation t with
@@ -45,8 +38,6 @@ let notation replace hooks t =
     replace hooks t (lazy (Format.sprintf "%t" cont))
   in
   Format.kdprintf aux
-
-open Ext_types
 
 module type ErrorHandling = ErrorHandling with type 'a t = 'a
 
@@ -104,17 +95,19 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     include Type
     let pph height fmt t =
       let display = Types.{ width = 80; height; offset = 0 } in
-      try
-        t |> PP.type_string ~display
-        |> Format.fprintf fmt "%s"
-      with _ -> Format.fprintf fmt "null_type"
+      if is_good t then t |> PP.type_string ~display |> Format.fprintf fmt "%s"
+      else Format.fprintf fmt "null_type"
 
     let hooks          = Global.hTypes_create 100
     let notation t     = notation HTypes.replace hooks t
-    let get_notation t = HTypes.find hooks t |> Lazy.force
+    let get_notation t = HTypes.get hooks t |> Option.map Lazy.force
 
-    let rec to_sexp typ =
-      match match_nn use_type_notations get_notation use_type_names Type.Names.to_name typ with
+    let to_name_opt t =
+      if Type.Names.has_name t then Some(Type.Names.to_name t)
+      else None
+      
+    let rec to_sexp ~smt2arrays typ =
+      match match_nn use_type_notations get_notation use_type_names to_name_opt typ with
       | Some s -> Atom s
       | None ->
          match reveal typ with
@@ -123,21 +116,27 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          | Real -> Atom "Real"
          | BV i -> List[Atom "_"; Atom "BitVec"; Atom(string_of_int i)]
          | Scalar _
-           | Uninterpreted _ -> Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
-         | Tuple l -> l |> List.map to_sexp |> sexp "Tuple"
+           | Uninterpreted _ ->
+            Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
+         | Tuple l -> l |> List.map (to_sexp ~smt2arrays) |> sexp "Tuple" (* Not official SMTLib syntax, but accepted by e.g. CVC5 *)
          | Fun { dom; codom } ->
-            if !extended_SMTLib
-            then (* Not official SMTLib syntax *)
-              let dom = List.map to_sexp dom in
-              match dom with
-              | [dom] -> sexp "Array" [dom; to_sexp codom]
-              | _ -> sexp "Array" (dom @ [to_sexp codom])
-            else
-              let aux sofar domi = sexp "Array" [to_sexp domi; sofar] in
-              dom |> List.rev |> List.fold_left aux (to_sexp codom)
+            let codom = to_sexp ~smt2arrays codom in
+            match smt2arrays with
+            | None -> (* Not official SMTLib syntax for function types *)
+               let dom = List.map (to_sexp ~smt2arrays) dom in
+               sexp "Fun" (dom @ [codom])
+            | Some(`Curry,_) -> (* SMT2Lib arrays, curryfying for multi-arguments *)
+               let aux sofar domi = sexp "Array" [to_sexp ~smt2arrays domi; sofar] in
+               dom |> List.rev |> List.fold_left aux codom
+            | Some(`Tuple,_) -> (* SMT2Lib arrays, using tuples for multi-arguments,
+                                       not official but accepted in e.g. CVC5 *)
+               match List.map (to_sexp ~smt2arrays) dom with
+               | [dom] -> sexp "Array" [ dom; codom]
+               | dom   -> sexp "Array" [ sexp "Tuple" dom; codom]
 
-
-    let pp fmt t = t |> to_sexp |> pp_sexp fmt
+    let pp fmt t =
+      if is_good t then to_sexp ~smt2arrays:None t |> pp_sexp fmt
+      else Format.fprintf fmt "null_type"
 
   end
 
@@ -159,13 +158,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let pph height fmt t =
       let display = Types.{ width = 80; height; offset = 0 } in
-      try
-        t |> PP.term_string ~display
-        |> Format.fprintf fmt "%s"
-      with _ -> Format.fprintf fmt "null_term"
+      if is_good t then t |> PP.term_string ~display |> Format.fprintf fmt "%s"
+      else Format.fprintf fmt "null_term"
 
     let pow i t = 
-      if i <= 0 then ExceptionsErrorHandling.raise_bindings_error
+      if i <= 0 then EH.raise_bindings_error
                        "Exponent should be positive in a power product, not %i" i
       else
         if i = 1 then t
@@ -215,29 +212,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | A0 _ -> TermSet.empty
       | a -> map (fun a -> a, fv a) a |> snd
     and fv t =
-      try
-        let f k =
-          let Term a = Term.reveal k in
-          fv_termstruct a
-        in
-        HTerms.get_or_add fv_table ~f ~k:t
-      with
-      | ExceptionsErrorHandling.YicesException _
-        ->
-         print_endline (Format.sprintf "@[Yices error on term %i: @[%s@]@]@,"
-                          (Term.hash t)
-                          (ErrorPrint.string()));
-         let bcktrace = Printexc.get_backtrace() in
-         print_endline(Format.sprintf "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace);
-         print_endline "Attempting to print term";
-         print_endline(Format.sprintf " @[%a@]" (pph 100) t);
-         print_endline "Attempting to print error report";
-         failwith "Giving up"
-      | _ -> 
-         print_endline (Format.sprintf "@[Catching giving up with term %i: @[%a@]@]@,"
-                          (Term.hash t)
-                          (pph 100) t);
-         failwith "Giving up"
+      let f k =
+        let Term a = Term.reveal k in
+        fv_termstruct a
+      in
+      HTerms.get_or_add fv_table ~f ~k:t
     
     let sum_aux to_sexp (coeff, term) =
       let one = Term.Arith.int 1 in
@@ -260,17 +239,19 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       else
         sexp "/" [sexp_gmpz num; sexp_gmpz den]
 
-    let to_sexp_termstruct : type a. (t -> Sexp.t) -> a termstruct -> Sexp.t =
-      fun to_sexp ->
+    let to_string = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0}
+
+    let to_sexp_termstruct
+        : type a. smt2arrays: ([`Tuple | `Curry ]*(t -> bool)) option -> (t -> Sexp.t) -> a termstruct -> Sexp.t =
+      fun ~smt2arrays to_sexp ->
       function
       | A0(c, t) ->
-         let s () = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0} t in
          begin match c with
          | `YICES_BV_CONSTANT ->
-            let s = s() in
+            let s = to_string t in
             let s =
               if String.length s < 2
-              then ExceptionsErrorHandling.raise_bindings_error
+              then EH.raise_bindings_error
                      "bv constant as a string should have at least 2 characters, got %s instead" s
               else
                 match String.sub s 0 2 with
@@ -279,9 +260,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                 | _ -> s
             in
             Atom s
-         | `YICES_ARITH_CONSTANT ->
-            (try sexp_gmpq t with ExceptionsErrorHandling.YicesBindingsException _ -> Atom(s()))
-         | _ -> Atom(s())
+         | `YICES_ARITH_CONSTANT -> sexp_gmpq t
+            (* (try *)
+            (*    sexp_gmpq t *)
+            (*  with ExceptionsErrorHandling.YicesBindingsException _ -> Atom(s())) *)
+         | _ -> Atom(to_string t)
          end
 
       | A1(c,t) ->
@@ -332,7 +315,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          let args = List.map to_sexp l in
          begin
            match c with
-           | `YICES_TUPLE_TERM    -> sexp "tuple"    args (* Not official SMTLib syntax *)
+           | `YICES_TUPLE_TERM    -> sexp "tuple"    args (* Not official SMTLib syntax, but accepted by e.g. CVC5 *)
            | `YICES_DISTINCT_TERM -> sexp "distinct" args
            | `YICES_OR_TERM       ->
               begin
@@ -359,40 +342,67 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
            | `YICES_BV_ARRAY      -> sexp "bool-to-bv" args (* Not official SMTLib syntax *)
          end
       | Bindings{c;vars;body} ->
-         let aux v = List[to_sexp v; TypeSexp.to_sexp(type_of_term v)] in  
-         let body = to_sexp body in
-         begin
+         let binder = 
            match c with
-           | `YICES_FORALL_TERM -> sexp "forall" [List(List.map aux vars); body]
-           | `YICES_LAMBDA_TERM ->
-              if !extended_SMTLib
-              then (* Not official SMTLib syntax *)
-                sexp "lambda" [List(List.map aux vars); body]
-              else
-                let aux sofar vari = sexp "lambda" [List [aux vari]; sofar] in
-                vars |> List.rev |> List.fold_left aux body
-         end
+           | `YICES_FORALL_TERM -> "forall"
+           (* Not official SMTLib syntax, which is not higher-order *)
+           | `YICES_LAMBDA_TERM -> "lambda" 
+         in
+         let aux v = List[to_sexp v; TypeSexp.to_sexp ~smt2arrays (type_of_term v)] in
+         sexp binder [List(List.map aux vars); to_sexp body]
       | App(f,l) ->
-         if !extended_SMTLib
-         then (* Not official SMTLib syntax *)
-           let f = to_sexp f in
-           let l = List.map to_sexp l in
-           sexp "select" (f::l)
-         else
-           let aux sofar argi = sexp "select" [sofar; to_sexp argi] in
-           List.fold_left aux (to_sexp f) l
+         begin
+           let f_sexp = to_sexp f in
+           let l_sexp = List.map to_sexp l in
+           match smt2arrays with
+           | None -> List (f_sexp::l_sexp)
+           | Some(mode, as_function) ->
+              if as_function f then List (f_sexp::l_sexp)
+              else
+                match mode with
+                | `Curry ->
+                   let aux sofar argi = sexp "select" [sofar; argi] in
+                   List.fold_left aux f_sexp l_sexp
+                | `Tuple -> (* Not official SMTLib syntax, but accepted by e.g. CVC5 *)
+                   match l_sexp with
+                   | [l_sexp] -> sexp "select" [f_sexp; l_sexp]
+                   | _        -> sexp "select" [f_sexp; sexp "tuple" l_sexp]
+         end
       | Update { array; index; value} ->
-         let array = to_sexp array in
-         let indices = List.map to_sexp index in
-         let value = to_sexp value in
-         sexp "store" (array::(indices @ [value]))
+         let array_sexp   = to_sexp array in
+         let indices_sexp = List.map to_sexp index in
+         let value_sexp   = to_sexp value in
+         begin
+           match smt2arrays with
+           | None -> sexp "store" (array_sexp::(indices_sexp @ [value_sexp]))
+           | Some(mode, as_function) ->
+              if as_function array
+              then
+                EH.raise_bindings_error
+                  "Cannot update a function in SMTLib2: %s"
+                  (to_string array)
+              else
+                match mode with
+                | `Curry ->
+                   let aux (app_i, cont) arg_i =
+                     sexp "select" [app_i; arg_i],
+                     fun c -> sexp "store" [app_i; arg_i; c]
+                   in
+                   let _, cont = List.fold_left aux (array_sexp, fun c -> c) indices_sexp in
+                   cont value_sexp
+                | `Tuple -> (* Not official SMTLib syntax, but accepted by e.g. CVC5 *)
+                   match indices_sexp with
+                   | [index] -> sexp "store" [array_sexp; index; value_sexp]
+                   | _       -> sexp "store" [array_sexp; sexp "tuple" indices_sexp; value_sexp]
+         end
       | Projection(c,i,t) -> (* Not official SMTLib syntax *)
-         let t = to_sexp t in
-         sexp
-           (match c with
-            | `YICES_SELECT_TERM -> "select"
-            | `YICES_BIT_TERM    -> "bitextract")
-           [Atom(string_of_int i);t]
+         let name =
+           match c with
+           | `YICES_SELECT_TERM -> "tuple.select" (* but accepted by e.g. CVC5 *)
+           | `YICES_BIT_TERM    -> "bit_term"
+         in
+         let head = List[Atom "_"; Atom name; Atom(string_of_int i)] in
+         List[head; to_sexp t]
       | BV_Sum l ->
          let width = match l with
            | (coeff,_)::_ -> List.length coeff
@@ -785,37 +795,49 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let hooks          = Global.hTerms_create 100
     let notation t     = notation HTerms.replace hooks t
-    let get_notation t = HTerms.find hooks t |> Lazy.force
+    let get_notation t = HTerms.get hooks t |> Option.map Lazy.force
 
-    let rec to_sexp : type a b. (a, b) base -> Sexp.t = function
-      | TermStruct a -> TermTMP.to_sexp_termstruct to_sexp_t a
-      | T a          -> to_sexp_t a
-      | Bits  block  -> sexp "bool-to-bv" (List.map to_sexp_t block)
-      (* Not official SMTLib syntax *)
+    let to_name_opt t =
+      if Term.Names.has_name t then Some(Term.Names.to_name t)
+      else None
+
+    let rec to_sexp :
+              type a b. smt2arrays:([`Tuple | `Curry ]*(Term.t -> bool)) option -> (a, b) base -> Sexp.t =
+      fun ~smt2arrays ->
+      function
+      | TermStruct a ->
+         TermTMP.to_sexp_termstruct ~smt2arrays (to_sexp_t ~smt2arrays) a
+      | T a          -> to_sexp_t ~smt2arrays a
+      (* Not official SMTLib syntax: *)
+      | Bits  block  -> sexp "bool-to-bv" (List.map (to_sexp_t ~smt2arrays) block)
       | Slice slice ->
          let open BoolStruct in
          let rec aux = function
-           | Leaf slice -> SliceTMP.to_sexp to_sexp_t slice
+           | Leaf slice -> SliceTMP.to_sexp (to_sexp_t ~smt2arrays) slice
            | And l  -> sexp "bvand" (List.map aux l)
            | Or l   -> sexp "bvor"  (List.map aux l)
            | Not a  -> sexp "bvnot" [aux a]
          in
          aux slice
-      | Concat l    -> sexp "concat" (List.rev_map to_sexp l)
+      | Concat l    -> sexp "concat" (List.rev_map (to_sexp ~smt2arrays) l)
       | Block{block; sign_ext; zero_ext} ->
-         let block = to_sexp block in
+         let block = to_sexp ~smt2arrays block in
          let f string i term = List[ sexp "_" [Atom string; Atom(string_of_int i)] ; term ] in
          let block = if sign_ext = 0 then block else f "sign_extend" sign_ext block in
          if zero_ext = 0 then block else f "sign_extend" zero_ext block
 
-    and to_sexp_t : Term.t -> Sexp.t = fun t ->
-      match match_nn use_type_notations get_notation use_type_names Term.Names.to_name t with
+    and to_sexp_t : smt2arrays:([`Tuple | `Curry ]*(Term.t -> bool)) option -> Term.t -> Sexp.t =
+      fun ~smt2arrays t ->
+      match
+        match_nn use_type_notations get_notation use_type_names to_name_opt t
+      with
       | Some s -> Atom s
       | None ->
          let YExtTerm t = of_term t in
-         to_sexp t
+         to_sexp ~smt2arrays t
     
-    let pp fmt t = t |> to_sexp |> pp_sexp fmt
+    let pp fmt t =
+      t |> to_sexp ~smt2arrays:None |> pp_sexp fmt
     
   end
 
@@ -825,16 +847,15 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     include TermTMP
     let notation = ExtTerm.notation
     let to_sexp = ExtTerm.to_sexp_t
-    let to_sexp_termstruct t = TermTMP.to_sexp_termstruct to_sexp t
-    let pp fmt t = try
-        to_sexp t |> pp_sexp fmt
-      with ExceptionsErrorHandling.YicesException _ -> Format.fprintf fmt "NULL_TERM"
+    let pp fmt t =
+      if is_good t then to_sexp ~smt2arrays:None t |> pp_sexp fmt
+      else Format.fprintf fmt "null_term"
   end
 
   module Slice = struct
     include SliceTMP
-    let to_sexp = to_sexp TermSexp.to_sexp
-    let pp fmt t = to_sexp t |> pp_sexp fmt
+    let to_sexp ~smt2arrays = to_sexp (TermSexp.to_sexp ~smt2arrays)
+    let pp fmt t = to_sexp ~smt2arrays:None t |> pp_sexp fmt
   end
 
   module Model = struct
@@ -849,11 +870,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | `Rational r  -> set_mpq output var r
       | `BV(_,l)     -> set_bv_from_list output var l
       | `Algebraic a -> set_algebraic_number output var a.libpoly
-      | `Scalar _    -> ExceptionsErrorHandling.raise_bindings_error
+      | `Scalar _    -> EH.raise_bindings_error
                           "MCSAT approach to building model does not support scalar values"
-      | `Fun _       -> ExceptionsErrorHandling.raise_bindings_error
+      | `Fun _       -> EH.raise_bindings_error
                           "MCSAT approach to building model does not support function values"
-      | `Tuple _       -> ExceptionsErrorHandling.raise_bindings_error
+      | `Tuple _       -> EH.raise_bindings_error
                             "MCSAT approach to building model does not support tuple values"
     
   end
@@ -925,26 +946,28 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     
     let empty() = make ~support:[] (Model.empty())
     
-    let to_sexp smodel =
+    let to_sexp ~smt2arrays smodel =
       let aux t =
-        let ty = TypeSexp.to_sexp(Term.type_of_term t) in
+        let ty = TypeSexp.to_sexp ~smt2arrays (Term.type_of_term t) in
         let vars, body =
-          try
-            let v = Model.get_value_as_term smodel.model t in
-            match Term.reveal v with
-            | Term(Bindings { vars; body; _ }) ->
-               let aux v = List[TermSexp.to_sexp v; TypeSexp.to_sexp(Term.type_of_term v)] in  
-               Sexp.List(List.map aux vars), TermSexp.to_sexp body
-            | _ -> Sexp.List [], TermSexp.to_sexp v
-          with
-            _ -> Sexp.List [],
-                 try
-                   let v = Model.get_algebraic_number_value smodel.model t in
-                   Sexp.Atom (Algebraic.to_string v.libpoly)
-                 with
-                   _ -> Sexp.Atom "Can't print"
+          let yval = Model.get_value smodel.model t in
+          match Model.reveal smodel.model yval with
+          | `Algebraic v ->
+             Sexp.List [], Sexp.Atom (Algebraic.to_string v.libpoly)
+          | _ ->
+             let v = Model.val_as_term smodel.model yval in
+             if Term.is_good v
+             then
+               match Term.reveal v with
+               | Term(Bindings { vars; body; _ }) ->
+                  let aux v = List[TermSexp.to_sexp ~smt2arrays v;
+                                   TypeSexp.to_sexp ~smt2arrays (Term.type_of_term v)] in  
+                  Sexp.List(List.map aux vars), TermSexp.to_sexp ~smt2arrays body
+               | _ -> Sexp.List [], TermSexp.to_sexp ~smt2arrays v
+             else
+               Sexp.List [], Sexp.Atom "Can't print"
         in
-        sexp "define-fun" [TermSexp.to_sexp t; vars; ty; body]
+        sexp "define-fun" [TermSexp.to_sexp ~smt2arrays t; vars; ty; body]
       in
       Sexp.List(smodel.support |> List.rev |> List.rev_map aux)
 
@@ -1014,11 +1037,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       List.fold_left aux [] x.list
 
-    let level_to_sexp = function
+    let level_to_sexp ~smt2arrays = function
       | None -> Sexp.Atom "BlockingClauseUsage"
-      | Some assertions -> Sexp.List (List.map TermSexp.to_sexp assertions)
+      | Some assertions -> Sexp.List (List.map (TermSexp.to_sexp ~smt2arrays) assertions)
 
-    let to_sexp { list; _ } = Sexp.List (List.map level_to_sexp list)
+    let to_sexp ?smt2arrays { list; _ } =
+      Sexp.List (List.map (level_to_sexp ~smt2arrays) list)
     
     let pp_level fmt = function
       | None ->
@@ -1034,8 +1058,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
   module Action = struct
 
     type t =
-      | DeclareType of string
-      | DeclareFun of string * Type.t
+      | DeclareType of Type.t
+      | DeclareFun of Term.t * Type.t
       | Status
       | Reset
       | Push
@@ -1059,34 +1083,50 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | GetModelInterpolant
       | GarbageCollect of Sexp.t list
 
-    let to_sexp accu = function
-      | DeclareType typ_string
-        -> sexp "declare-sort" [Atom typ_string; Atom "0"] ::accu
-      | DeclareFun(string, typ)
-        -> sexp "declare-fun" [Atom string; List[]; TypeSexp.to_sexp typ] ::accu
+    let to_sexp ?smt2arrays accu = function
+      | DeclareType typ ->
+         let typ_string = Format.sprintf "%a" TypeSexp.pp typ in
+         sexp "declare-sort" [Atom typ_string; Atom "0"] ::accu
+      | DeclareFun(t, typ) ->
+         let symb = Atom(TermSexp.to_string t) in
+         sexp "declare-fun"
+           begin
+             match smt2arrays, Type.reveal typ with
+             | None, Fun{ dom; codom} ->
+                let dom = List.map (TypeSexp.to_sexp ~smt2arrays) dom in
+                [symb; List dom; TypeSexp.to_sexp ~smt2arrays codom]
+             | Some(mode, as_fun), Fun{ dom; codom} when as_fun t ->
+                let dom = List.map (TypeSexp.to_sexp ~smt2arrays) dom in
+                [symb; List dom; TypeSexp.to_sexp ~smt2arrays codom]
+             | _ ->
+                [symb; List[]; TypeSexp.to_sexp ~smt2arrays typ]
+           end
+         ::accu
       | Status -> sexp "get-status" [] ::accu
       | Reset  -> sexp "reset-assertions" [] ::accu
       | Push   -> sexp "push" [] ::accu
       | Pop    -> sexp "pop" [] ::accu
       | EnableOption s -> sexp "set-option" [Atom s; Atom "true"] ::accu 
       | DisableOption s -> sexp "set-option" [Atom s; Atom "false"] ::accu
-      | AssertFormula t -> sexp "assert" [TermSexp.to_sexp t] ::accu
+      | AssertFormula t -> sexp "assert" [TermSexp.to_sexp ~smt2arrays t] ::accu
       | AssertFormulas l ->
-         List.fold_left (fun sofar t -> sexp "assert" [TermSexp.to_sexp t]::sofar) accu l
+         List.fold_left
+           (fun sofar t -> sexp "assert" [TermSexp.to_sexp ~smt2arrays t]::sofar)
+           accu l
       | AssertBlockingClause -> sexp "assert-blocking-clause" [] ::accu
       | Check _param -> sexp "check-sat" [] ::accu 
       | CheckWithAssumptions{ assumptions; _ } ->
-         sexp "check-sat-assuming" (List.map TermSexp.to_sexp assumptions) ::accu
+         sexp "check-sat-assuming" (List.map (TermSexp.to_sexp ~smt2arrays) assumptions) ::accu
       | Stop         -> sexp "stop" [] ::accu
       | GetModel _   -> sexp "get-model" [] ::accu
       | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
       | CheckWithModel{ smodel; _} ->
-         sexp "check-sat-assuming-model" [SModel.to_sexp smodel] ::accu
+         sexp "check-sat-assuming-model" [SModel.to_sexp ~smt2arrays smodel] ::accu
       | CheckWithInterpolation{ build_model; is_first; other_assertions; _} ->
          let build_model = Atom(if build_model then "build_model" else "no_build_model") in
          let is_first    = Atom(if is_first then "is_first" else "is_second") in
          sexp "check-sat-with-interpolation"
-           [build_model; is_first; Assertions.to_sexp other_assertions] ::accu
+           [build_model; is_first; Assertions.to_sexp ?smt2arrays other_assertions] ::accu
       | GetModelInterpolant -> sexp "get-unsat-model-interpolant" [] ::accu
       | GarbageCollect sexpl -> sexp "garbage-collect" sexpl ::accu
 
@@ -1132,9 +1172,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let pp fmt {assertions; _} = Assertions.pp fmt !assertions
 
-    let to_sexp {log; _} = !log |> List.fold_left Action.to_sexp [] 
+    let to_sexp ?smt2arrays {log; _} =
+      !log |> List.fold_left (Action.to_sexp ?smt2arrays) [] 
 
-    let pp_log fmt ctx = Format.fprintf fmt "%a" (List.pp ~pp_sep pp_sexp) (to_sexp ctx)
+    let pp_log fmt ctx =
+      Format.fprintf fmt "%a"
+        (List.pp ~pp_sep pp_sexp) (to_sexp ctx)
 
     let malloc ?config () =
       let yconfig = Option.map (fun (config:Config.t) -> config.config) config in
@@ -1379,7 +1422,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | `STATUS_UNSAT interpolant -> `STATUS_UNSAT interpolant
       | `STATUS_SAT None ->
          `STATUS_SAT(fun ?support:_ () ->
-             ExceptionsErrorHandling.raise_bindings_error
+             EH.raise_bindings_error
                "Asking for model after interpolation query without model construction.")
       | `STATUS_SAT(Some m) ->
          `STATUS_SAT(fun ?support () -> SModel.make ?support m)
@@ -1405,7 +1448,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       let t = new_uninterpreted ~name ty in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = Action.DeclareFun(name,ty) in
+      let action = Action.DeclareFun(t,ty) in
       global_log := action::!global_log;
       List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
       t
@@ -1414,6 +1457,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       Option.get_exn_or
         "Can't safely tell you all uninterpreted terms after garbage collection"
         !all_uninterpreted
+
+    let to_sexp ?smt2arrays = to_sexp ~smt2arrays
 
   end
 
@@ -1436,7 +1481,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       let t = new_uninterpreted ~name () in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = Action.DeclareType name in
+      let action = Action.DeclareType t in
       global_log := action::!global_log;
       List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
       t
@@ -1446,13 +1491,19 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         "Can't safely tell you all uninterpreted types after garbage collection"
         !all_uninterpreted
 
+    let to_sexp ?smt2arrays = to_sexp ~smt2arrays:(Option.map (fun x -> x,()) smt2arrays)
+
   end
 
   module GC = struct
     include GC
     let garbage_collect ?(record_log=false) ?(contexts=[]) term_list type_list keep_named =
       (* If the users asks, we compile the current log *)
-      let sexps  = if record_log then List.fold_left Action.to_sexp [] !global_log else [] in
+      let sexps  =
+        if record_log
+        then List.fold_left Action.to_sexp [] !global_log
+        else []
+      in
       let action = Action.GarbageCollect sexps in
       List.iter (fun x -> if !(x.Context.is_alive) then Context.garbage_collect x) contexts;
       garbage_collect term_list type_list keep_named;
@@ -1473,7 +1524,7 @@ module Types = struct
   include Types
 
   open WithNoErrorHandling
-  
+
   let pp_error_report fmt Types.{badval; code; column; line; term1; term2; type1; type2} =
     Format.fprintf fmt
       "@[<v 1> \

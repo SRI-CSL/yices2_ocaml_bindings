@@ -40,19 +40,22 @@ open Cont
 module StringHashtbl = Common.HStrings
 module VarMap = Common.HStrings
 
+module type Variables = sig
+  type term
+  type t
+  val init            : unit -> t
+  val add             : t -> (string * term) list -> t
+  val permanently_add : t -> string -> term -> unit
+  val mem             : t -> string -> bool
+  val find            : t -> string -> term
+end
+
 module type API = sig
 
   module Ext : Ext_types.API
   open Ext
 
-  module Variables : sig
-    type t
-    val init            : unit -> t
-    val add             : t -> (string*Term.t) list -> t
-    val permanently_add : t -> string -> Term.t -> unit
-    val mem             : t -> string -> bool
-    val find            : t -> string -> Term.t
-  end
+  module Variables : Variables with type term := Term.t
 
   module Session : sig
 
@@ -63,11 +66,12 @@ module type API = sig
         variables : Variables.t;
         context : Context.t;
         param   : Param.t;
-        model   : SModel.t option
+        model   : SModel.t option;
+        smt2functions : unit HTerms.t
       }
 
     (** Turns the log within context into SMT2 string. *)
-    val to_SMT2 : env -> string
+    val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string
 
     type t = {
         verbosity : int;
@@ -122,15 +126,7 @@ module Make(Ext : Ext_types.API) = struct
 
   open Ext
   
-  module Variables : sig
-    type t
-    val init            : unit -> t
-    val add             : t -> (string*Term.t) list -> t
-    val permanently_add : t -> string -> Term.t -> unit
-    val mem             : t -> string -> bool
-    val find            : t -> string -> Term.t
-                                           (* val get_uninterpreted : t -> string list *)
-  end = struct
+  module Variables : Variables with type term := Term.t = struct
 
     module StringMap = Map.Make(String)
     type t = {
@@ -164,11 +160,13 @@ module Make(Ext : Ext_types.API) = struct
         variables : Variables.t;
         context : Context.t;
         param   : Param.t;
-        model   : SModel.t option
+        model   : SModel.t option;
+        smt2functions : unit HTerms.t
       }
 
-    let to_SMT2 {logic; context; _} =
-      let log = Context.to_sexp context in
+    let to_SMT2 ?smt2arrays {logic; context; smt2functions; _} =
+      let smt2arrays = Option.map (fun mode -> mode, HTerms.mem smt2functions) smt2arrays in
+      let log = Context.to_sexp ?smt2arrays context in
       let sl = List[Atom "set-logic"; Atom logic] in
       let pp fmt sexplist =
         Format.fprintf fmt "@[<v>%a@]" (List.pp ~pp_sep:Format.unit pp_sexp) sexplist
@@ -181,7 +179,7 @@ module Make(Ext : Ext_types.API) = struct
         env       : env option ref;
         infos     : string StringHashtbl.t;
         options   : string StringHashtbl.t;
-        set_logic : string -> Config.t -> unit
+        set_logic : string -> Config.t -> unit;
       }
 
     let set_logic logic config =
@@ -193,7 +191,8 @@ module Make(Ext : Ext_types.API) = struct
       print verbosity 1 "Now initialising Yices version %s@," Global.version;
       Global.init();
       print verbosity 1 "Init done@,";
-      { verbosity;
+      {
+        verbosity;
         config    = Config.malloc ();
         env       = ref None;
         infos     = StringHashtbl.create 10;
@@ -207,6 +206,7 @@ module Make(Ext : Ext_types.API) = struct
       let context = Context.malloc ~config:session.config () in
       let param = Param.malloc() in
       let model = None in
+      let smt2functions = Global.hTerms_create 10 in
       Param.default context param;
       session.env := Some { verbosity = session.verbosity;
                             logic;
@@ -214,7 +214,8 @@ module Make(Ext : Ext_types.API) = struct
                             variables;
                             context;
                             param;
-                            model }
+                            model;
+                            smt2functions}
 
     let exit session =
       (match !(session.env) with
@@ -244,6 +245,7 @@ module Make(Ext : Ext_types.API) = struct
       | Atom s -> atom types s
       | List l as sexp ->
          match l with
+         | (Atom "Fun"::(_::_ as l))
          | (Atom "Array"::(_::_ as l)) ->
             let* l = parse_list types l in
             let codom, dom = List.(l |> rev |> hd_tl) in
@@ -279,13 +281,14 @@ module Make(Ext : Ext_types.API) = struct
          | "false" -> Term.false0()
          | _ ->
             let aux s =
-              try
+              let t =
                 if Str.(string_match (regexp {|.*[\.eE].*|}) s 0)
                 then Term.Arith.parse_float s
                 else Term.Arith.parse_rational s
-              with ExceptionsErrorHandling.YicesException _
-                   -> raise (Yices_SMT2_exception
-                               (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
+              in
+              if Term.is_good t then t
+              else raise (Yices_SMT2_exception
+                            (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
             in
             if String.length s < 2 then aux s
             else
@@ -558,7 +561,7 @@ module Make(Ext : Ext_types.API) = struct
             if n <> 0
             then raise (Yices_SMT2_exception "Yices only treats uninterpreted types of arity 0");
             let ytype = Type.new_uninterpreted ~name:var () in
-            Context.declare_type env.context var;
+            Context.declare_type env.context ytype;
             VarMap.add env.types var ytype
 
          | "declare-fun", [Atom var; List domain; codomain], Some env ->
@@ -569,13 +572,14 @@ module Make(Ext : Ext_types.API) = struct
               | _::_ -> Type.func domain codomain
             in
             let yvar = Term.new_uninterpreted ~name:var ytype in
-            Context.declare_fun env.context var ytype;
+            if List.is_empty domain then HTerms.add env.smt2functions yvar ();
+            Context.declare_fun env.context yvar ytype;
             Variables.permanently_add env.variables var yvar
 
          | "declare-const", [Atom var; typ], Some env ->
             let ytype = ParseType.parse env.types typ |> get in
             let yvar = Term.new_uninterpreted ~name:var ytype in 
-            Context.declare_fun env.context var ytype;
+            Context.declare_fun env.context yvar ytype;
             Variables.permanently_add env.variables var yvar
 
          | "declare-datatypes", _, _
