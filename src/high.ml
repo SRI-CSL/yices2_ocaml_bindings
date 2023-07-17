@@ -666,7 +666,7 @@ module SafeMake
     type t = term_t [@@deriving eq,ord]
     let hash = hash_sint
     let of_hash = of_hash_sint
-    let is_good = sintcheck
+    let is_good = strict_sintcheck
 
     module Names = struct
       let set     = yices_set_term_name <.> ofString <..> toUnit

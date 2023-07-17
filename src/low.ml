@@ -58,6 +58,7 @@ let bool_t = sint
 
 type 'a checkable = 'a
 let sintcheck i = Signed.SInt.(compare zero i) <= 0
+let strict_sintcheck i = Signed.SInt.(compare zero i) < 0
 let uintcheck i = Unsigned.UInt.(compare zero i) < 0
 let ptrcheck  p = not(is_null p)
 

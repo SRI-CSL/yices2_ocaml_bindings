@@ -361,9 +361,10 @@ module type API = sig
   val interpolation_context_t : interpolation_context_t typ
 
   type 'a checkable    
-  val sintcheck : _ sintbase checkable -> bool (* The said checking operation *)
-  val uintcheck : _ uintbase checkable -> bool (* The said checking operation *)
-  val ptrcheck  : _ ptr checkable -> bool (* checking whether pointer is null *)
+  val sintcheck : _ sintbase checkable -> bool (* Accepts >= 0 *)
+  val strict_sintcheck : _ sintbase checkable -> bool (* > 0 *)
+  val uintcheck : _ uintbase checkable -> bool (* > 0 *)
+  val ptrcheck  : _ ptr checkable -> bool (* checking whether pointer is not null *)
   
   (* The version as a string "x.y.z" *)
   val yices_version : char ptr ptr checkable

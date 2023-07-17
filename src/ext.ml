@@ -1529,21 +1529,21 @@ module Types = struct
     Format.fprintf fmt
       "@[<v 1> \
        error: %s@,\
-       bad val: %i@,\
        code: %a@,\
        column %i line %i@,\
        term1: %a@,\
        term2: %a@,\
        type1: %a@,\
        type2: %a@,\
+       bad val: %i@,\
        @]"
       (ErrorPrint.string ())
-      badval
       Types.pp_error_code code
       column line
       Term.pp term1
       Term.pp term2
       Type.pp type1
       Type.pp type2
+      badval
 end
 
