@@ -251,6 +251,13 @@ let test () =
   in
   let () = Type.Names.set ptype1 "I" in
   let () = Term.Names.set pterm1 "answer" in
+  assert(Type.Names.has_name ptype1);
+  assert(Term.Names.has_name pterm1);
+  let scalar = Type.new_uninterpreted ~name:"scalar_type" ~card:3 () in
+  assert(Type.Names.has_name scalar);
+  let cst = Term.constant scalar ~id:1 in
+  let () = Term.Names.set cst "CST" in
+  assert(Term.Names.has_name cst);
   let gettype1 = Type.Names.of_name "I" in
   assert(Type.equal gettype1 ptype1);
   let getterm1 = Term.Names.of_name "answer" in
@@ -337,7 +344,7 @@ let test () =
   assert(Bool.equal val_p true);
   let bval = bv_const_value bvconst32_1 in
   assert(List.equal Bool.equal bval [false; true; false; true; false; true; false; false]);
-  let scalar_t = Type.new_scalar ~card:20 in
+  let scalar_t = Type.new_uninterpreted ~card:20 () in
   let scalar_c = Term.constant scalar_t ~id:13 in
   assert(Int.equal (scalar_const_value scalar_c) 13);
   (* value must be an array of eight integers since bvsum has type (bitvector 8) *)

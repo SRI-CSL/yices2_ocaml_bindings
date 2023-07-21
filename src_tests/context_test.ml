@@ -343,6 +343,12 @@ let test_ext_context mcsat cfg =
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
   Context.free ctx;
 
+  let scalar = Type.new_uninterpreted ~name:"scalar_type" ~card:3 () in
+  assert(Type.Names.has_name scalar);
+  let cst = Term.constant scalar ~id:1 in
+  let () = Term.Names.set cst "CST" in
+  assert(Term.Names.has_name cst);
+
   test_context       (module ExtContext) mcsat cfg;
   test_interpolation (module ExtContext) mcsat cfg
 

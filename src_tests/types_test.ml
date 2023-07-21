@@ -15,7 +15,7 @@ let test () =
   assert(not Type.(equal real_t bool_t));
   assert(not Type.(equal real_t int_t));
   let bv_t    = Type.bv 8 in
-  let scal_t  = Type.new_scalar ~card:12 in
+  let scal_t  = Type.new_uninterpreted ~card:12 () in
   let unint_t = Type.new_uninterpreted() in
   let tup1_t  = Type.tuple [bool_t] in
   let tup2_t  = Type.tuple [int_t; real_t] in

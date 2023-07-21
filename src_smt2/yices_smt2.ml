@@ -12,14 +12,14 @@ Arg.parse [] (fun a->args := a::!args) description;;
 
 match !args with
 | [filename] ->
-  (try
-     SMT2.process_file filename
-  with
-    ExceptionsErrorHandling.YicesException(_,report) as exc ->
-    let bt = Printexc.get_backtrace() in
-    Format.(fprintf stderr) "@[<v>%a@]%!" Types.pp_error_report report;
-    Format.(fprintf stderr) "@[<v>%s@]%!" bt;
-    raise exc
- )
+   (try
+      SMT2.process_file filename
+    with
+      ExceptionsErrorHandling.YicesException(_,report) as exc ->
+      let bt = Printexc.get_backtrace() in
+      Format.(fprintf stderr) "@[<v>%a@]%!" Types.pp_error_report report;
+      Format.(fprintf stderr) "@[<v>%s@]%!" bt;
+      raise exc
+   )
 | [] -> failwith "Too few arguments in the command"
 | _ -> failwith "Too many arguments in the command";;

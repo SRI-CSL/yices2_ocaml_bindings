@@ -13,6 +13,7 @@ open Ext_types
 exception PopLastLevel
 
 let pp_sep fmt () = Format.fprintf fmt "@ "
+let pp_sep_break fmt () = Format.fprintf fmt "@,"
 
 let sexp f arg = List(Atom f::arg)
 let rec pp_sexp fmt = function
@@ -129,7 +130,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                let aux sofar domi = sexp "Array" [to_sexp ~smt2arrays domi; sofar] in
                dom |> List.rev |> List.fold_left aux codom
             | Some(`Tuple,_) -> (* SMT2Lib arrays, using tuples for multi-arguments,
-                                       not official but accepted in e.g. CVC5 *)
+                                   not official but accepted in e.g. CVC5 *)
                match List.map (to_sexp ~smt2arrays) dom with
                | [dom] -> sexp "Array" [ dom; codom]
                | dom   -> sexp "Array" [ sexp "Tuple" dom; codom]
@@ -264,6 +265,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
             (* (try *)
             (*    sexp_gmpq t *)
             (*  with ExceptionsErrorHandling.YicesBindingsException _ -> Atom(s())) *)
+         | `YICES_SCALAR_CONSTANT ->
+            let i = scalar_const_value t in
+            List[Atom "_";
+                 Atom "Const";
+                 Atom(string_of_int i);
+                 TypeSexp.to_sexp ~smt2arrays (Term.type_of_term t)] 
          | _ -> Atom(to_string t)
          end
 
@@ -829,7 +836,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     and to_sexp_t : smt2arrays:([`Tuple | `Curry ]*(Term.t -> bool)) option -> Term.t -> Sexp.t =
       fun ~smt2arrays t ->
       match
-        match_nn use_type_notations get_notation use_type_names to_name_opt t
+        match_nn use_term_notations get_notation use_term_names to_name_opt t
       with
       | Some s -> Atom s
       | None ->
@@ -1058,8 +1065,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
   module Action = struct
 
     type t =
-      | DeclareType of Type.t
+      | DeclareType of Type.t * int option
       | DeclareFun of Term.t * Type.t
+      | DefineType of string * Type.t
+      | DefineFun of string * Term.t * Type.t
       | Status
       | Reset
       | Push
@@ -1084,9 +1093,13 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | GarbageCollect of Sexp.t list
 
     let to_sexp ?smt2arrays accu = function
-      | DeclareType typ ->
+      | DeclareType(typ, card) ->
          let typ_string = Format.sprintf "%a" TypeSexp.pp typ in
-         sexp "declare-sort" [Atom typ_string; Atom "0"] ::accu
+         sexp "declare-sort"
+           (Option.map_or
+              ~default:[Atom typ_string; Atom "0"]
+              (fun card -> [Atom typ_string; Atom "0"; Atom(string_of_int card)]) card)
+         ::accu
       | DeclareFun(t, typ) ->
          let symb = Atom(TermSexp.to_string t) in
          sexp "declare-fun"
@@ -1102,6 +1115,38 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                 [symb; List[]; TypeSexp.to_sexp ~smt2arrays typ]
            end
          ::accu
+      | DefineType(name, typ) ->
+         let old = !use_type_names in
+         use_type_names := false;
+         let typ = TypeSexp.to_sexp ~smt2arrays typ in
+         use_type_names := old;
+         sexp "define-sort" [Atom name; List []; typ]
+         ::accu
+      | DefineFun(name, t, typ) ->
+         let old = !use_term_names in
+         use_term_names := false;
+         let args =
+           let Term termstruct = Term.reveal t in
+           match smt2arrays, termstruct with
+           | _, Bindings{ c = `YICES_LAMBDA_TERM; vars; body } ->
+              let aux var =
+                List [
+                    TermSexp.to_sexp ~smt2arrays var;
+                    TypeSexp.to_sexp ~smt2arrays (Term.type_of_term var)
+                  ]
+              in
+              let vars = List.map aux vars in
+              [Atom name;
+               List vars;
+               TypeSexp.to_sexp ~smt2arrays (Term.type_of_term body);
+               TermSexp.to_sexp ~smt2arrays body]
+           | _, _ -> [Atom name;
+                      List [];
+                      TypeSexp.to_sexp ~smt2arrays typ;
+                      TermSexp.to_sexp ~smt2arrays t]
+         in
+         use_term_names := old;
+         sexp "define-fun" args ::accu
       | Status -> sexp "get-status" [] ::accu
       | Reset  -> sexp "reset-assertions" [] ::accu
       | Push   -> sexp "push" [] ::accu
@@ -1110,9 +1155,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | DisableOption s -> sexp "set-option" [Atom s; Atom "false"] ::accu
       | AssertFormula t -> sexp "assert" [TermSexp.to_sexp ~smt2arrays t] ::accu
       | AssertFormulas l ->
-         List.fold_left
-           (fun sofar t -> sexp "assert" [TermSexp.to_sexp ~smt2arrays t]::sofar)
-           accu l
+         sexp "assert" (List.map (TermSexp.to_sexp ~smt2arrays) l) ::accu
       | AssertBlockingClause -> sexp "assert-blocking-clause" [] ::accu
       | Check _param -> sexp "check-sat" [] ::accu 
       | CheckWithAssumptions{ assumptions; _ } ->
@@ -1177,7 +1220,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let pp_log fmt ctx =
       Format.fprintf fmt "%a"
-        (List.pp ~pp_sep pp_sexp) (to_sexp ctx)
+        (List.pp ~pp_sep:pp_sep_break pp_sexp) (to_sexp ctx)
 
     let malloc ?config () =
       let yconfig = Option.map (fun (config:Config.t) -> config.config) config in
@@ -1391,9 +1434,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       action Stop x;
       Context.stop x.context
 
-    let declare_type x s =
+    let declare_type x ?card s =
       unblock x;
-      action (DeclareType s) x
+      action (DeclareType(s,card)) x
 
     let declare_fun x s t =
       unblock x;
@@ -1460,6 +1503,15 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let to_sexp ?smt2arrays = to_sexp ~smt2arrays
 
+    module Names = struct
+      include Names
+      let set ?(contexts=[]) t name =
+        set t name;
+        let action = Action.DefineFun(name,t,Term.type_of_term t) in
+        global_log := action::!global_log;
+        List.iter
+          (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts        
+    end
   end
 
   module Type = struct
@@ -1474,14 +1526,14 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                  | `GC -> all_uninterpreted := None; 
                  | _   -> all_uninterpreted := Some [])
 
-    let new_uninterpreted ?(contexts=[]) ?name () =
+    let new_uninterpreted ?(contexts=[]) ?name ?card () =
       let name = match name with
         | Some name -> name
         | None -> incr count; "x"^string_of_int !count
       in
-      let t = new_uninterpreted ~name () in
+      let t = new_uninterpreted ~name ?card () in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = Action.DeclareType t in
+      let action = Action.DeclareType(t, card) in
       global_log := action::!global_log;
       List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
       t
@@ -1492,6 +1544,16 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         !all_uninterpreted
 
     let to_sexp ?smt2arrays = to_sexp ~smt2arrays:(Option.map (fun x -> x,()) smt2arrays)
+
+    module Names = struct
+      include Names
+      let set ?(contexts=[]) typ name =
+        set typ name;
+        let action = Action.DefineType(name,typ) in
+        global_log := action::!global_log;
+        List.iter
+          (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts        
+    end
 
   end
 

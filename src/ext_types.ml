@@ -99,11 +99,22 @@ module type Context = sig
 
   (* The next two functions are just adding declarations to the log,
      they do not actually introduce new Yices types and terms *)
-  val declare_type   : t -> typ -> unit
+  val declare_type   : t -> ?card:int -> typ -> unit
   val declare_fun    : t -> term -> typ -> unit
 
 end
 
+module type Names = sig
+  type t
+  type context
+  val set      : ?contexts:context list -> t -> string -> unit
+  val remove   : string -> unit
+  val clear    : t -> unit
+  val is_name  : string -> bool
+  val of_name  : string -> t
+  val has_name : t -> bool
+  val to_name  : t -> string
+end  
 
 module type Type = sig
 
@@ -114,7 +125,7 @@ module type Type = sig
   (** Introduce a notation for pretty-printing a type (Notation computed lazily) *)
   val notation : t -> ('a, Format.formatter, unit) format -> 'a
 
-  val new_uninterpreted  : ?contexts:context list -> ?name:string -> unit -> t
+  val new_uninterpreted  : ?contexts:context list -> ?name:string -> ?card:int -> unit -> t
 
   (** Print with specific height *)
   val pph : int -> t Format.printer
@@ -127,6 +138,8 @@ module type Type = sig
   (** All uninterpreted types; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
 
+  module Names : Names with type context := context
+                        and type t := t
 end
 
 module type Term = sig
@@ -159,6 +172,8 @@ module type Term = sig
   (** All uninterpreted terms; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
 
+  module Names : Names with type context := context
+                        and type t := t
 end
 
 module type Model = sig
@@ -243,8 +258,10 @@ module type API = sig
   module Action : sig
 
     type t =
-      | DeclareType of Type.t
+      | DeclareType of Type.t * int option
       | DeclareFun of Term.t * Type.t
+      | DefineType of string * Type.t
+      | DefineFun of string * Term.t * Type.t
       | Status
       | Reset
       | Push

@@ -86,12 +86,7 @@ let () = Error_test.test()
 let () = print_endline ""
 let () = Types_test.test()
 let () = print_endline ""
-let () =
-  try
-    Terms_test.test()
-  with
-    Yices2.High.ExceptionsErrorHandling.YicesException _ ->
-    print_endline (EH1.ErrorPrint.string())
+let () = Terms_test.test()
 let () =
   try
     Terms_test.test_gmp()

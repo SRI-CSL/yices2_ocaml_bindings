@@ -606,9 +606,13 @@ module SafeMake
     let int  = yices_int_type  <.> return_sint
     let real = yices_real_type <.> return_sint
     let bv i = yices_bv_type !>i |> return_sint
-    let new_scalar ~card  = yices_new_scalar_type !>card |> return_sint
-    let new_uninterpreted ?name () =
-      let+ r = yices_new_uninterpreted_type() |> return_sint in
+    let new_uninterpreted ?name ?card () =
+      let+ r =
+        (match card with
+         | None      -> yices_new_uninterpreted_type()
+         | Some card -> yices_new_scalar_type !>card)
+        |> return_sint
+      in
       match name with
       | Some name -> let+ () = Names.set r name in return r
       | None -> return r

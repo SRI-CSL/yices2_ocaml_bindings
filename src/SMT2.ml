@@ -184,7 +184,8 @@ module Make(Ext : Ext_types.API) = struct
 
     let set_logic logic config =
       match logic with
-      | "all" -> Config.default config
+      | "all" -> ()
+      | "none" -> Config.default config
       | _ -> Config.default config ~logic
 
     let create ?(set_logic=set_logic) verbosity =
@@ -281,14 +282,21 @@ module Make(Ext : Ext_types.API) = struct
          | "false" -> Term.false0()
          | _ ->
             let aux s =
-              let t =
-                if Str.(string_match (regexp {|.*[\.eE].*|}) s 0)
-                then Term.Arith.parse_float s
-                else Term.Arith.parse_rational s
-              in
-              if Term.is_good t then t
-              else raise (Yices_SMT2_exception
-                            (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
+              try
+                let t =
+                  if Str.(string_match (regexp {|.*[\.eE].*|}) s 0)
+                  then
+                    ((* print_endline s; *)
+                     Term.Arith.parse_float s)
+                  else Term.Arith.parse_rational s
+                in
+                if Term.is_good t then t
+                else 
+                  raise (Yices_SMT2_exception
+                           (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
+              with _ ->
+                raise (Yices_SMT2_exception
+                         (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
             in
             if String.length s < 2 then aux s
             else
@@ -346,7 +354,9 @@ module Make(Ext : Ext_types.API) = struct
 
     and parse_rec env sexp = parse env sexp
 
-    and parse env = function
+    and parse env sexp =
+      try
+      match sexp with
       | Atom s -> atom env s
       | List l as sexp ->
          let print a (type a) b : a = print env.verbosity a b in
@@ -474,6 +484,10 @@ module Make(Ext : Ext_types.API) = struct
             | "bvsle",  [x; y] -> binary env BV.bvsle x y
             | "bvsgt",  [x; y] -> binary env BV.bvsgt x y
             | "bvsge",  [x; y] -> binary env BV.bvsge x y
+            (* Constants *)
+            | "_", [Atom "Const"; Atom i; typ] ->
+               let typ = ParseType.parse env.types typ |> get in
+               return(Term.constant typ ~id:(int_of_string i))
             | "_", [Atom s; Atom x] when String.length s >= 2 && String.equal (String.sub s 0 2) "bv" ->
                let width = int_of_string x in
                let x = Unsigned.ULong.of_string(String.sub s 2 (String.length s - 2)) in
@@ -484,30 +498,47 @@ module Make(Ext : Ext_types.API) = struct
                raise(Yices_SMT2_exception("I doubt this is in the SMT2 language: "^s))
             end
          (* BV theory *)
-         | [List[_;Atom "extract"; Atom i; Atom j]; x] ->
+         | [List[Atom "_"; Atom "extract"; Atom i; Atom j]; x] ->
             let* x = parse env x in
             return(Term.BV.bvextract x (int_of_string j) (int_of_string i))
          (* BV theory unofficial *)
-         | [List[_;Atom "repeat"; Atom i]; x] ->
+         | [List[Atom "_";Atom "repeat"; Atom i]; x] ->
             let* x = parse env x in
             return(Term.BV.bvrepeat x (int_of_string i))
-         | [List[_;Atom "zero_extend"; Atom i]; x] ->
+         | [List[Atom "_";Atom "zero_extend"; Atom i]; x] ->
             let* x = parse env x in
             return(Term.BV.zero_extend x (int_of_string i))
-         | [List[_;Atom "sign_extend"; Atom i]; x] ->
+         | [List[Atom "_";Atom "sign_extend"; Atom i]; x] ->
             let* x = parse env x in
             return(Term.BV.sign_extend x (int_of_string i))
-         | [List[_;Atom "rotate_left"; Atom i]; x] ->
+         | [List[Atom "_";Atom "rotate_left"; Atom i]; x] ->
             let* x = parse env x in
             return(Term.BV.rotate_left x (int_of_string i))
-         | [List[_;Atom "rotate_right"; Atom i]; x] ->
+         | [List[Atom "_";Atom "rotate_right"; Atom i]; x] ->
             let* x = parse env x in
             return(Term.BV.rotate_right x (int_of_string i))
 
+
+         (* Tuple theory unofficial *)
+         | [List[Atom "_";Atom "tuple.select"; Atom i]; x] ->
+            let* x = parse env x in
+            return(Term.select (int_of_string i) x)
+
+         | head::tail ->
+            let* head = parse env head in
+            list env (Term.application head) tail
+    
          | _ ->
             let s = Format.to_string pp_sexp sexp in
             raise(Yices_SMT2_exception("I doubt this is in the SMT2 language: "^s))
-
+      with exc ->
+        let bt  = Printexc.get_backtrace() in
+        Format.(fprintf err_formatter)
+          "@[<v>@[While processing S-expression %a@]@,@[<v2>I got@,%s@]@,@[with backtrace@]@,@[%s@]@,@]"
+          pp_sexp sexp
+          (Printexc.to_string exc)
+          bt;
+        raise exc
   end
 
   module ParseInstruction = struct
@@ -550,18 +581,23 @@ module Make(Ext : Ext_types.API) = struct
                
          | "reset-assertions", [], Some {context; _}  -> Context.reset context;
 
-         | "declare-sort", [Atom _; Atom _], None
+         | "declare-sort", (Atom _ :: Atom _ :: _), None
            | "declare-fun", [Atom _; List _; _], None
-           | "declare-const", [Atom _; _], None
-           | "define-fun", [Atom _; List _; _], None ->
+           | "declare-const", [Atom _; _],       None
+           | "define-fun", [Atom _; List _; _],  None ->
             raise (Yices_SMT2_exception("Call set-logic before "^head))
 
-         | "declare-sort", [Atom var; Atom n], Some env ->
+         | "declare-sort", (Atom var::Atom n::card), Some env ->
             let n = int_of_string n in
             if n <> 0
             then raise (Yices_SMT2_exception "Yices only treats uninterpreted types of arity 0");
-            let ytype = Type.new_uninterpreted ~name:var () in
-            Context.declare_type env.context ytype;
+            let card =
+              match card with
+              | [] -> None
+              | [Atom i] -> Some(int_of_string i)
+              | _ -> raise (Yices_SMT2_exception "Wrong form of cardinality for uninterpreted type");
+            in
+            let ytype = Type.new_uninterpreted ~contexts:[env.context] ~name:var ?card () in
             VarMap.add env.types var ytype
 
          | "declare-fun", [Atom var; List domain; codomain], Some env ->
@@ -571,15 +607,13 @@ module Make(Ext : Ext_types.API) = struct
               | []   -> codomain
               | _::_ -> Type.func domain codomain
             in
-            let yvar = Term.new_uninterpreted ~name:var ytype in
+            let yvar = Term.new_uninterpreted ~contexts:[env.context] ~name:var ytype in
             if List.is_empty domain then HTerms.add env.smt2functions yvar ();
-            Context.declare_fun env.context yvar ytype;
             Variables.permanently_add env.variables var yvar
 
          | "declare-const", [Atom var; typ], Some env ->
             let ytype = ParseType.parse env.types typ |> get in
-            let yvar = Term.new_uninterpreted ~name:var ytype in 
-            Context.declare_fun env.context yvar ytype;
+            let yvar = Term.new_uninterpreted ~contexts:[env.context] ~name:var ytype in 
             Variables.permanently_add env.variables var yvar
 
          | "declare-datatypes", _, _
@@ -590,7 +624,8 @@ module Make(Ext : Ext_types.API) = struct
 
          | "define-sort", [Atom var; List []; body], Some env ->
             let ytype = ParseType.parse env.types body |> get in
-            VarMap.add env.types var ytype
+            VarMap.add env.types var ytype;
+            Type.Names.set ~contexts:[env.context] ytype var
                
          | "define-fun", [Atom var; List domain; _codomain; body], Some env ->
             let parse_pair (subst,bindings,domain) pair = match pair with
@@ -604,18 +639,25 @@ module Make(Ext : Ext_types.API) = struct
               domain |> List.rev |> List.fold_left parse_pair ([],[],[])
             in
             let env_body = { env with variables = Variables.add env.variables subst } in
-            let body         = ParseTerm.parse env_body body |> get in
+            let body     = ParseTerm.parse env_body body |> get in
             let body = match domain with
               | []   -> body
               | _::_ -> Term.lambda bindings body
             in
-            Variables.permanently_add env.variables var body
+            Variables.permanently_add env.variables var body;
+            Term.Names.set ~contexts:[env.context] body var
                
          | "get-assertions", _, Some {context; _} -> print 0 "@[<v>%a@]@," Context.pp context
 
          | "assert", [formula], Some env ->
             let formula = ParseTerm.parse env formula |> get in
             Context.assert_formula env.context formula;
+            Option.iter (fun SModel.{model;_} -> Model.free model) env.model;
+            session.env := Some { env with model = None};
+
+         | "assert", formulas, Some env ->
+            let formulas = Cont.map (ParseTerm.parse env) formulas |> get in
+            Context.assert_formulas env.context formulas;
             Option.iter (fun SModel.{model;_} -> Model.free model) env.model;
             session.env := Some { env with model = None};
 
@@ -640,7 +682,7 @@ module Make(Ext : Ext_types.API) = struct
 
          | "get-model", [], Some env -> 
             let model = get_model env in
-            print 0 "%s@," (PP.model_string SModel.(model.model) ~display);
+            print 0 "%a@," (SModel.pp()) model;
             session.env := Some { env with model = Some model }
 
          | "get-unsat-assumptions", [], Some _env ->
@@ -682,9 +724,10 @@ module Make(Ext : Ext_types.API) = struct
             print 0 "%a@," Term.pp interpolant
 
          | _, args, _ ->
-            let msg = Format.sprintf
-                        "@[<v>Not part of SMT2:@,head is@, @[%s@]@,with arguments@, @[<v>%a@]@]"
-                        head (List.pp Sexp.pp_hum) args in
+            let msg =
+              Format.sprintf
+                "@[<v>Not part of SMT2:@,head is@, @[%s@]@,with arguments@, @[<v>%a@]@]"
+                head (List.pp Sexp.pp_hum) args in
             raise (Yices_SMT2_exception msg);
          end
     

@@ -396,16 +396,15 @@ module type Type = sig
          badval = size  *)
   val bv : int -> t eh
 
-  (** New scalar type of given cardinality.
-        Requires card > 0
-
-        If card = 0, set error report to
-         code = POS_INT_REQUIRED
-         badval = size  *)
-  val new_scalar : card:int -> t eh
-
-  (** New uninterpreted type. Optionally give a name to type. No error report.  *)
-  val new_uninterpreted : ?name:string -> unit -> t eh
+  (** New uninterpreted type.
+      Optionally give a name to type.
+      Optionally give cardinality (Yices's "scalar type").
+      If not given, cardinality is infinite and no error report.
+      If given, requires  > 0 ()
+      If card = 0, set error report to
+      code = POS_INT_REQUIRED
+      badval = size.  *)
+  val new_uninterpreted : ?name:string -> ?card:int -> unit -> t eh
 
   (** Tuple type tau[0] x ... x tau[n-1].
         Requires n>0 and tau[0] ... tau[n-1] to be well defined types.
@@ -972,7 +971,7 @@ module type Term = sig
     val rational32 : sint -> uint -> t eh
     val rational64 : long -> ulong -> t eh
 
-      val mpz : Z.t -> t eh
+    val mpz : Z.t -> t eh
     val mpq : Q.t -> t eh
         
     (** Convert a string to a rational or integer term.
