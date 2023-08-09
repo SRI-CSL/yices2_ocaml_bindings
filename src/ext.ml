@@ -9,6 +9,9 @@ include High
 open Types
 
 open Ext_types
+open Types
+
+module type API = Ext_types.API
 
 exception PopLastLevel
 
@@ -40,6 +43,19 @@ let notation replace hooks t =
   in
   Format.kdprintf aux
 
+type context = {
+    config     : config option;
+    context    : context_ptr;
+    assertions : assertions ref;
+    options    : unit HStrings.t;
+    log        : action list ref;
+    is_alive   : bool ref;
+    config_options : String.t HStrings.t;
+    mcsat      : bool;
+    last_check_model : unit HTerms.t;
+    blocked    : bool ref
+  }
+
 module type ErrorHandling = ErrorHandling with type 'a t = 'a
 
 module Make(EH: ErrorHandling with type 'a t = 'a) = struct
@@ -54,20 +70,21 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
   module Config = struct
 
+    open Types
     type t = config
 
-    let malloc () = {
+    let malloc () = Config{
         config  = Config.malloc();
         options = HStrings.create 10;
         mcsat  = ref false
       }
 
-    let free t = Config.free t.config
-    let set t ~name ~value =
-      HStrings.replace t.options name value;
+    let free (Config{ config; _}) = Config.free config
+    let set (Config{ config; mcsat; options }) ~name ~value =
+      HStrings.replace options name value;
       if String.equal name "solver-type"
-      then t.mcsat := String.equal value "mcsat";
-      Config.set t.config ~name ~value
+      then mcsat := String.equal value "mcsat";
+      Config.set config ~name ~value
 
     let mcsat_logics = HStrings.create 10
 
@@ -77,15 +94,15 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       HStrings.replace mcsat_logics "QF_UFNRA" ();
       HStrings.replace mcsat_logics "QF_UFNIA" ()
     
-    let default ?logic t =
+    let default ?logic (Config{ config; mcsat; _ }) =
       let () = match logic with
-        | Some logic when HStrings.mem mcsat_logics logic -> t.mcsat := true
-        | _ -> t.mcsat := false
+        | Some logic when HStrings.mem mcsat_logics logic -> mcsat := true
+        | _ -> mcsat := false
       in
-      Config.default ?logic t.config
+      Config.default ?logic config
 
-    let get t     = HStrings.find t.options
-    let options t = HStrings.to_list t.options
+    let get (Config{ options; _ })     = HStrings.find options
+    let options (Config{ options; _ }) = HStrings.to_list options
 
   end
   
@@ -95,7 +112,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
   module TypeSexp = struct
     include Type
     let pph height fmt t =
-      let display = Types.{ width = 80; height; offset = 0 } in
+      let display = { width = 80; height; offset = 0 } in
       if is_good t then t |> PP.type_string ~display |> Format.fprintf fmt "%s"
       else Format.fprintf fmt "null_type"
 
@@ -118,7 +135,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          | BV i -> List[Atom "_"; Atom "BitVec"; Atom(string_of_int i)]
          | Scalar _
            | Uninterpreted _ ->
-            Atom(PP.type_string ~display:Types.{width = 80; height = 10000; offset = 0} typ)
+            Atom(PP.type_string ~display:{width = 80; height = 10000; offset = 0} typ)
          | Tuple l -> l |> List.map (to_sexp ~smt2arrays) |> sexp "Tuple" (* Not official SMTLib syntax, but accepted by e.g. CVC5 *)
          | Fun { dom; codom } ->
             let codom = to_sexp ~smt2arrays codom in
@@ -158,7 +175,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     include Term
 
     let pph height fmt t =
-      let display = Types.{ width = 80; height; offset = 0 } in
+      let display = { width = 80; height; offset = 0 } in
       if is_good t then t |> PP.term_string ~display |> Format.fprintf fmt "%s"
       else Format.fprintf fmt "null_term"
 
@@ -240,7 +257,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       else
         sexp "/" [sexp_gmpz num; sexp_gmpz den]
 
-    let to_string = PP.term_string ~display:Types.{width = 800000; height = 10000; offset = 0}
+    let to_string = PP.term_string ~display:{width = 800000; height = 10000; offset = 0}
 
     let to_sexp_termstruct
         : type a. smt2arrays: ([`Tuple | `Curry ]*(t -> bool)) option -> (t -> Sexp.t) -> a termstruct -> Sexp.t =
@@ -440,12 +457,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
   module BoolStruct = struct
 
-    type 'a t =
-      | Leaf of 'a
-      | And of 'a t list
-      | Or  of 'a t list
-      | Not of 'a t
-                 [@@deriving eq, show]
+    type 'a t = 'a bool_struct [@@deriving eq, show]
 
     let rec compare compare_leaf t1 t2 = match t1, t2 with
       | Leaf t1, Leaf t2 -> compare_leaf t1 t2
@@ -480,35 +492,34 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
   module SliceTMP = struct
 
-    type t = { extractee : Term.t;
-               indices   : (int * int) option }
+    type t = slice
 
     let build ?indices extractee =
       assert(Term.is_bitvector extractee);
       match indices with
       | Some(lo,hi) when not(Int.equal lo 0 && Int.equal hi (TermTMP.width_of_term extractee)) ->
-         {extractee; indices}
-      | _ -> { extractee; indices = None }
+         Slice{extractee; indices}
+      | _ -> Slice{ extractee; indices = None }
 
-    let to_term {extractee; indices} =
+    let to_term (Slice{extractee; indices}) =
       match indices with
       | None -> extractee
       | Some(lo,hi) -> 
          Term.BV.bvextract extractee lo (hi-1)
 
-    let to_sexp to_sexp_term {extractee; indices} = 
+    let to_sexp to_sexp_term (Slice{extractee; indices}) = 
       match indices with
       | Some(lo,hi) ->
          let f = sexp "_" [Atom "extract"; Atom(string_of_int(hi - 1)); Atom(string_of_int lo)] in
          List[f; to_sexp_term extractee]
       | _ -> to_sexp_term extractee
 
-    let width { extractee; indices } = match indices with
+    let width (Slice{ extractee; indices }) = match indices with
       | None -> TermTMP.width_of_term extractee
       | Some(lo, hi) -> hi - lo
 
-    let is_free ~var {extractee; _} = TermTMP.is_free ~var extractee
-    let fv {extractee; _} = TermTMP.fv extractee
+    let is_free ~var (Slice{extractee; _}) = TermTMP.is_free ~var extractee
+    let fv (Slice{extractee; _}) = TermTMP.fv extractee
   end
 
   (* Terms extended with primitive constructs for
@@ -516,20 +527,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
   module ExtTerm = struct
 
-    type 'a bs = private BS
-    type 'a ts = private TS
-    
-    type (_,_) base =
-      | TermStruct : 'a Types.termstruct -> ('a ts, [`tstruct]) base
-      | T      : Term.t                  -> (_  ts, [`closed] ) base
-      | Bits   : Term.t list             -> ([`bits]  bs, _) base 
-      | Slice  : SliceTMP.t BoolStruct.t -> ([`slice] bs, _) base
-      | Concat : [`block] closed list    -> ([`concat],   _) base
-      | Block  : { block : _ bs closed;
-                   sign_ext  : int; (* Length of sign extension *)
-                   zero_ext  : int; (* Length of zero extension *) } -> ([`block], _) base
-
-    and 'a closed     = ('a, [`closed])  base
+    type nonrec ('a,'b) base = ('a,'b) base
+    type 'a closed     = ('a, [`closed])  base
     type 'a termstruct = ('a, [`tstruct]) base
 
     type 'a bits   = ([`bits]  bs, 'a) base
@@ -546,8 +545,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | TermStruct a   -> Term.build a
       | T a            -> a
       | Bits  block    -> Term.BV.bvarray block
-      | Slice slice ->
-         let open BoolStruct in
+      | SliceStruct slice ->
          let rec aux = function
            | Leaf slice -> SliceTMP.to_term slice
            | And l    -> Term.BV.bvand (List.map aux l)
@@ -565,15 +563,14 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | TermStruct a  -> T(Term.build a)
       | Block b       -> Block b
       | Bits  _ as t  -> t
-      | Slice _ as t  -> t
+      | SliceStruct _ as t  -> t
       | Concat _ as t -> t
 
     let rec width : type a b. (a, b) base -> int = function
       | TermStruct a -> TermTMP.(width_of_term(build a))
       | T a          -> TermTMP.(width_of_term a)
       | Bits l       -> List.length l
-      | Slice slice ->
-         let open BoolStruct in
+      | SliceStruct slice ->
          let rec aux = function
            | Leaf slice -> SliceTMP.width slice
            | And(a::_) -> aux a
@@ -590,8 +587,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | TermStruct a -> TermTMP.is_free_termstruct ~var a
       | T a          -> TermTMP.is_free ~var a
       | Bits a       -> List.exists (TermTMP.is_free ~var) a
-      | Slice slice ->
-         let open BoolStruct in
+      | SliceStruct slice ->
          let rec aux = function
            | Leaf slice -> SliceTMP.is_free ~var slice
            | And l      -> List.exists aux l
@@ -610,8 +606,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | TermStruct a -> TermTMP.fv_termstruct a
       | T a          -> TermTMP.fv a
       | Bits a       -> collect TermTMP.fv a
-      | Slice slice ->
-         let open BoolStruct in
+      | SliceStruct slice ->
          let rec aux = function
            | Leaf slice   -> SliceTMP.fv slice
            | And l | Or l -> collect aux l
@@ -629,19 +624,18 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let bvarray (type b) bits =
       let init_slice bstruct =
         let aux (extractee,i) = SliceTMP.build extractee ~indices:(i, i+1) in
-        Slice(BoolStruct.map aux bstruct)
+        SliceStruct(BoolStruct.map aux bstruct)
       in
       let init_bits bit = Bits [bit] in
       let close_slice : type a. a bs closed -> a bs closed = function
-        | Slice slice ->
-           Slice(BoolStruct.nnf true slice)
+        | SliceStruct slice ->
+           SliceStruct(BoolStruct.nnf true slice)
         | Bits l      -> Bits(List.rev l)
       in
       let open Types in
       (* Check if bit is t[i] *)
       let rec analyse bit =
         let open Option in
-        let open BoolStruct in
         match Term.reveal bit with
         | Term(Projection(`YICES_BIT_TERM, i, t)) -> return (Leaf(t, i))
         | Term(A1(`YICES_NOT_TERM, bit)) ->
@@ -660,9 +654,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       let rec test slice bit =
         let open Option in
-        let open BoolStruct in
         match slice, bit with
-        | Leaf SliceTMP.{extractee; indices = Some(lo, hi) }, Leaf(t, i)
+        | Leaf(Slice{extractee; indices = Some(lo, hi) }), Leaf(t, i)
              when hi = i && Term.equal t extractee ->
                        Option.return (Leaf(SliceTMP.build extractee ~indices:(lo, hi+1)))
                      | And l_slice, And l_bit ->
@@ -711,15 +704,15 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
            block::accu |> List.rev (* we have finished, closing last slice, and reversing order *)
         | bit::tail ->            (* we have a new bit to look at *)
            match slice, analyse bit with
-           | Slice s, Some b ->
+           | SliceStruct s, Some b ->
               begin
                 match test s b with
-                | Some s -> prolong_slice (Slice s) ~sign:bit tail accu
+                | Some s -> prolong_slice (SliceStruct s) ~sign:bit tail accu
                 | None   -> (* End of the slice; we see whether we have extensions *)
                    let block = return_block(close_slice slice) in
                    prolong_block block ~sign bits accu
               end
-           | Slice _, None ->
+           | SliceStruct _, None ->
               let block = return_block(close_slice slice) in
               prolong_slice (init_bits bit) ~sign:bit tail (block::accu)
            | Bits l, None   -> prolong_slice (Bits(bit::l)) ~sign:bit tail accu
@@ -749,14 +742,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       type update = { apply : 'a. 'a closed -> 'a closed M.t }
 
       let auxTerm f t  = let+ T t     = f.apply(T t) in t
-      let auxSlice f s = let+ Slice s = f.apply(Slice s) in s
+      let auxSlice f s = let+ SliceStruct s = f.apply(SliceStruct s) in s
 
-      let mapSlice f =
-        let open BoolStruct in
-        function
-        | Leaf(SliceTMP.{ extractee; indices }) ->
+      let mapSlice f = function
+        | Leaf(Slice{ extractee; indices }) ->
            let+ extractee = auxTerm f extractee in
-           Leaf(SliceTMP.{ extractee; indices })
+           Leaf(Slice{ extractee; indices })
         | And l -> let+ l = mapList (auxSlice f) l in And l
         | Or l  -> let+ l = mapList (auxSlice f) l in Or l
         | Not a -> let+ a = auxSlice f a in Not a
@@ -764,7 +755,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       let map : type a. update -> (a, [`tstruct]) base -> (a, [`tstruct]) base M.t =
         fun f -> function
               | TermStruct a  -> let+ a      = map (auxTerm f) a        in TermStruct a
-              | Slice slice   -> let+ slice  = mapSlice f slice         in Slice slice
+              | SliceStruct slice -> let+ slice  = mapSlice f slice     in SliceStruct slice
               | Bits bits     -> let+ bits   = mapList (auxTerm f) bits in Bits bits
               | Concat concat -> let+ concat = mapList f.apply concat   in Concat concat
               | Block{block; sign_ext; zero_ext} ->
@@ -777,11 +768,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let reveal_table = Global.hTerms_create 500
 
-    let of_yterm : Types.yterm -> yt = function
+    let of_yterm : yterm -> yt = function
       | Term(Astar(`YICES_BV_ARRAY, bits)) -> (* In case of a BV_ARRAY, we preprocess *)
          begin
            match bvarray bits with
-           | [Block{ block = Slice _ as slice; sign_ext=0; zero_ext=0}] -> YExtTerm slice
+           | [Block{ block = SliceStruct _ as slice; sign_ext=0; zero_ext=0}] -> YExtTerm slice
            | [Block{ block = Bits _  as bits ; sign_ext=0; zero_ext=0}] -> YExtTerm bits
            | l                                                          -> YExtTerm(Concat l)
          end
@@ -815,10 +806,33 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | TermStruct a ->
          TermTMP.to_sexp_termstruct ~smt2arrays (to_sexp_t ~smt2arrays) a
       | T a          -> to_sexp_t ~smt2arrays a
-      (* Not official SMTLib syntax: *)
-      | Bits  block  -> sexp "bool-to-bv" (List.map (to_sexp_t ~smt2arrays) block)
-      | Slice slice ->
-         let open BoolStruct in
+      | Bits  block  ->
+         let aux t =
+           let Term s = Term.reveal t in
+           match s with
+           | A0 _ ->
+              begin
+                match Term.const_value s with
+                | `Bool b -> Some b
+                | _ -> None
+              end
+           | _ -> None
+         in
+         if List.for_all (fun x -> Option.is_some(aux x)) block
+         then
+           let rec pp fmt = function
+             | [] -> ()
+             | hd::tl ->
+                match aux hd with
+                | Some true  -> Format.fprintf fmt "%a1" pp tl
+                | Some false -> Format.fprintf fmt "%a0" pp tl
+                | None -> ()
+           in
+           Atom (Format.sprintf "#b%a" pp block)
+         else
+           (* Not official SMTLib syntax *)
+           sexp "bool-to-bv" (List.map (to_sexp_t ~smt2arrays) block)
+      | SliceStruct slice ->
          let rec aux = function
            | Leaf slice -> SliceTMP.to_sexp (to_sexp_t ~smt2arrays) slice
            | And l  -> sexp "bvand" (List.map aux l)
@@ -868,7 +882,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
   module Model = struct
     include Model
     let pph height fmt t =
-      t |> PP.model_string ~display:Types.{ width = 100; height; offset=0}
+      t |> PP.model_string ~display:{ width = 100; height; offset=0}
       |> Format.fprintf fmt "%s"
     let pp = pph 1000
 
@@ -917,52 +931,49 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
   (* Supported models *)
   module SModel = struct
 
-    type t = {
-        support : Term.t list;
-        model   : Model.t
-      }
+    type t = smodel
 
     let make ?support model =
       let support = match support with
         | None -> Model.collect_defined_terms model |> List.sort Term.compare
         | Some support -> support
       in
-      { support; model }
+      SModel{ support; model }
 
     let from_map m =
       let support = List.map fst m in
       Model.from_map m |> make ~support
 
-    let as_map smodel =
-      let aux t = (t, Model.get_value_as_term smodel.model t) in
-      List.(rev_map aux smodel.support |> rev)
+    let as_map (SModel{model; support}) =
+      let aux t = (t, Model.get_value_as_term model t) in
+      List.(rev_map aux support |> rev)
 
-    let copy mcsat smodel =
+    let copy mcsat (SModel{model; support} as smodel) =
       if mcsat
       then
         let model = Model.empty() in
         let add var =
-          Model.get_value smodel.model var
-          |> Value.reveal smodel.model
+          Model.get_value model var
+          |> Value.reveal model
           |> Model.set model var
         in
-        List.iter add smodel.support;
-        make ~support:smodel.support model
+        List.iter add support;
+        make ~support model
       else
         smodel |> as_map |> from_map
     
     let empty() = make ~support:[] (Model.empty())
     
-    let to_sexp ~smt2arrays smodel =
+    let to_sexp ~smt2arrays (SModel{model; support}) =
       let aux t =
         let ty = TypeSexp.to_sexp ~smt2arrays (Term.type_of_term t) in
         let vars, body =
-          let yval = Model.get_value smodel.model t in
-          match Model.reveal smodel.model yval with
+          let yval = Model.get_value model t in
+          match Model.reveal model yval with
           | `Algebraic v ->
              Sexp.List [], Sexp.Atom (Algebraic.to_string v.libpoly)
           | _ ->
-             let v = Model.val_as_term smodel.model yval in
+             let v = Model.val_as_term model yval in
              if Term.is_good v
              then
                match Term.reveal v with
@@ -976,10 +987,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         in
         sexp "define-fun" [TermSexp.to_sexp ~smt2arrays t; vars; ty; body]
       in
-      Sexp.List(smodel.support |> List.rev |> List.rev_map aux)
+      Sexp.List(support |> List.rev |> List.rev_map aux)
 
 
-    let pp ?pp_start ?pp_stop ?pp_sep () fmt {support;model} =
+    let pp ?pp_start ?pp_stop ?pp_sep () fmt (SModel{support;model}) =
       let aux fmt u =
         let v = Model.get_value model u in
         Format.fprintf fmt "@[<2>%a :=@ @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
@@ -989,16 +1000,16 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
 
 
-    let as_assumptions smodel =
+    let as_assumptions (SModel{support;model}) =
       let aux sofar t =
         let a =
           if Term.is_bool t
-          then if Model.get_bool_value smodel.model t then t else Term.not1 t
-          else Model.get_value_as_term smodel.model t |> Term.eq t
+          then if Model.get_bool_value model t then t else Term.not1 t
+          else Model.get_value_as_term model t |> Term.eq t
         in
         a::sofar
       in
-      List.(fold_left aux [] smodel.support |> rev)
+      List.(fold_left aux [] support |> rev)
 
     let from_assumptions ~mcsat ?smodel assumptions =
       match assumptions with
@@ -1011,7 +1022,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          in
          if mcsat
          then
-           let { model; support } = Option.map_lazy empty (copy mcsat) smodel in
+           let SModel{ model; support } = Option.map_lazy empty (copy mcsat) smodel in
            let f pures atom = Model.set_bool model atom true; atom::pures in
            let pures, constraints = List.fold_left (treat f) ([],[]) assumptions in
            make ~support:(pures @ support) model, pures, constraints
@@ -1025,30 +1036,27 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
   module Assertions = struct
 
-    type t = {
-        list  : Term.t list option list; (* never empty *)
-        level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
-      }
+    type t = assertions
 
-    let init = {
+    let init = Assertions {
         list = [Some []];
         level = 0;
       }
 
     exception BlockingClauseUsage
 
-    let assertions x =
+    let assertions (Assertions{list;_}) =
       let aux sofar = function
         | None -> raise BlockingClauseUsage
         | Some list -> List.rev_append list sofar
       in
-      List.fold_left aux [] x.list
+      List.fold_left aux [] list
 
     let level_to_sexp ~smt2arrays = function
       | None -> Sexp.Atom "BlockingClauseUsage"
       | Some assertions -> Sexp.List (List.map (TermSexp.to_sexp ~smt2arrays) assertions)
 
-    let to_sexp ?smt2arrays { list; _ } =
+    let to_sexp ?smt2arrays (Assertions{ list; _ }) =
       Sexp.List (List.map (level_to_sexp ~smt2arrays) list)
     
     let pp_level fmt = function
@@ -1057,40 +1065,14 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | Some assertions ->
          Format.fprintf fmt "@[<v>%a@]" (List.pp TermSexp.pp) assertions
 
-    let pp fmt assertions = 
-      Format.fprintf fmt "@[<v>%a@]" (List.pp pp_level) assertions.list
+    let pp fmt (Assertions{list;_}) = 
+      Format.fprintf fmt "@[<v>%a@]" (List.pp pp_level) list
 
   end
 
   module Action = struct
 
-    type t =
-      | DeclareType of Type.t * int option
-      | DeclareFun of Term.t * Type.t
-      | DefineType of string * Type.t
-      | DefineFun of string * Term.t * Type.t
-      | Status
-      | Reset
-      | Push
-      | Pop
-      | EnableOption of string
-      | DisableOption of string
-      | AssertFormula of Term.t
-      | AssertFormulas of Term.t list
-      | AssertBlockingClause
-      | Check of Param.t option
-      | CheckWithAssumptions of { param : Param.t option; assumptions : Term.t list }
-      | Stop
-      | GetModel of { keep_subst : bool }
-      | GetUnsatCore
-      | CheckWithModel of { param : Param.t option; smodel : SModel.t }
-      | CheckWithInterpolation of { param : Param.t option;
-                                    build_model : bool;
-                                    is_first    : bool;
-                                    other_assertions : Assertions.t;
-                                    other_log : t list }
-      | GetModelInterpolant
-      | GarbageCollect of Sexp.t list
+    type t = action
 
     let to_sexp ?smt2arrays accu = function
       | DeclareType(typ, card) ->
@@ -1186,18 +1168,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let pp_config_options fmt config_options =
       Format.fprintf fmt "@[<v>%a@]" (HStrings.pp String.pp String.pp) config_options
 
-    type nonrec t = {
-        config     : Config.t option;
-        context    : Context.t;
-        assertions : Assertions.t ref;
-        options    : unit HStrings.t;
-        log        : Action.t list ref;
-        is_alive   : bool ref;
-        config_options : String.t HStrings.t;
-        mcsat      : bool;
-        last_check_model : unit HTerms.t;
-        blocked    : bool ref
-      }
+    type t = context
 
     let assertions ctx = !(ctx.assertions)
     let options ctx        = HStrings.copy ctx.options
@@ -1223,10 +1194,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         (List.pp ~pp_sep:pp_sep_break pp_sexp) (to_sexp ctx)
 
     let malloc ?config () =
-      let yconfig = Option.map (fun (config:Config.t) -> config.config) config in
+      let yconfig = Option.map (fun (Config{config;_}) -> config) config in
       let config_options =
         match config with
-        | Some config -> HStrings.copy config.options
+        | Some(Config{options;_}) -> HStrings.copy options
         | None -> HStrings.create 1
       in
       let context = 
@@ -1240,7 +1211,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
           last_check_model = Global.hTerms_create 50;
           blocked    = ref false;
           mcsat      = match config with
-                       | Some config -> !(config.mcsat)
+                       | Some(Config{mcsat;_}) -> !mcsat
                        | None -> false
         }
       in
@@ -1262,7 +1233,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     (* GC invalidates references to terms and types in x.log *)
     let garbage_collect ?(record_log=false) x =
       let sexps = if record_log then to_sexp x else [] in
-      x.log := [Action.GarbageCollect sexps]
+      x.log := [GarbageCollect sexps]
 
     let status x =
       action Status x;
@@ -1276,11 +1247,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let pop x =
       action Pop x;
-      let Assertions.{list; level} = !(x.assertions) in
+      let Assertions{list; level} = !(x.assertions) in
       begin match list with
       | []     -> assert false
       | [_last] -> raise PopLastLevel
-      | _::tail -> x.assertions := { list = tail; level = level - 1 }
+      | _::tail -> x.assertions := Assertions{ list = tail; level = level - 1 }
       end;
       Context.pop x.context
 
@@ -1293,8 +1264,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let push x =
       unblock x;
       action Push x;
-      let Assertions.{list; level} = !(x.assertions) in
-      x.assertions := {
+      let Assertions{list; level} = !(x.assertions) in
+      x.assertions := Assertions{
           list = Some []::list;
           level = level+1;
         };
@@ -1302,7 +1273,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let goto x level =
       unblock x;
-      let diff = level - !(x.assertions).level in
+      let Assertions{ level = x_level; _ } = !(x.assertions) in
+      let diff = level - x_level in
       if diff > 0
       then for _ = 1 to diff do push x done
       else for _ = 1 to -diff do pop x done
@@ -1320,10 +1292,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let assert_formula x formula =
       unblock x;
       action (AssertFormula formula) x;
-      let Assertions.{list; level} = !(x.assertions) in
+      let Assertions{list; level} = !(x.assertions) in
       begin match list with
       | []         -> assert false
-      | last::tail -> x.assertions := { list = (Option.map (List.cons formula) last)::tail; level }
+      | last::tail -> x.assertions :=
+                        Assertions{ list = (Option.map (List.cons formula) last)::tail;
+                                    level }
       end;
       Context.assert_formula x.context formula
 
@@ -1333,22 +1307,24 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       match formulas with
       | [] -> ()
       | _::_ ->
-         let Assertions.{list; level} = !(x.assertions) in
+         let Assertions{list; level} = !(x.assertions) in
          begin match list with
          | []         -> assert false
          | last::tail ->
-            x.assertions := { list = (Option.map (List.rev_append (List.rev formulas)) last)::tail;
-                              level }
+            x.assertions :=
+              Assertions{ list =
+                            (Option.map (List.rev_append (List.rev formulas)) last)::tail;
+                          level }
          end;
          Context.assert_formulas x.context formulas
 
     let assert_blocking_clause x =
       unblock x;
       action AssertBlockingClause x;
-      let Assertions.{list; level} = !(x.assertions) in
+      let Assertions{list; level} = !(x.assertions) in
       begin match list with
       | []         -> assert false
-      | _::tail -> x.assertions := { list = None::tail; level }
+      | _::tail -> x.assertions := Assertions{ list = None::tail; level }
       end;
       Context.assert_blocking_clause x.context
 
@@ -1364,7 +1340,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          let aux t = HTerms.add x.last_check_model t () in
          if x.mcsat
          then
-           let smodel, pures, constraints =
+           let SModel{model; support} as smodel, pures, constraints =
              SModel.from_assumptions ~mcsat:true ?smodel assumptions
            in
            begin
@@ -1376,8 +1352,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                  x.blocked := true;
                  List.iter aux pures
              );
-             action (CheckWithModel{param; smodel = smodel}) x;
-             Context.check_with_model ?param x.context smodel.model smodel.support
+             action (CheckWithModel{param; smodel}) x;
+             Context.check_with_model ?param x.context model support
            end
          else
            let assumptions, extra =
@@ -1459,7 +1435,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         Context.check_with_interpolation ~build_model ?param
           ctx_A.context ctx_B.context
       in
-      let open Types in
       match status with
       | #smt_inconclusive_status as x -> x
       | `STATUS_UNSAT interpolant -> `STATUS_UNSAT interpolant
@@ -1491,9 +1466,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       let t = new_uninterpreted ~name ty in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = Action.DeclareFun(t,ty) in
+      let action = DeclareFun(t,ty) in
       global_log := action::!global_log;
-      List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
+      List.iter (fun x -> if !(x.is_alive) then Context.action action x) contexts;
       t
 
     let all_uninterpreted() =
@@ -1507,10 +1482,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       include Names
       let set ?(contexts=[]) t name =
         set t name;
-        let action = Action.DefineFun(name,t,Term.type_of_term t) in
+        let action = DefineFun(name,t,Term.type_of_term t) in
         global_log := action::!global_log;
         List.iter
-          (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts        
+          (fun x -> if !(x.is_alive) then Context.action action x) contexts        
     end
   end
 
@@ -1533,9 +1508,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       let t = new_uninterpreted ~name ?card () in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = Action.DeclareType(t, card) in
+      let action = DeclareType(t, card) in
       global_log := action::!global_log;
-      List.iter (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts;
+      List.iter (fun x -> if !(x.is_alive) then Context.action action x) contexts;
       t
 
     let all_uninterpreted() =
@@ -1549,10 +1524,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       include Names
       let set ?(contexts=[]) typ name =
         set typ name;
-        let action = Action.DefineType(name,typ) in
+        let action = DefineType(name,typ) in
         global_log := action::!global_log;
         List.iter
-          (fun x -> if !(x.Context.is_alive) then Context.action action x) contexts        
+          (fun x -> if !(x.is_alive) then Context.action action x) contexts        
     end
 
   end
@@ -1566,15 +1541,15 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         then List.fold_left Action.to_sexp [] !global_log
         else []
       in
-      let action = Action.GarbageCollect sexps in
-      List.iter (fun x -> if !(x.Context.is_alive) then Context.garbage_collect x) contexts;
+      let action = GarbageCollect sexps in
+      List.iter (fun x -> if !(x.is_alive) then Context.garbage_collect x) contexts;
       garbage_collect term_list type_list keep_named;
       global_log := [action]
   end
 
   module Param = struct
     include Param
-    let default Context.{context; _} = default context 
+    let default {context; _} = default context 
   end
 
 end
@@ -1583,11 +1558,15 @@ module WithExceptionsErrorHandling = Make(ExceptionsErrorHandling)
 module WithNoErrorHandling = Make(NoErrorHandling)
 
 module Types = struct
-  include Types
+
+  include High.Types
+  include Ext_types.Types
+
+  type nonrec context = context
 
   open WithNoErrorHandling
 
-  let pp_error_report fmt Types.{badval; code; column; line; term1; term2; type1; type2} =
+  let pp_error_report fmt {badval; code; column; line; term1; term2; type1; type2} =
     Format.fprintf fmt
       "@[<v 1> \
        error: %s@,\
@@ -1600,7 +1579,7 @@ module Types = struct
        bad val: %i@,\
        @]"
       (ErrorPrint.string ())
-      Types.pp_error_code code
+      pp_error_code code
       column line
       Term.pp term1
       Term.pp term2

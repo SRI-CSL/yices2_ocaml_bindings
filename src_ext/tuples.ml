@@ -218,9 +218,8 @@ module Context = struct
   include Ext.WithExceptionsErrorHandling.Context
 
   let pp_log fmt ctx =
-    let open Action in
     let filter = function
-      | DeclareFun(_, ty) when not(Arg.type_check ty) -> false
+      | Types.DeclareFun(_, ty) when not(Arg.type_check ty) -> false
       | _ -> true
     in
     let sexps =

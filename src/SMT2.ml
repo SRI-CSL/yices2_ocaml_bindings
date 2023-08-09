@@ -652,13 +652,13 @@ module Make(Ext : Ext_types.API) = struct
          | "assert", [formula], Some env ->
             let formula = ParseTerm.parse env formula |> get in
             Context.assert_formula env.context formula;
-            Option.iter (fun SModel.{model;_} -> Model.free model) env.model;
+            Option.iter (fun (SModel{model;_}) -> Model.free model) env.model;
             session.env := Some { env with model = None};
 
          | "assert", formulas, Some env ->
             let formulas = Cont.map (ParseTerm.parse env) formulas |> get in
             Context.assert_formulas env.context formulas;
-            Option.iter (fun SModel.{model;_} -> Model.free model) env.model;
+            Option.iter (fun (SModel{model;_}) -> Model.free model) env.model;
             session.env := Some { env with model = None};
 
          | "check-sat", [], Some env          ->
@@ -671,11 +671,11 @@ module Make(Ext : Ext_types.API) = struct
             |> print 0 "%a@," Types.pp_smt_status
 
          | "get-value", l, Some env ->
-            let model = get_model env in
+            let smodel = get_model env in
             let terms = List.map (fun x -> get(ParseTerm.parse env x)) l in
             print 0 "@[<v>%a@]@," (List.pp Term.pp)
-              (Model.terms_value (SModel.(model.model)) terms);
-            session.env := Some { env with model = Some model }
+              (Model.terms_value (let SModel{model;_} = smodel in model) terms);
+            session.env := Some { env with model = Some smodel }
 
          | "get-assignment", [], Some _env ->
             raise (Yices_SMT2_exception "Not sure how to treat get-assignment")

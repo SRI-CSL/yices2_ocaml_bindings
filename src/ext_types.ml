@@ -3,7 +3,84 @@ open Sexplib
 
 open Common
 open High
-   
+open Types
+
+module Types = struct
+  
+  type config_options = String.t HStrings.t
+
+  type config = Config of {
+      config : config_ptr;
+      options: config_options;
+      mcsat  : bool ref
+    }
+
+  type 'a bool_struct =
+    | Leaf of 'a
+    | And of 'a bool_struct list
+    | Or  of 'a bool_struct list
+    | Not of 'a bool_struct
+               [@@deriving eq, show]
+
+  type smodel = SModel of { support : term_t list;
+                            model   : model_ptr }
+
+  type assertions = Assertions of {
+        list  : term_t list option list; (* List of assertions at each level. None at some level
+                                            if a blocking clause has been asserted there *)
+        level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
+      }
+
+  type action =
+    | DeclareType of type_t * int option
+    | DeclareFun of term_t * type_t
+    | DefineType of string * type_t
+    | DefineFun of string * term_t * type_t
+    | Status
+    | Reset
+    | Push
+    | Pop
+    | EnableOption of string
+    | DisableOption of string
+    | AssertFormula of term_t
+    | AssertFormulas of term_t list
+    | AssertBlockingClause
+    | Check of param_ptr option
+    | CheckWithAssumptions of { param : param_ptr option; assumptions : term_t list }
+    | Stop
+    | GetModel of { keep_subst : bool }
+    | GetUnsatCore
+    | CheckWithModel of { param : param_ptr option; smodel : smodel }
+    | CheckWithInterpolation of { param : param_ptr option;
+                                  build_model : bool;
+                                  is_first    : bool;
+                                  other_assertions : assertions;
+                                  other_log : action list }
+    | GetModelInterpolant
+    | GarbageCollect of Sexp.t list
+
+  type slice = Slice of {
+      extractee : term_t;
+      indices   : (int * int) option;
+    }
+
+  type 'a bs = private BS
+  type 'a ts = private TS
+
+  type (_,_) base =
+    | TermStruct : 'a termstruct -> ('a ts, [`tstruct]) base
+    | T      : term_t                  -> (_  ts, [`closed] ) base
+    | Bits   : term_t list             -> ([`bits]  bs, _) base 
+    | SliceStruct : slice bool_struct       -> ([`slice] bs, _) base
+    | Concat : [`block] closed list    -> ([`concat],   _) base
+    | Block  : { block : _ bs closed;
+                 sign_ext  : int; (* Length of sign extension *)
+                 zero_ext  : int; (* Length of zero extension *) } -> ([`block], _) base
+
+  and 'a closed     = ('a, [`closed])  base
+
+end
+
 module type Config = sig
   type t
   val malloc : unit -> t
@@ -13,19 +90,6 @@ module type Config = sig
   val get     : t -> String.t -> String.t
   val options : t -> (String.t * String.t) list
 end
-
-module type Types = sig
-  include module type of Types
-  val pp_error_report : error_report Format.printer
-end
-
-type config_options = String.t HStrings.t
-
-type config = {
-    config : Low.Types.ctx_config_t Ctypes.ptr;
-    options: config_options;
-    mcsat  : bool ref
-  }
 
 module type Context = sig
 
@@ -75,7 +139,7 @@ module type Context = sig
   (** Free does not free the config field (which could be shared with other contexts) *)
   val free : t -> unit
 
-  val status : t -> Types.smt_status
+  val status : t -> smt_status
   val reset  : t -> unit
   val push   : t -> unit        (* Open new level and go there *)
   val pop    : t -> unit        (* Go back 1 level *)
@@ -86,8 +150,7 @@ module type Context = sig
   val assert_formulas : t -> term list -> unit
   val assert_blocking_clause : t -> unit
 
-  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> t
-              -> Types.smt_status
+  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> t -> smt_status
   val stop             : t -> unit
   val get_model        : ?keep_subst:bool -> ?support:term list -> t -> smodel
   val get_unsat_core   : t -> term list
@@ -95,7 +158,7 @@ module type Context = sig
     
   val check_with_interpolation  :
     ?build_model:bool -> ?param:param -> t -> t
-    -> (term, ?support:term list -> unit -> smodel) Types.smt_status_with_answers
+    -> (term, ?support:term list -> unit -> smodel) smt_status_with_answers
 
   (* The next two functions are just adding declarations to the log,
      they do not actually introduce new Yices types and terms *)
@@ -161,9 +224,9 @@ module type Term = sig
 
   val to_sexp            : ?smt2arrays:[`Tuple | `Curry ]*(t -> bool) -> t -> Sexp.t
 
-  val is_free_termstruct : var:t -> _ Types.termstruct -> bool
+  val is_free_termstruct : var:t -> _ termstruct -> bool
   val is_free            : var:t -> t -> bool
-  val fv_termstruct      : _ Types.termstruct -> termset
+  val fv_termstruct      : _ termstruct -> termset
   val fv                 : t -> termset
 
   (** For bitvector terms *)
@@ -192,8 +255,8 @@ module type SModel = sig
   type term
   type model
      
-  type t = { support : term list;
-             model   : model }
+  type t
+
   val make : ?support:term list -> model -> t
   val pp :
     ?pp_start:unit Format.printer ->
@@ -220,16 +283,28 @@ module type SModel = sig
 end
 
 module type BaseAPI = sig
+
+  module HighTypes := High.Types
+  module ExtTypes  := Types
+
   include High_types.BaseAPI
-  module Types : Types
+
+  module Types : sig
+    include module type of HighTypes
+    include module type of ExtTypes
+    type context
+    val pp_error_report : error_report Format.printer
+  end
+
 end
 
+open Types
 
 module type API = sig
 
   include High.API with type 'a eh := 'a
 
-  module Config : Config
+  module Config : Config with type t = config
   module Model  : Model with type t     = Model.t
                          and type typ   := Type.t
                          and type term  := Term.t
@@ -237,14 +312,12 @@ module type API = sig
   (* Supported models *)
   module SModel : SModel with type term  := Term.t
                           and type model := Model.t
+                          and type t = smodel
 
   module Assertions : sig
-    type t =
-      private {
-          list  : Term.t list option list; (* List of assertions at each level. None at some level
-                                              if a blocking clause has been asserted there *)
-          level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
-        }
+
+    type t = assertions
+
     val init : t
 
     exception BlockingClauseUsage
@@ -257,33 +330,7 @@ module type API = sig
   
   module Action : sig
 
-    type t =
-      | DeclareType of Type.t * int option
-      | DeclareFun of Term.t * Type.t
-      | DefineType of string * Type.t
-      | DefineFun of string * Term.t * Type.t
-      | Status
-      | Reset
-      | Push
-      | Pop
-      | EnableOption of string
-      | DisableOption of string
-      | AssertFormula of Term.t
-      | AssertFormulas of Term.t list
-      | AssertBlockingClause
-      | Check of Param.t option
-      | CheckWithAssumptions of { param : Param.t option; assumptions : Term.t list }
-      | Stop
-      | GetModel of { keep_subst : bool }
-      | GetUnsatCore
-      | CheckWithModel of { param : Param.t option; smodel : SModel.t }
-      | CheckWithInterpolation of { param : Param.t option;
-                                    build_model : bool;
-                                    is_first    : bool;
-                                    other_assertions : Assertions.t;
-                                    other_log : t list }
-      | GetModelInterpolant
-      | GarbageCollect of Sexp.t list
+    type t = action
 
     (** Appends the action sexp(s) on top of input list *)
     val to_sexp : ?smt2arrays:[`Tuple | `Curry ]*(Term.t -> bool) -> Sexp.t list -> t -> Sexp.t list
@@ -296,7 +343,7 @@ module type API = sig
                             and type action := Action.t
                             and type config := Config.t
                             and type param  := Param.t
-                            and type smodel  := SModel.t
+                            and type smodel := SModel.t
 
   module Param : High_types.Param with type 'a eh   := 'a
                                    and type t = Param.t
@@ -313,21 +360,13 @@ module type API = sig
                       and type termset := TermSet.t
 
   module BoolStruct : sig
-    type 'a t =
-      | Leaf of 'a
-      | And of 'a t list
-      | Or  of 'a t list
-      | Not of 'a t
-                 [@@deriving eq, show, ord]
+    type 'a t = 'a bool_struct [@@deriving eq, show, ord]
     val map : ('a -> 'b) -> 'a t -> 'b t
     val nnf : bool -> 'a t -> 'a t (* Negation Normal Form *)
   end
 
   module Slice : sig
-    type t = private {
-                 extractee : Term.t;
-                 indices   : (int * int) option;
-               }
+    type t = slice
     val build   : ?indices:(int*int) -> Term.t -> t
     val to_term : t -> Term.t
     val pp      : t Format.printer
@@ -337,20 +376,10 @@ module type API = sig
   end
 
   module ExtTerm : sig
-    type 'a bs = private BS
-    type 'a ts = private TS
 
-    type (_,_) base =
-      | TermStruct : 'a Types.termstruct -> ('a ts, [`tstruct]) base
-      | T      : Term.t                  -> (_  ts, [`closed] ) base
-      | Bits   : Term.t list             -> ([`bits]  bs, _) base 
-      | Slice  : Slice.t BoolStruct.t    -> ([`slice] bs, _) base
-      | Concat : [`block] closed list    -> ([`concat],   _) base
-      | Block  : { block : _ bs closed;
-                   sign_ext  : int; (* Length of sign extension *)
-                   zero_ext  : int; (* Length of zero extension *) } -> ([`block], _) base
+    type nonrec ('a,'b) base = ('a,'b) base
 
-    and 'a closed      = ('a, [`closed])  base
+    type 'a closed     = ('a, [`closed])  base
     type 'a termstruct = ('a, [`tstruct]) base
 
     type 'a bits   = ([`bits]  bs, 'a) base
@@ -378,7 +407,7 @@ module type API = sig
 
     type t  = ExtTerm  : _ closed -> t
     type yt = YExtTerm : _ termstruct -> yt
-    val of_yterm : Types.yterm -> yt
+    val of_yterm : yterm  -> yt
     val of_term  : Term.t -> yt
 
   end

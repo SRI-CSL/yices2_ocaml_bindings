@@ -11,7 +11,7 @@ module Context : StandardYicesContext with type t = Context.t = struct
   let config_set = Config.set
   let check_with_smodel ?param t smodel = check ?param ~smodel t
   let check ?param t = check ?param t
-  let get_model t = let SModel.{model;_} = get_model t in model
+  let get_model t = let SModel{model;_} = get_model t in model
   type model  = Model.t
   type config = Config.t
   type term   = Term.t

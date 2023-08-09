@@ -1,6 +1,8 @@
 open Containers
 open Sexplib
 
+module type API = Ext_types.API
+
 include Ext_types.BaseAPI
 
 open Types
@@ -28,7 +30,7 @@ module ExceptionsErrorHandling : sig
   include ErrorHandling with type 'a t = 'a
 end
 
-module Make(EH: ErrorHandling) : Ext_types.API
+module Make(EH: ErrorHandling) : Ext_types.API with type Context.t = context
 
-module WithExceptionsErrorHandling : Ext_types.API
-module WithNoErrorHandling         : Ext_types.API
+module WithExceptionsErrorHandling : Ext_types.API with type Context.t = context
+module WithNoErrorHandling         : Ext_types.API with type Context.t = context

@@ -261,6 +261,11 @@ module type API = sig
     type yices_gen_mode_t [@@deriving eq, ord]
     type error_code_t     [@@deriving eq, ord]
 
+    type param_ptr   = param_t ptr
+    type context_ptr = context_t ptr
+    type config_ptr  = ctx_config_t ptr
+    type model_ptr   = model_t ptr
+
     module HTypes : CCHashtbl.S with type key = type_t
     module HTerms : CCHashtbl.S with type key = term_t
 

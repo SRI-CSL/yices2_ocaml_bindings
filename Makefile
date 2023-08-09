@@ -1,6 +1,9 @@
-.PHONY: default build install uninstall reinstall test clean smt2
+.PHONY: default build install uninstall reinstall test clean smt2 doc
 
 default: build
+
+doc:
+	dune build @doc
 
 build:
 	dune build
@@ -8,8 +11,7 @@ build:
 smt2:
 	dune build src_smt2
 
-test:
-	dune build
+test: build
 	dune build @runtest
 
 install: build

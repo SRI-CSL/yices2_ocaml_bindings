@@ -3850,17 +3850,17 @@ module type API = sig
   module Model  : Model  with type 'a eh := 'a eh
                           and type typ   := Type.t
                           and type term  := Term.t
-                          and type t = model_t ptr
+                          and type t = model_ptr
   module Context : Context with type 'a eh := 'a eh
                           and type typ     := Type.t
                           and type term    := Term.t
                           and type model   := Model.t
                           and type config  := Config.t
-                          and type param   := param_t ptr
-                          and type t = context_t ptr
+                          and type param   := param_ptr
+                          and type t = context_ptr
   module Param : Param with type 'a eh   := 'a eh
                         and type context := Context.t
-                        and type t        = param_t ptr
+                        and type t        = param_ptr
 
   (** ********************
    *  CHECK FORMULA(S)  *

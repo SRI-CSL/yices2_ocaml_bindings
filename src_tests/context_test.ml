@@ -311,14 +311,14 @@ module ExtContext = struct
     check ?param ~smodel:(SModel.make ~support model) context
   let check ?param context = check ?param context
   let get_model ?keep_subst context =
-    let SModel.{model;_} = get_model ?keep_subst context in
+    let SModel{model;_} = get_model ?keep_subst context in
     model
 
   let check_with_interpolation ?build_model ?param ctxa ctxb =
     match build_model, check_with_interpolation ?build_model ?param ctxa ctxb with
     | None, `STATUS_SAT _
       | Some false, `STATUS_SAT _ -> `STATUS_SAT None
-    | Some true, `STATUS_SAT f -> let SModel.{ model; _} = f () in `STATUS_SAT(Some model)
+    | Some true, `STATUS_SAT f -> let SModel{ model; _} = f () in `STATUS_SAT(Some model)
     | _, `STATUS_UNSAT t -> `STATUS_UNSAT t
     | _, (#Yices2.Low.Types.smt_inconclusive_status as s) -> s
 
