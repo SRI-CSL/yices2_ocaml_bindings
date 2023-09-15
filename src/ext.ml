@@ -179,16 +179,22 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       if is_good t then t |> PP.term_string ~display |> Format.fprintf fmt "%s"
       else Format.fprintf fmt "null_term"
 
-    let pow i t = 
+    let rec pow_accu accu (t,i) =
       if i <= 0 then EH.raise_bindings_error
                        "Exponent should be positive in a power product, not %i" i
-      else
-        if i = 1 then t
-        else
-          let rec aux i accu =
-            if i = 0 then accu else aux (i-1) (t::accu) 
-          in
-          sexp "*" (aux i [])
+      else if i = 0 then accu
+      else pow_accu (t::accu) (t,i-1) 
+    
+    (* let pow i t =  *)
+    (*   if i <= 0 then EH.raise_bindings_error *)
+    (*                    "Exponent should be positive in a power product, not %i" i *)
+    (*   else *)
+    (*     if i = 1 then t *)
+    (*     else *)
+    (*       let rec aux i accu = *)
+    (*         if i = 0 then accu else aux (i-1) (t::accu)  *)
+    (*       in *)
+    (*       sexp "*" (aux i []) *)
 
     (* For bitvector terms *)
     let width_of_term y = Type.bvsize(Term.type_of_term y)
@@ -450,8 +456,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          sexp "+" (List.map (sum_aux to_sexp) l) 
 
       | Product(isBV, l) ->
-         let aux (term, exp) = pow (Unsigned.UInt.to_int exp) (to_sexp term) in
-         sexp (if isBV then "bvmul" else "*") (List.map aux l) 
+         let aux sofar (term, exp) = pow_accu sofar (to_sexp term, Unsigned.UInt.to_int exp) in
+         sexp (if isBV then "bvmul" else "*") (List.fold_left aux [] l) 
 
   end
 
