@@ -180,7 +180,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       else Format.fprintf fmt "null_term"
 
     let rec pow_accu accu (t,i) =
-      if i <= 0 then EH.raise_bindings_error
+      if i < 0 then EH.raise_bindings_error
                        "Exponent should be positive in a power product, not %i" i
       else if i = 0 then accu
       else pow_accu (t::accu) (t,i-1) 
