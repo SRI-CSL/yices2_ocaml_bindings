@@ -662,13 +662,17 @@ module Make(Ext : Ext_types.API) = struct
             session.env := Some { env with model = None};
 
          | "check-sat", [], Some env          ->
-            Context.check env.context ~param:env.param
-            |> print 0 "%a@," Types.pp_smt_status
+            (match Context.check env.context ~param:env.param with
+             | `STATUS_SAT   -> print 0 "sat@,"
+             | `STATUS_UNSAT -> print 0 "unsat@,"
+             | status -> print 0 "%a@," Types.pp_smt_status status)
 
          | "check-sat-assuming", l, Some env  ->
             let assumptions = List.map (fun x -> get(ParseTerm.parse env x)) l in
-            Context.check ~assumptions ~param:env.param env.context
-            |> print 0 "%a@," Types.pp_smt_status
+            (match Context.check ~assumptions ~param:env.param env.context with
+             | `STATUS_SAT   -> print 0 "sat@,"
+             | `STATUS_UNSAT -> print 0 "unsat@,"
+             | status -> print 0 "%a@," Types.pp_smt_status status)
 
          | "get-value", l, Some env ->
             let smodel = get_model env in
