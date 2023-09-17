@@ -716,8 +716,13 @@ module Make(Ext : Ext_types.API) = struct
             in
             let map,support = List.fold_left2 f ([],[]) vars vals in
             let model = Model.from_map map in
-            Context.check ~param:env.param ~smodel:(SModel.make ~support model) env.context
-            |> print 0 "%a@," Types.pp_smt_status
+            let status =
+              Context.check ~param:env.param ~smodel:(SModel.make ~support model) env.context
+            in
+            (match status with
+             | `STATUS_SAT   -> print 0 "sat@,"
+             | `STATUS_UNSAT -> print 0 "unsat@,"
+             | _ -> print 0 "%a@," Types.pp_smt_status status)
                
          | "get-unsat-model-interpolant", [], Some env ->
             let interpolant = Context.get_model_interpolant env.context in
