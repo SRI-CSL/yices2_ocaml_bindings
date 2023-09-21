@@ -1018,9 +1018,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       List.(fold_left aux [] support |> rev)
 
     let from_assumptions ~mcsat ?smodel assumptions =
-      match assumptions with
+      match List.sort_uniq ~cmp:Term.compare assumptions with
       | [] -> Option.get_lazy empty smodel, [], []
-      | _ ->
+      | assumptions ->
          let treat f (sofar, constraints) assumption =
            let atom, _     = Purification.Term.get_var assumption    in
            let constraints = Term.(atom === assumption)::constraints in
