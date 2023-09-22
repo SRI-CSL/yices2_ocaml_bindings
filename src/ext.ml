@@ -946,6 +946,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       SModel{ support; model }
 
+    let free (SModel{model; _}) = Model.free model
+
     let from_map m =
       let support = List.map fst m in
       Model.from_map m |> make ~support
@@ -1388,8 +1390,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
           match r with
           | A0(`YICES_UNINTERPRETED_TERM,_) ->
              fun accu -> (if HTerms.mem x.last_check_model t
-                          then t,accu
-                          else Term.true0(), Purification.Term.get_body t::accu)
+                          then Term.true0(), Purification.Term.get_body t::accu
+                          else t,accu)
           | _ ->
              bind (MTermAccu.map subst r) (fun x -> return(Term.build x))
         in

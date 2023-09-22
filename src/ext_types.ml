@@ -258,6 +258,8 @@ module type SModel = sig
   type t
 
   val make : ?support:term list -> model -> t
+  val free : t -> unit
+
   val pp :
     ?pp_start:unit Format.printer ->
     ?pp_stop:unit Format.printer ->
