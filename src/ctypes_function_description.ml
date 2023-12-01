@@ -990,6 +990,21 @@ module Functions (F : Ctypes.FOREIGN) = struct
                ((@->) uint
                   ((@->) (ptr term_t)
                      (returning smt_status_t))))))
+  let yices_check_context_with_model_and_hint =
+    foreign "yices_check_context_with_model_and_hint"
+      ((@->) (ptr context_t)
+         ((@->) (ptr param_t)
+            ((@->) (ptr model_t)
+               ((@->) uint
+                  ((@->) (ptr term_t)
+                     ((@->) uint
+                        (returning smt_status_t)))))))
+  let yices_mcsat_set_var_order =
+    foreign "yices_mcsat_set_var_order"
+      ((@->) (ptr context_t)
+         ((@->) uint
+            ((@->) (ptr term_t)
+               (returning smt_status_t))))
 
   (* Hand-written *)
   let yices_check_context_with_interpolation =

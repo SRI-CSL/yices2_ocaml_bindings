@@ -1336,11 +1336,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       end;
       Context.assert_blocking_clause x.context
 
-    let check ?param ?assumptions ?smodel x =
+    let check ?param ?assumptions ?smodel ?hints x =
       unblock x;
       HTerms.reset x.last_check_model;
-      match assumptions, smodel with
-      | None, None -> 
+      match assumptions, smodel, hints with
+      | None, None, None -> 
          action (Check param) x;
          Context.check ?param x.context
       | _ ->
@@ -1361,7 +1361,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                  List.iter aux pures
              );
              action (CheckWithModel{param; smodel}) x;
-             Context.check_with_model ?param x.context model support
+             match hints with
+             | None -> Context.check_with_model ?param x.context model support
+             | Some hints ->
+                Context.check_with_model_and_hint ?param x.context model ~hard:support ~soft:hints
            end
          else
            let assumptions, extra =
@@ -1373,6 +1376,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
            List.iter aux extra;
            action (CheckWithAssumptions{param; assumptions}) x;
            Context.check_with_assumptions ?param x.context assumptions
+
+    let set_var_order x vars = Context.set_var_order x.context vars
 
     let get_model ?(keep_subst=true) ?support x =
       action (GetModel{ keep_subst }) x;

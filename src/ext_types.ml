@@ -150,7 +150,9 @@ module type Context = sig
   val assert_formulas : t -> term list -> unit
   val assert_blocking_clause : t -> unit
 
-  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> t -> smt_status
+  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> ?hints:term list -> t -> smt_status
+  val set_var_order : t -> term list -> smt_status
+
   val stop             : t -> unit
   val get_model        : ?keep_subst:bool -> ?support:term list -> t -> smodel
   val get_unsat_core   : t -> term list
