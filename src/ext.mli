@@ -30,7 +30,7 @@ module ExceptionsErrorHandling : sig
   include ErrorHandling with type 'a t = 'a
 end
 
-module Make(EH: ErrorHandling) : Ext_types.API with type Context.t = context
+module Make(_: ErrorHandling) : Ext_types.API with type Context.t = context
 
 module WithExceptionsErrorHandling : Ext_types.API with type Context.t = context
 module WithNoErrorHandling         : Ext_types.API with type Context.t = context

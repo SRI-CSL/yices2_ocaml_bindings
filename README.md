@@ -3,14 +3,48 @@
 # OCaml Bindings for Yices 2
 
 This repository provides an ocaml library containing bindings for yices2's standard API (https://yices.csl.sri.com/doc/).
-We provide two layers of abstraction that wrap the yices C functions:
-- a low level, where the functions that wrap the yices C functions are essentially identical to the yices API.
+
+## Contents
+
+### Main library
+
+The main OCaml library, called `yices2`, provides three levels of abstraction that wrap the yices C functions:
+
+- Level **low**: the functions that wrap the yices C functions are essentially identical to the yices API.
 (+ some type safety provided by type abstraction over the types types_t of yices's types and term_t of yices's terms, which are now abstract instead of int32_t).
-- a high level, which is more ocaml-friendly, using some ML datatype, etc.
 
-## Building and Installing From Source
+- Level **high**: it is more ocaml-friendly, using some ML datatype (lists inside of C vectors, OCaml ints instead of C integer types), etc.
 
-#### Using opam (needs 2.0 or higher, needs gmp)
+- Level **ext**: same as high, but it adds a few useful functions implemented on the OCaml side (e.g., computation of free variables, purification, log-keeping, pretty-printing functions in SMTLib2 format, etc).
+
+At each level *lev*, the types and module signatures are defined in file *lev*_types.ml and the bindings are in *lev*.ml/mli
+
+The library also provides an SMTLib2 parser for OCaml.
+
+### Extension library
+
+An additional OCaml library, called `yices2.extensions`, contains experimental extensions leveraging the bindings (e.g. tuple-blasting, etc).
+
+
+### SMT-solver executable
+
+Building the bindings will also compile an executable `yices_smt2.exe`. That executable file is an SMT-solver you can run on an SMTLib2 file such as `src_smt2/simple.smt2`. The solver plugs the SMTLib parser with the Yices2 API bindings, so it is essentially running Yices2, through the Yices2 API rather than throug the Yices2 native front-end for SMTLib2. It is mostly there as an example of how you can use the Yices2 bindings, and offers a quick test that everything works.
+
+## Building and Installing
+
+### Dependencies
+
+Outside of the OCaml world, you need Yices2 compiled and installed, with the MCSAT mode enabled, which means you also need the Yices2/MCSAT dependencies [libpoly](https://github.com/SRI-CSL/libpoly) and [CUDD](https://github.com/ivmai/cudd). You also need gmp.
+
+On the OCaml side, you need the [libpoly OCaml bindings](https://github.com/SRI-CSL/yices2_ocaml_bindings) installed in findlib.
+All of the other dependencies are listed in `yices2_bindings.opam`
+and can be installed in findlib by opam (2.0 or higher), for instance 
+
+```
+opam install . --deps-only
+```
+
+### Building using opam (2.0 or higher)
 
 In the directory of this `README.md`, build and install (in findlib) with the following command:
 
@@ -27,15 +61,9 @@ export LDFLAGS="-L[UNCONVENTIONAL_PATH]"
 export C_INCLUDE_PATH="[UNCONVENTIONAL_PATH]"
 ```
 
-#### Without opam (gmp not mandatory, but it provides additional yices bindings)
+### Building without opam
 
-Besides Yices and its dependencies, the bindings need some OCaml dependencies, that are listed in `yices2_bindings.opam`. These are the findlib libraries that are / would be installed by opam, and that you can still install automatically with
-
-```
-opam install . --deps-only
-```
-
-To build, run the following command:
+Assuming that the dependencies have been installed, you can build the yices2 bindings by running the following command:
 ```
 make
 ```
@@ -48,7 +76,7 @@ make install
 
 You can also use `make reinstall` and `make clean`.
 
-#### Quick Testing (once findlib has the yices2_bindings library, whether it was installed manually or via opam)
+### Quick Testing
 
 In the directory of this `README.md`, run the following command:
 ```
@@ -58,22 +86,16 @@ Whether the tests pass is rather self-explanatory.
 
 Again, if the non-OCaml dependencies are not installed in conventional directories, make sure you set `LDFLAGS` and `LD_LIBRARY_PATH` correctly as described above.
 
-#### Wrapping Yices as an SMTLib2 solver (experimental)
-
-In the directory of this `README.md`, run the following command (after having installed the yices2_bindings library in findlib):
-```
-make smt2
-```
-This should produce an executable `yices_smt2` which you can run giving as sole argument the name of the SMTLib2 file to solve.
+You can also run the `yices_smt2.exe` executable, giving as sole argument the name of the SMTLib2 file to solve, suuch as `src_smt2/simple.smt2`.
 As with `make test`, this step involves linking and requires yices being installed. You can set `LDFLAGS` as above in case it is not in a standard location.
 
 The code in `src_test` and in the `src_smt2/yices_smt2.ml` file give examples on how to use the bindings.
 
-#### Building the documentation (this is broken at the moment, as ocamldoc does not seem to handle the latest ocaml features)
+### Building the documentation
 
 In the top-level directory, run the following command:
 
 ```
-ocamlbuild -use-ocamlfind 'src/yices2_bindings.docdir/index.html'
+make doc
 ```
-You can then open `yices2_bindings.docdir/index.html` in a web browser.
+You can then open `_build/default/_doc/_html/index.html` in a web browser.

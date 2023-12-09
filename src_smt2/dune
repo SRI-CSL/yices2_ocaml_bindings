@@ -3,7 +3,7 @@
  (public_name yices_smt2)
  (libraries ctypes sexplib containers yices2)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
- (preprocess (pps ppx_deriving.std ppx_optcomp))
+ (preprocess (pps ppx_deriving.std))
  (promote (until-clean) (into ".."))
 )
 

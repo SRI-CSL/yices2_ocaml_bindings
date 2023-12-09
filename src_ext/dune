@@ -3,7 +3,7 @@
  (public_name yices2.extensions)
  (libraries ctypes sexplib containers libpoly_bindings yices2 dmap)
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
- (preprocess (pps ppx_deriving.std ppx_optcomp))
+ (preprocess (pps ppx_deriving.std))
  (synopsis "Yices2 extensions")
 )
 
