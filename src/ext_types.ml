@@ -241,6 +241,14 @@ module type Term = sig
                         and type t := t
 end
 
+module type Value = sig
+
+  type model
+  val pp     : model -> yval Format.printer
+  val pp_val : model -> yval_t Ctypes.ptr Format.printer
+
+end
+
 module type Model = sig
   include High_types.Model with type 'a eh := 'a
 
@@ -312,6 +320,8 @@ module type API = sig
   module Model  : Model with type t     = Model.t
                          and type typ   := Type.t
                          and type term  := Term.t
+
+  module Value : Value with type model := Model.t
 
   (* Supported models *)
   module SModel : SModel with type term  := Term.t
