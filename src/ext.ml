@@ -948,8 +948,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let free (SModel{model; _}) = Model.free model
 
-    let from_map m =
-      let support = List.map fst m in
+    let from_map ?support m =
+      let support = Option.get_lazy (fun () -> List.map fst m) support in
       Model.from_map m |> make ~support
 
     let as_map (SModel{model; support}) =
