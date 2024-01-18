@@ -35,32 +35,18 @@ module type API = sig
 
   module Session : sig
 
-    (* What gets initialized when parsing (set-logic ...) *)
-    type env = {
-        verbosity : int;
-        logic     : string;
-        types     : Type.t VarMap.t;
-        variables : Variables.t;
-        context : Context.t;
-        param   : Param.t;
-        model   : SModel.t option;
-        smt2functions : unit Types.HTerms.t
-      }
-
-    (** Turns the log within context into SMT2 string. *)
-    val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string
-
     type t = {
         verbosity : int;
-        config    : Config.t;
-        env       : env option ref;
+        param     : Param.t;
         infos     : string StringHashtbl.t;
         options   : string StringHashtbl.t;
-        set_logic : string -> Config.t -> unit
+        types     : Type.t VarMap.t;
+        variables : Variables.t;
+        model     : SModel.t option ref;
+        smt2functions : unit Types.HTerms.t;
       }
 
-    val create   : ?set_logic:(string -> Config.t -> unit) -> int -> t
-    val init_env : t -> logic:string -> unit
+    val create   : ?set_logic:(?logic:string -> Config.t -> unit) -> int -> t
     val exit : t -> unit
 
   end
@@ -74,15 +60,15 @@ module type API = sig
   module ParseTerm : sig
     type t = (Term.t, Term.t) Cont.t
 
-    val atom        : Session.env -> string -> t
-    val right_assoc : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
-    val left_assoc  : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
-    val chainable   : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
-    val unary       : Session.env -> (Term.t -> Term.t) -> Sexp.t -> t
-    val binary      : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
-    val ternary     : Session.env -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
-    val list        : Session.env -> (Term.t list -> Term.t) -> Sexp.t list -> t
-    val parse       : Session.env -> Sexp.t -> t
+    val atom        : Session.t -> string -> t
+    val right_assoc : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+    val left_assoc  : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+    val chainable   : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
+    val unary       : Session.t -> (Term.t -> Term.t) -> Sexp.t -> t
+    val binary      : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
+    val ternary     : Session.t -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
+    val list        : Session.t -> (Term.t list -> Term.t) -> Sexp.t list -> t
+    val parse       : Session.t -> Sexp.t -> t
   end
 
   module ParseInstruction : sig

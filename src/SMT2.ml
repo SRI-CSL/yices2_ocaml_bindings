@@ -59,31 +59,21 @@ module type API = sig
 
   module Session : sig
 
-    type env = {
-        verbosity : int;
-        logic     : string;
-        types     : Type.t VarMap.t;
-        variables : Variables.t;
-        context : Context.t;
-        param   : Param.t;
-        model   : SModel.t option;
-        smt2functions : unit HTerms.t
-      }
-
     (** Turns the log within context into SMT2 string. *)
-    val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string
+    (* val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string *)
 
     type t = {
         verbosity : int;
-        config    : Config.t;
-        env       : env option ref;
+        param     : Param.t;
         infos     : string StringHashtbl.t;
         options   : string StringHashtbl.t;
-        set_logic : string -> Config.t -> unit
+        types     : type_t VarMap.t;
+        variables : Variables.t;
+        model     : SModel.t option ref;
+        smt2functions : unit HTerms.t;
       }
 
-    val create   : ?set_logic:(string -> Config.t -> unit) -> int -> t
-    val init_env : t -> logic:string -> unit
+    val create   : ?set_logic:(?logic:string -> Config.t -> unit) -> int -> t
     val exit : t -> unit
 
   end
@@ -97,15 +87,15 @@ module type API = sig
   module ParseTerm : sig
     type t = (Term.t, Term.t) Cont.t
 
-    val atom        : Session.env -> string -> t
-    val right_assoc : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
-    val left_assoc  : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
-    val chainable   : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
-    val unary       : Session.env -> (Term.t -> Term.t) -> Sexp.t -> t
-    val binary      : Session.env -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
-    val ternary     : Session.env -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
-    val list        : Session.env -> (Term.t list -> Term.t) -> Sexp.t list -> t
-    val parse       : Session.env -> Sexp.t -> t
+    val atom        : Session.t -> string -> t
+    val right_assoc : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+    val left_assoc  : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> t
+    val chainable   : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t list -> (Term.t list, Term.t) Cont.t
+    val unary       : Session.t -> (Term.t -> Term.t) -> Sexp.t -> t
+    val binary      : Session.t -> (Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> t
+    val ternary     : Session.t -> (Term.t -> Term.t -> Term.t -> Term.t) -> Sexp.t -> Sexp.t -> Sexp.t -> t
+    val list        : Session.t -> (Term.t list -> Term.t) -> Sexp.t list -> t
+    val parse       : Session.t -> Sexp.t -> t
   end
 
   module ParseInstruction : sig
@@ -122,6 +112,9 @@ end
 
 exception Yices_SMT2_exception of string
 
+let raise_smt2 a =
+  Format.ksprintf ~f:(fun s -> raise(Yices_SMT2_exception s)) a
+
 module Make(Ext : Ext_types.API) = struct
 
   open Ext
@@ -130,8 +123,8 @@ module Make(Ext : Ext_types.API) = struct
 
     module StringMap = Map.Make(String)
     type t = {
-        uninterpreted : Term.t VarMap.t;
-        bound         : Term.t StringMap.t
+        uninterpreted : Term.t VarMap.t;    (* Mutable *)
+        bound         : Term.t StringMap.t  (* Immutable *)
       }
 
     let init () = {
@@ -145,48 +138,32 @@ module Make(Ext : Ext_types.API) = struct
       if StringMap.mem s m.bound then StringMap.find s m.bound
       else VarMap.find m.uninterpreted s
 
-  (* let get_uninterpreted {uninterpreted; _} =
-   *   VarMap.keys_list uninterpreted *)
   end
 
   let print verbosity i fs = Format.((if verbosity >= i then fprintf else ifprintf) stdout) fs
 
   module Session = struct
 
-    type env = {
-        verbosity : int;
-        logic     : string;
-        types     : type_t VarMap.t;
-        variables : Variables.t;
-        context : Context.t;
-        param   : Param.t;
-        model   : SModel.t option;
-        smt2functions : unit HTerms.t
-      }
-
-    let to_SMT2 ?smt2arrays {logic; context; smt2functions; _} =
-      let smt2arrays = Option.map (fun mode -> mode, HTerms.mem smt2functions) smt2arrays in
-      let log = Context.to_sexp ?smt2arrays context in
-      let sl = List[Atom "set-logic"; Atom logic] in
-      let pp fmt sexplist =
-        Format.fprintf fmt "@[<v>%a@]" (List.pp ~pp_sep:Format.unit pp_sexp) sexplist
-      in
-      Format.to_string pp (sl::log)
-
     type t = {
         verbosity : int;
-        config    : Config.t;
-        env       : env option ref;
+        param     : Param.t;
         infos     : string StringHashtbl.t;
         options   : string StringHashtbl.t;
-        set_logic : string -> Config.t -> unit;
+        types     : type_t VarMap.t;
+        variables : Variables.t;
+        model     : SModel.t option ref;
+        smt2functions : unit HTerms.t;
       }
 
-    let set_logic logic config =
+    let set_logic ?logic config =
       match logic with
-      | "all" -> ()
-      | "none" -> Config.default config
-      | _ -> Config.default config ~logic
+      | None
+        | Some "all"  -> ()
+      | Some "none" -> Config.default config
+      | Some "mcsat" ->
+         Config.set config ~name:"solver-type" ~value:"mcsat";
+         Config.set config ~name:"model-interpolation" ~value:"true"
+      | Some logic  -> Config.default config ~logic
 
     let create ?(set_logic=set_logic) verbosity =
       print verbosity 1 "Now initialising Yices version %s@," Global.version;
@@ -194,37 +171,17 @@ module Make(Ext : Ext_types.API) = struct
       print verbosity 1 "Init done@,";
       {
         verbosity;
-        config    = Config.malloc ();
-        env       = ref None;
+        param     = Param.malloc();
         infos     = StringHashtbl.create 10;
         options   = StringHashtbl.create 10;
-        set_logic;
+        types     = VarMap.create 10;
+        variables = Variables.init();
+        model     = ref None;
+        smt2functions = Global.hTerms_create 10;
       }
 
-    let init_env session ~logic =
-      let types     = VarMap.create 10 in
-      let variables = Variables.init() in
-      let context = Context.malloc ~config:session.config () in
-      let param = Param.malloc() in
-      let model = None in
-      let smt2functions = Global.hTerms_create 10 in
-      Param.default context param;
-      session.env := Some { verbosity = session.verbosity;
-                            logic;
-                            types;
-                            variables;
-                            context;
-                            param;
-                            model;
-                            smt2functions}
-
     let exit session =
-      (match !(session.env) with
-       | Some env ->
-          Param.free env.param;
-          Context.free env.context
-       | None -> () );
-      Config.free session.config;
+      Param.free session.param;
       Global.exit()
 
   end
@@ -285,18 +242,16 @@ module Make(Ext : Ext_types.API) = struct
               try
                 let t =
                   if Str.(string_match (regexp {|.*[\.eE].*|}) s 0)
-                  then
-                    ((* print_endline s; *)
-                     Term.Arith.parse_float s)
+                  then Term.Arith.parse_float s
                   else Term.Arith.parse_rational s
                 in
                 if Term.is_good t then t
                 else 
-                  raise (Yices_SMT2_exception
-                           (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
+                  raise_smt2
+                    "%s is not a declared symbol, nor a bitvector/rational/float constant" s
               with _ ->
-                raise (Yices_SMT2_exception
-                         (s^" is not a declared symbol, nor a bitvector/rational/float constant"))
+                raise_smt2
+                  "%s is not a declared symbol, nor a bitvector/rational/float constant" s
             in
             if String.length s < 2 then aux s
             else
@@ -541,210 +496,242 @@ module Make(Ext : Ext_types.API) = struct
         raise exc
   end
 
+  let context_of_id ?(id=0) sexp =
+    match Context.of_id id with
+    | Some ctx -> ctx
+    | None ->
+       if Int.equal id 0
+       then
+       raise_smt2
+         "You need an instruction (set-logic ...) or (new-context ...) before instruction %a"
+         pp_sexp sexp
+       else
+         raise_smt2 "No live context with id %i for instruction %a" id pp_sexp sexp
+  
   module ParseInstruction = struct
 
     open Session
     
-    let get_model env = match env.model with
+    let get_model session = match !(session.model) with
       | Some m -> m
-      | None -> Context.get_model env.context ~keep_subst:true
+      | None ->
+         let ctx = context_of_id (Atom "get-model") in
+         Context.get_model ctx ~keep_subst:true
 
     let display = { width=80; height=80; offset=0 }
 
     let iter f n =
       let n = int_of_string n in
       for _i = 1 to n do f() done
+
+    let parse_context_instruction ?id session sexp head args =
+      let print a (type a) b : a = print session.verbosity a b in
+      let context = context_of_id ?id sexp in
+      match head, args with
+      | "push",       [Atom n]  -> iter (fun () -> Context.push context) n
+
+      | "pop",        [Atom n]  -> iter (fun () -> Context.pop context) n
     
+      | "reset-assertions", []  -> Context.reset context
+    
+      | "get-assertions", _ -> print 0 "@[<v>%a@]@," Context.pp context
+
+      | "assert", [formula] ->
+         let formula = ParseTerm.parse session formula |> get in
+         Context.assert_formula context formula;
+         Option.iter SModel.free !(session.model);
+         session.model := None;
+
+      | "assert", formulas ->
+         let formulas = Cont.map (ParseTerm.parse session) formulas |> get in
+         Context.assert_formulas context formulas;
+         Option.iter SModel.free !(session.model);
+         session.model := None;
+
+      | "check-sat", []           ->
+         (match Context.check context ~param:session.param with
+          | `STATUS_SAT   -> print 0 "sat@,"
+          | `STATUS_UNSAT -> print 0 "unsat@,"
+          | status -> print 0 "%a@," Types.pp_smt_status status)
+
+      | "check-sat-assuming", l  ->
+         let assumptions = List.map (fun x -> get(ParseTerm.parse session x)) l in
+         (match Context.check ~assumptions ~param:session.param context with
+          | `STATUS_SAT   -> print 0 "sat@,"
+          | `STATUS_UNSAT -> print 0 "unsat@,"
+          | status -> print 0 "%a@," Types.pp_smt_status status)
+
+      | "get-value", l ->
+         let smodel = get_model session in
+         let terms = List.map (fun x -> get(ParseTerm.parse session x)) l in
+         print 0 "@[<v>%a@]@," (List.pp Term.pp)
+           (Model.terms_value (let SModel{model;_} = smodel in model) terms);
+         session.model := Some smodel
+
+      | "get-assignment", [] ->
+         raise_smt2 "Not sure how to treat get-assignment"
+
+      | "get-model", [] -> 
+         let model = get_model session in
+         print 0 "%a@," (SModel.pp()) model;
+         session.model := Some model
+
+      | "get-unsat-assumptions", [] ->
+         raise_smt2 "Not sure how to treat get-unsat-assumptions"
+
+      | "get-proof", []      ->
+         raise_smt2 "Yices produces no proof"
+
+      | "get-unsat-core", [] ->
+         let terms = Context.get_unsat_core context in
+         List.iter (fun formula -> print_endline(PP.term_string formula ~display)) terms
+
+      | "check-sat-assuming-model", [List vars; List vals] ->
+         let f (map,tlist) a b =
+           let a = ParseTerm.parse session a |> get in
+           let b = ParseTerm.parse session b |> get in
+           (a,b)::map , a::tlist
+         in
+         let map,support = List.fold_left2 f ([],[]) vars vals in
+         let model = Model.from_map map in
+         let status =
+           Context.check ~param:session.param ~smodel:(SModel.make ~support model) context
+         in
+         (match status with
+          | `STATUS_SAT   -> print 0 "sat@,"
+          | `STATUS_UNSAT -> print 0 "unsat@,"
+          | _ -> print 0 "%a@," Types.pp_smt_status status)
+    
+      | "get-unsat-model-interpolant", [] ->
+         let interpolant = Context.get_model_interpolant context in
+         print 0 "%a@," Term.pp interpolant
+
+      | _, args ->
+         raise_smt2
+           "@[<v>Not part of SMT2:@,head is@, @[%s@]@,with arguments@, @[<v>%a@]@]"
+           head (List.pp Sexp.pp_hum) args
+
+         
     let parse session sexp =
       let print a (type a) b : a = print session.verbosity a b in
       match sexp with
       | List(Atom head::args) ->
-         begin match head, args, !(session.env) with
-         | "reset", _, _                              -> Global.reset()
+         begin match head, args with
+         | "reset", _                            -> Global.reset()
 
-         | "set-logic",  [Atom logic],   None         ->
-            session.set_logic logic session.config;
-            Session.init_env session ~logic
+         | "set-logic",  [Atom logic]            ->
+            let config = Config.malloc () in
+            StringHashtbl.iter (fun name value -> Config.set config ~name ~value)
+              session.options;
+            set_logic ~logic config;
+            let ctx = Context.malloc ~config () in
+            Param.default ctx session.param;
+            Config.free config
 
-         | "set-logic",  [Atom _logic],   Some _       ->
-            raise (Yices_SMT2_exception "set-logic already used")
+         | "new-context",  []            ->
+            let config = Config.malloc () in
+            StringHashtbl.iter (fun name value -> Config.set config ~name ~value)
+              session.options;
+            set_logic config;
+            let ctx = Context.malloc ~config () in
+            Param.default ctx session.param;
+            Config.free config
 
-         | "set-option", [Atom name; Atom value], _ ->
-            StringHashtbl.replace session.options name value;
-            Config.set session.config ~name ~value
+         | "set-option", [Atom name; Atom value] ->
+            StringHashtbl.replace session.options name value
 
-         | "exit",       [], _                        -> Session.exit session
+         | "exit",       []                          -> Session.exit session
 
-         | "push",       [Atom n], Some {context; _}  -> iter (fun () -> Context.push context) n
-
-         | "pop",        [Atom n], Some {context; _}  -> iter (fun () -> Context.pop context) n
-               
-         | "reset-assertions", [], Some {context; _}  -> Context.reset context;
-
-         | "declare-sort", (Atom _ :: Atom _ :: _), None
-           | "declare-fun", [Atom _; List _; _], None
-           | "declare-const", [Atom _; _],       None
-           | "define-fun", [Atom _; List _; _],  None ->
-            raise (Yices_SMT2_exception("Call set-logic before "^head))
-
-         | "declare-sort", (Atom var::Atom n::card), Some env ->
+         | "declare-sort", (Atom var::Atom n::card) ->
             let n = int_of_string n in
             if n <> 0
-            then raise (Yices_SMT2_exception "Yices only treats uninterpreted types of arity 0");
+            then raise_smt2 "Yices only treats uninterpreted types of arity 0";
             let card =
               match card with
               | [] -> None
               | [Atom i] -> Some(int_of_string i)
               | _ -> raise (Yices_SMT2_exception "Wrong form of cardinality for uninterpreted type");
             in
-            let ytype = Type.new_uninterpreted ~contexts:[env.context] ~name:var ?card () in
-            VarMap.add env.types var ytype
+            let ytype = Type.new_uninterpreted ~name:var ?card () in
+            VarMap.add session.types var ytype
 
-         | "declare-fun", [Atom var; List domain; codomain], Some env ->
-            let domain = List.map (fun x -> ParseType.parse env.types x |> get) domain in
-            let codomain = ParseType.parse env.types codomain |> get in
+         | "declare-fun", [Atom var; List domain; codomain] ->
+            let domain =
+              List.map (fun x -> ParseType.parse session.types x |> get) domain
+            in
+            let codomain = ParseType.parse session.types codomain |> get in
             let ytype = match domain with
               | []   -> codomain
               | _::_ -> Type.func domain codomain
             in
-            let yvar = Term.new_uninterpreted ~contexts:[env.context] ~name:var ytype in
-            if List.is_empty domain then HTerms.add env.smt2functions yvar ();
-            Variables.permanently_add env.variables var yvar
+            let yvar = Term.new_uninterpreted ~name:var ytype in
+            if List.is_empty domain then HTerms.add session.smt2functions yvar ();
+            Variables.permanently_add session.variables var yvar
 
-         | "declare-const", [Atom var; typ], Some env ->
-            let ytype = ParseType.parse env.types typ |> get in
-            let yvar = Term.new_uninterpreted ~contexts:[env.context] ~name:var ytype in 
-            Variables.permanently_add env.variables var yvar
+         | "declare-const", [Atom var; typ] ->
+            let ytype = ParseType.parse session.types typ |> get in
+            let yvar = Term.new_uninterpreted ~name:var ytype in 
+            Variables.permanently_add session.variables var yvar
 
-         | "declare-datatypes", _, _
-           | "declare-datatype", _, _
-           | "define-funs-rec", _, _
-           | "define-fun-rec", _, _    ->
-            raise (Yices_SMT2_exception("Yices does not support "^head))
+         | "declare-datatypes", _
+           | "declare-datatype", _
+           | "define-funs-rec", _
+           | "define-fun-rec", _    ->
+            raise_smt2 "Yices does not support %s" head
 
-         | "define-sort", [Atom var; List []; body], Some env ->
-            let ytype = ParseType.parse env.types body |> get in
-            VarMap.add env.types var ytype;
-            Type.Names.set ~contexts:[env.context] ytype var
+         | "define-sort", [Atom var; List []; body] ->
+            let ytype = ParseType.parse session.types body |> get in
+            VarMap.add session.types var ytype;
+            Type.Names.set ytype var
                
-         | "define-fun", [Atom var; List domain; _codomain; body], Some env ->
-            let parse_pair (subst,bindings,domain) pair = match pair with
+         | "define-fun", [Atom var; List domain; _codomain; body] ->
+            let parse_pair (subst,bindings,domain) pair =
+              match pair with
               | List [Atom var_string; typ] ->
-                 let vartyp = ParseType.parse env.types typ |> get in
+                 let vartyp = ParseType.parse session.types typ |> get in
                  let var = Term.new_variable vartyp in
                  (var_string, var)::subst, var::bindings, vartyp::domain
-              | _ -> raise (Yices_SMT2_exception "List of variables in a define-fun should be list of pairs")
+              | sexp ->
+                 raise_smt2 "List of variables in a define-fun should be list of pairs, not %a" pp_sexp sexp
             in
             let subst, bindings, domain =
               domain |> List.rev |> List.fold_left parse_pair ([],[],[])
             in
-            let env_body = { env with variables = Variables.add env.variables subst } in
-            let body     = ParseTerm.parse env_body body |> get in
+            let session_body =
+              { session with variables = Variables.add session.variables subst}
+            in
+            let body = ParseTerm.parse session_body body |> get in
             let body = match domain with
               | []   -> body
               | _::_ -> Term.lambda bindings body
             in
-            Variables.permanently_add env.variables var body;
-            Term.Names.set ~contexts:[env.context] body var
-               
-         | "get-assertions", _, Some {context; _} -> print 0 "@[<v>%a@]@," Context.pp context
+            Variables.permanently_add session.variables var body;
+            Term.Names.set body var
 
-         | "assert", [formula], Some env ->
-            let formula = ParseTerm.parse env formula |> get in
-            Context.assert_formula env.context formula;
-            Option.iter (fun (SModel{model;_}) -> Model.free model) env.model;
-            session.env := Some { env with model = None};
-
-         | "assert", formulas, Some env ->
-            let formulas = Cont.map (ParseTerm.parse env) formulas |> get in
-            Context.assert_formulas env.context formulas;
-            Option.iter (fun (SModel{model;_}) -> Model.free model) env.model;
-            session.env := Some { env with model = None};
-
-         | "check-sat", [], Some env          ->
-            (match Context.check env.context ~param:env.param with
-             | `STATUS_SAT   -> print 0 "sat@,"
-             | `STATUS_UNSAT -> print 0 "unsat@,"
-             | status -> print 0 "%a@," Types.pp_smt_status status)
-
-         | "check-sat-assuming", l, Some env  ->
-            let assumptions = List.map (fun x -> get(ParseTerm.parse env x)) l in
-            (match Context.check ~assumptions ~param:env.param env.context with
-             | `STATUS_SAT   -> print 0 "sat@,"
-             | `STATUS_UNSAT -> print 0 "unsat@,"
-             | status -> print 0 "%a@," Types.pp_smt_status status)
-
-         | "get-value", l, Some env ->
-            let smodel = get_model env in
-            let terms = List.map (fun x -> get(ParseTerm.parse env x)) l in
-            print 0 "@[<v>%a@]@," (List.pp Term.pp)
-              (Model.terms_value (let SModel{model;_} = smodel in model) terms);
-            session.env := Some { env with model = Some smodel }
-
-         | "get-assignment", [], Some _env ->
-            raise (Yices_SMT2_exception "Not sure how to treat get-assignment")
-
-         | "get-model", [], Some env -> 
-            let model = get_model env in
-            print 0 "%a@," (SModel.pp()) model;
-            session.env := Some { env with model = Some model }
-
-         | "get-unsat-assumptions", [], Some _env ->
-            raise (Yices_SMT2_exception "Not sure how to treat get-unsat-assumptions")
-
-         | "get-proof", [], Some _env             ->
-            raise (Yices_SMT2_exception "Yices produces no proof")
-
-         | "get-unsat-core", [], Some env ->
-            let terms = Context.get_unsat_core env.context in
-            List.iter (fun formula -> print_endline(PP.term_string formula ~display)) terms
-
-         | "get-info", [ Atom key ], _                  ->
+         | "get-info", [ Atom key ] ->
             print 0 "%s@," (StringHashtbl.find session.infos key)
 
-         | "get-option", [ Atom key ], _                ->
+         | "get-option", [ Atom key ] ->
             print 0 "%s@," (StringHashtbl.find session.options key)
 
-         | "echo", [Atom s], _  -> print 0 "@[%s@]@," s
+         | "echo", [Atom s]  -> print 0 "@[%s@]@," s
 
-         | "set-info", [Atom key; Atom value] , _ ->
+         | "set-info", [Atom key; Atom value] ->
             StringHashtbl.replace session.infos key value
 
-         | "set-info", _ , _ -> print 1 "@[Silently ignoring set-info@]@,"
+         | "set-info", _ -> print 1 "@[Silently ignoring set-info@]@,"
 
-         | "check-sat-assuming-model", [List vars; List vals], Some env ->
-            let f (map,tlist) a b =
-              let a = ParseTerm.parse env a |> get in
-              let b = ParseTerm.parse env b |> get in
-              (a,b)::map , a::tlist
-            in
-            let map,support = List.fold_left2 f ([],[]) vars vals in
-            let model = Model.from_map map in
-            let status =
-              Context.check ~param:env.param ~smodel:(SModel.make ~support model) env.context
-            in
-            (match status with
-             | `STATUS_SAT   -> print 0 "sat@,"
-             | `STATUS_UNSAT -> print 0 "unsat@,"
-             | _ -> print 0 "%a@," Types.pp_smt_status status)
-               
-         | "get-unsat-model-interpolant", [], Some env ->
-            let interpolant = Context.get_model_interpolant env.context in
-            print 0 "%a@," Term.pp interpolant
+         | "context", [Atom id; instruction] ->
+            let id = int_of_string id in
+            parse_context_instruction ~id session sexp head args
 
-         | _, args, _ ->
-            let msg =
-              Format.sprintf
-                "@[<v>Not part of SMT2:@,head is@, @[%s@]@,with arguments@, @[<v>%a@]@]"
-                head (List.pp Sexp.pp_hum) args in
-            raise (Yices_SMT2_exception msg);
+         | _ -> parse_context_instruction session sexp head args
+  
          end
     
       | Atom _ 
         | List _ ->
-         let s = Format.to_string pp_sexp sexp in
-         raise(Yices_SMT2_exception("I doubt this is in the SMT2 language: "^s))
-
+         raise_smt2 "I doubt that this is an SMT2 instruction: %a" pp_sexp sexp
   end
 
   module SMT2 = struct

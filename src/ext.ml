@@ -48,7 +48,7 @@ type context = {
     context    : context_ptr;
     assertions : assertions ref;
     options    : unit HStrings.t;
-    log        : action list ref;
+    id         : int;
     is_alive   : bool ref;
     config_options : String.t HStrings.t;
     mcsat      : bool;
@@ -76,11 +76,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let malloc () = Config{
         config  = Config.malloc();
         options = HStrings.create 10;
-        mcsat  = ref false
+        logic   = ref None;
+        mcsat   = ref false
       }
 
     let free (Config{ config; _}) = Config.free config
-    let set (Config{ config; mcsat; options }) ~name ~value =
+    let set (Config{ config; mcsat; options; _ }) ~name ~value =
       HStrings.replace options name value;
       if String.equal name "solver-type"
       then mcsat := String.equal value "mcsat";
@@ -89,14 +90,16 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let mcsat_logics = HStrings.create 10
 
     let () =
-      HStrings.replace mcsat_logics "QF_NRA" ();
-      HStrings.replace mcsat_logics "QF_NIA" ();
-      HStrings.replace mcsat_logics "QF_UFNRA" ();
-      HStrings.replace mcsat_logics "QF_UFNIA" ()
+      ["QF_NRA"; "QF_NIA"; "QF_NIRA";
+       "QF_UFNRA"; "QF_UFNIA";
+       "QF_ANIA"; "QF_AUFNIA"; "QF_AUFBVNIA"]
+      |> Seq.of_list
+      |> Seq.map (fun x->(x,()))
+      |> HStrings.replace_seq mcsat_logics
     
-    let default ?logic (Config{ config; mcsat; _ }) =
+    let default ?logic (Config{ config; mcsat; logic = l; _ }) =
       let () = match logic with
-        | Some logic when HStrings.mem mcsat_logics logic -> mcsat := true
+        | Some logic when HStrings.mem mcsat_logics logic -> l := Some logic; mcsat := true
         | _ -> mcsat := false
       in
       Config.default ?logic config
@@ -1082,6 +1085,27 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     type t = action
 
+    let to_sexp_context ?smt2arrays = function
+      | Status -> sexp "get-status" []
+      | Reset  -> sexp "reset-assertions" []
+      | Push   -> sexp "push" []
+      | Pop    -> sexp "pop" []
+      | EnableOption s -> sexp "set-option" [Atom s; Atom "true"] 
+      | DisableOption s -> sexp "set-option" [Atom s; Atom "false"]
+      | AssertFormula t -> sexp "assert" [TermSexp.to_sexp ~smt2arrays t]
+      | AssertFormulas l ->
+         sexp "assert" (List.map (TermSexp.to_sexp ~smt2arrays) l)
+      | AssertBlockingClause -> sexp "assert-blocking-clause" []
+      | Check _param -> sexp "check-sat" [] 
+      | CheckWithAssumptions{ assumptions; _ } ->
+         sexp "check-sat-assuming" (List.map (TermSexp.to_sexp ~smt2arrays) assumptions)
+      | Stop         -> sexp "stop" []
+      | GetModel _   -> sexp "get-model" []
+      | GetUnsatCore -> sexp "get-unsat-core" []
+      | CheckWithModel{ smodel; _} ->
+         sexp "check-sat-assuming-model" [SModel.to_sexp ~smt2arrays smodel]
+      | GetModelInterpolant -> sexp "get-unsat-model-interpolant" []
+
     let to_sexp ?smt2arrays accu = function
       | DeclareType(typ, card) ->
          let typ_string = Format.sprintf "%a" TypeSexp.pp typ in
@@ -1137,37 +1161,35 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          in
          use_term_names := old;
          sexp "define-fun" args ::accu
-      | Status -> sexp "get-status" [] ::accu
-      | Reset  -> sexp "reset-assertions" [] ::accu
-      | Push   -> sexp "push" [] ::accu
-      | Pop    -> sexp "pop" [] ::accu
-      | EnableOption s -> sexp "set-option" [Atom s; Atom "true"] ::accu 
-      | DisableOption s -> sexp "set-option" [Atom s; Atom "false"] ::accu
-      | AssertFormula t -> sexp "assert" [TermSexp.to_sexp ~smt2arrays t] ::accu
-      | AssertFormulas l ->
-         sexp "assert" (List.map (TermSexp.to_sexp ~smt2arrays) l) ::accu
-      | AssertBlockingClause -> sexp "assert-blocking-clause" [] ::accu
-      | Check _param -> sexp "check-sat" [] ::accu 
-      | CheckWithAssumptions{ assumptions; _ } ->
-         sexp "check-sat-assuming" (List.map (TermSexp.to_sexp ~smt2arrays) assumptions) ::accu
-      | Stop         -> sexp "stop" [] ::accu
-      | GetModel _   -> sexp "get-model" [] ::accu
-      | GetUnsatCore -> sexp "get-unsat-core" [] ::accu
-      | CheckWithModel{ smodel; _} ->
-         sexp "check-sat-assuming-model" [SModel.to_sexp ~smt2arrays smodel] ::accu
-      | CheckWithInterpolation{ build_model; is_first; other_assertions; _} ->
+      | CheckWithInterpolation{ build_model; context1; context2; _} ->
          let build_model = Atom(if build_model then "build_model" else "no_build_model") in
-         let is_first    = Atom(if is_first then "is_first" else "is_second") in
          sexp "check-sat-with-interpolation"
-           [build_model; is_first; Assertions.to_sexp ?smt2arrays other_assertions] ::accu
-      | GetModelInterpolant -> sexp "get-unsat-model-interpolant" [] ::accu
+           [build_model; Atom(string_of_int context1); Atom(string_of_int context2)] ::accu
       | GarbageCollect sexpl -> sexp "garbage-collect" sexpl ::accu
+      | NewContext { logic = Some logic } ->
+         sexp "set-logic" [Atom logic] ::accu
+      | NewContext { logic = None } ->
+         sexp "new-context" [] ::accu
+      | ContextAction { context_id ; context_action } ->
+         let action = to_sexp_context ?smt2arrays context_action in
+         if context_id = 0 then action::accu
+         else sexp "context" [Atom(string_of_int context_id);action]::accu 
 
   end
 
   let global_log = ref []
   let () = Global.register_cleanup (fun ~after:_ -> global_log := [])
 
+  module Global = struct
+    include HighAPI.Global
+    let log () = !global_log
+    let to_sexp ?smt2arrays () =
+      log () |> List.fold_left (Action.to_sexp ?smt2arrays) [] 
+    let pp_log fmt =
+      Format.fprintf fmt "%a"
+        (List.pp ~pp_sep:pp_sep_break pp_sexp) (to_sexp ())
+  end
+  
   module Context = struct
 
     let pp_options fmt options =
@@ -1178,24 +1200,40 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     type t = context
 
-    let assertions ctx = !(ctx.assertions)
+    let assertions ctx     = !(ctx.assertions)
     let options ctx        = HStrings.copy ctx.options
     let config_options ctx = HStrings.copy ctx.config_options
-    let log ctx      = !(ctx.log)
+    let log ctx      =
+      let aux (sofar,context_count) = function
+        | ContextAction { context_id ; context_action } ->
+           if Int.equal context_id ctx.id
+           then ContextAction { context_id = 0 ; context_action }::sofar, context_count
+           else sofar, context_count
+        | NewContext _ as action ->
+           if Int.equal context_count ctx.id then (action::sofar,context_count+1)
+           else (sofar,context_count+1)
+        | action -> action::sofar, context_count
+      in
+      List.(!global_log |> rev |> fold_left aux ([],0) |> fst) 
     let is_alive ctx = !(ctx.is_alive)
     let is_mcsat ctx = ctx.mcsat
+    let id ctx       = ctx.id
 
-    let all = ref []
+    module HContext = Hashtbl.Make(Int)
+    let all = HContext.create 10
+    let next_id = ref 0
     let () = Global.register_cleanup (* We don't erase contexts after GC *)
                (fun ~after ->
                  match after with
                  | `GC -> ()
-                 | _ -> all := [])
+                 | _ -> HContext.reset all; next_id :=0)
+
+    let of_id = HContext.find_opt all
 
     let pp fmt {assertions; _} = Assertions.pp fmt !assertions
 
-    let to_sexp ?smt2arrays {log; _} =
-      !log |> List.fold_left (Action.to_sexp ?smt2arrays) [] 
+    let to_sexp ?smt2arrays ctx =
+      log ctx |> List.fold_left (Action.to_sexp ?smt2arrays) [] 
 
     let pp_log fmt ctx =
       Format.fprintf fmt "%a"
@@ -1203,45 +1241,59 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     let malloc ?config () =
       let yconfig = Option.map (fun (Config{config;_}) -> config) config in
-      let config_options =
+      let config_options, mcsat, logic =
         match config with
-        | Some(Config{options;_}) -> HStrings.copy options
-        | None -> HStrings.create 1
+        | Some(Config{options; mcsat; logic; _}) ->
+           HStrings.copy options, !mcsat, !logic
+        | None -> HStrings.create 1, false, None
       in
+      let action = NewContext{ logic }
+      in
+      global_log := action::!global_log;
       let context = 
         { config     = config;
           context    = Context.malloc ?config:yconfig ();
           assertions = ref Assertions.init;
           options    = HStrings.create 10;
-          log        = ref !global_log;
+          id         = !next_id;
           is_alive   = ref true;
           config_options;
           last_check_model = Global.hTerms_create 50;
           blocked    = ref false;
-          mcsat      = match config with
-                       | Some(Config{mcsat;_}) -> !mcsat
-                       | None -> false
+          mcsat
         }
       in
-      all := context::!all;
+      HContext.add all context.id context;
+      incr next_id;
       context
 
     let malloc_mcsat () =
       let cfg = Config.malloc () in
       Config.set cfg ~name:"solver-type" ~value:"mcsat";
       Config.set cfg ~name:"model-interpolation" ~value:"true";
-      malloc ~config:cfg ()
-    
-    let all() = !all
+      let ctx = malloc ~config:cfg () in
+      Config.free cfg;
+      ctx
 
-    let free {context; is_alive; _ } = Context.free context; is_alive := false
+    let malloc_logic logic =
+      let cfg = Config.malloc () in
+      Config.default ~logic cfg;
+      let ctx = malloc ~config:cfg () in
+      Config.free cfg;
+      ctx
 
-    let action a x = x.log := a::!(x.log)
+    let free {context; is_alive; id; _ } =
+      if not !is_alive
+      then EH.raise_bindings_error "Trying to free dead context #%i" id;
+      Context.free context;
+      is_alive := false
 
-    (* GC invalidates references to terms and types in x.log *)
-    let garbage_collect ?(record_log=false) x =
-      let sexps = if record_log then to_sexp x else [] in
-      x.log := [GarbageCollect sexps]
+    let action a x =
+      if not !(x.is_alive)
+      then EH.raise_bindings_error "Trying to take action %a on dead context #%i"
+             pp_sexp (Action.to_sexp_context a)
+             x.id;
+      global_log := ContextAction{ context_id = x.id; context_action = a}::!global_log
 
     let status x =
       action Status x;
@@ -1423,27 +1475,20 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       action Stop x;
       Context.stop x.context
 
-    let declare_type x ?card s =
-      unblock x;
-      action (DeclareType(s,card)) x
-
-    let declare_fun x s t =
-      unblock x;
-      action (DeclareFun(s,t)) x
-
     let check_with_interpolation ?(build_model=true) ?param ctx_A ctx_B =
+      let raise =
+        EH.raise_bindings_error "Trying to involve dead context %i in check with interpolation"
+      in
+      if not !(ctx_A.is_alive) then raise ctx_A.id;
+      if not !(ctx_B.is_alive) then raise ctx_B.id;
       unblock ctx_A;
       unblock ctx_B;
-      action
-        (CheckWithInterpolation{param; build_model; is_first = true;
-                                other_assertions = !(ctx_B.assertions);
-                                other_log        = !(ctx_B.log)})
-        ctx_A;
-      action
-        (CheckWithInterpolation{param; build_model; is_first = false;
-                                other_assertions = !(ctx_A.assertions);
-                                other_log        = !(ctx_A.log)})
-        ctx_B;
+      let action =
+        CheckWithInterpolation{param; build_model;
+                               context1 = ctx_A.id;
+                               context2 = ctx_B.id}
+      in
+      global_log := action::!global_log;
       let status =
         Context.check_with_interpolation ~build_model ?param
           ctx_A.context ctx_B.context
@@ -1458,6 +1503,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | `STATUS_SAT(Some m) ->
          `STATUS_SAT(fun ?support () -> SModel.make ?support m)
 
+    let all () = HContext.to_seq_values all
   end
 
   module Term = struct
@@ -1472,16 +1518,14 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                  | `GC -> all_uninterpreted := None; 
                  | _   -> all_uninterpreted := Some [])
 
-    let new_uninterpreted ?(contexts=[]) ?name ty =
+    let new_uninterpreted ?name ty =
       let name = match name with
         | Some name -> name
         | None -> incr count; "x"^string_of_int !count
       in
       let t = new_uninterpreted ~name ty in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = DeclareFun(t,ty) in
-      global_log := action::!global_log;
-      List.iter (fun x -> if !(x.is_alive) then Context.action action x) contexts;
+      global_log        := DeclareFun(t,ty)::!global_log;
       t
 
     let all_uninterpreted() =
@@ -1493,12 +1537,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     module Names = struct
       include Names
-      let set ?(contexts=[]) t name =
-        set t name;
-        let action = DefineFun(name,t,Term.type_of_term t) in
-        global_log := action::!global_log;
-        List.iter
-          (fun x -> if !(x.is_alive) then Context.action action x) contexts        
+      let set t name =
+        global_log := DefineFun(name,t,Term.type_of_term t)::!global_log;
+        set t name
     end
   end
 
@@ -1514,16 +1555,14 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                  | `GC -> all_uninterpreted := None; 
                  | _   -> all_uninterpreted := Some [])
 
-    let new_uninterpreted ?(contexts=[]) ?name ?card () =
+    let new_uninterpreted ?name ?card () =
       let name = match name with
         | Some name -> name
         | None -> incr count; "x"^string_of_int !count
       in
       let t = new_uninterpreted ~name ?card () in
       all_uninterpreted := Option.map (fun l -> t::l) !all_uninterpreted;
-      let action = DeclareType(t, card) in
-      global_log := action::!global_log;
-      List.iter (fun x -> if !(x.is_alive) then Context.action action x) contexts;
+      global_log := DeclareType(t, card)::!global_log;
       t
 
     let all_uninterpreted() =
@@ -1535,29 +1574,24 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
     module Names = struct
       include Names
-      let set ?(contexts=[]) typ name =
-        set typ name;
-        let action = DefineType(name,typ) in
-        global_log := action::!global_log;
-        List.iter
-          (fun x -> if !(x.is_alive) then Context.action action x) contexts        
+      let set typ name =
+        global_log := DefineType(name,typ)::!global_log;
+        set typ name
     end
 
   end
 
   module GC = struct
     include GC
-    let garbage_collect ?(record_log=false) ?(contexts=[]) term_list type_list keep_named =
+    let garbage_collect ?(record_log=false) term_list type_list keep_named =
       (* If the users asks, we compile the current log *)
       let sexps  =
         if record_log
         then List.fold_left Action.to_sexp [] !global_log
         else []
       in
-      let action = GarbageCollect sexps in
-      List.iter (fun x -> if !(x.is_alive) then Context.garbage_collect x) contexts;
-      garbage_collect term_list type_list keep_named;
-      global_log := [action]
+      global_log := [GarbageCollect sexps];
+      garbage_collect term_list type_list keep_named
   end
 
   module Param = struct

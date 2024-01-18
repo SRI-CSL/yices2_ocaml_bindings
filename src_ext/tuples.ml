@@ -125,7 +125,7 @@ module Arg = struct
     | Product(_,l) ->
        List.for_all (fun (t,_) -> check t) l
 
-  let tuple_blast ?contexts t =
+  let tuple_blast t =
     let rec tuple_blast t =
       (* Format.(fprintf stdout) "@,@[tuple_blast %a@]" Term.pp t; *)
       let open Types in
@@ -135,7 +135,7 @@ module Arg = struct
         | A0(`YICES_VARIABLE,t) ->
            HTerms.get_or_add htbl ~f:(atom_blast Term.new_variable) ~k:t
         | A0(`YICES_UNINTERPRETED_TERM,t) ->
-           HTerms.get_or_add htbl ~f:(atom_blast (Term.new_uninterpreted ?contexts)) ~k:t
+           HTerms.get_or_add htbl ~f:(atom_blast Term.new_uninterpreted) ~k:t
         | A2(`YICES_EQ_TERM,t1,t2) ->
            TopTuple.Single(TopTuple.map2 Term.eq (tuple_blast t1) (tuple_blast t2)
                            |> TopTuple.flatten
@@ -230,7 +230,7 @@ module Context = struct
     Format.fprintf fmt "%a" (List.pp ~pp_sep pp_sexp) (sexps)
     
   let assert_formula ctx f =
-    match Arg.tuple_blast ~contexts:[ctx] f with
+    match Arg.tuple_blast f with
     | Arg.TopTuple.Single f ->
        assert(Arg.check f);
        (* Format.(fprintf stdout "ASSERT %a" Term.pp f); *)

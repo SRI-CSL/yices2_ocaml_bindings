@@ -12,6 +12,7 @@ module Types = struct
   type config = Config of {
       config : config_ptr;
       options: config_options;
+      logic  : string option ref;
       mcsat  : bool ref
     }
 
@@ -31,11 +32,7 @@ module Types = struct
         level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
       }
 
-  type action =
-    | DeclareType of type_t * int option
-    | DeclareFun of term_t * type_t
-    | DefineType of string * type_t
-    | DefineFun of string * term_t * type_t
+  type context_action =
     | Status
     | Reset
     | Push
@@ -51,13 +48,20 @@ module Types = struct
     | GetModel of { keep_subst : bool }
     | GetUnsatCore
     | CheckWithModel of { param : param_ptr option; smodel : smodel }
+    | GetModelInterpolant
+
+  type action =
+    | DeclareType of type_t * int option
+    | DeclareFun of term_t * type_t
+    | DefineType of string * type_t
+    | DefineFun of string * term_t * type_t
     | CheckWithInterpolation of { param : param_ptr option;
                                   build_model : bool;
-                                  is_first    : bool;
-                                  other_assertions : assertions;
-                                  other_log : action list }
-    | GetModelInterpolant
+                                  context1 : int;
+                                  context2 : int }
     | GarbageCollect of Sexp.t list
+    | NewContext of { logic : string option }
+    | ContextAction of { context_id : int ; context_action : context_action }
 
   type slice = Slice of {
       extractee : term_t;
@@ -79,6 +83,14 @@ module Types = struct
 
   and 'a closed     = ('a, [`closed])  base
 
+end
+
+module type Global = sig
+  type term
+  include High_types.Global with type 'a eh := 'a
+  val log : unit -> Types.action list
+  val to_sexp : ?smt2arrays:[ `Curry | `Tuple ] * (term -> bool) -> unit -> Sexp.t list
+  val pp_log : Format.formatter -> unit
 end
 
 module type Config = sig
@@ -112,7 +124,10 @@ module type Context = sig
   val log            : t -> action list     (* Everything that happened to that context *)
   val is_alive       : t -> bool            (* Whether the raw context wasn't freed *)
   val is_mcsat       : t -> bool            (* Whether the context uses mcsat *)
-
+  val id             : t -> int             (* Get context id *)
+  val of_id          : int -> t option      (* Get context of id *)
+  val all            : unit -> t Seq.t      (* All contexts that are live *)
+  
   (** Turns the log into list of S-expressions.
       The first executed action ends up as the head of the list. *)
   (* When representing functions in S-expressions,
@@ -132,9 +147,7 @@ module type Context = sig
 
   val malloc : ?config:config -> unit -> t
   val malloc_mcsat : unit -> t
-
-  (** All contexts ever created *)
-  val all  : unit -> t list
+  val malloc_logic : string -> t
 
   (** Free does not free the config field (which could be shared with other contexts) *)
   val free : t -> unit
@@ -162,17 +175,12 @@ module type Context = sig
     ?build_model:bool -> ?param:param -> t -> t
     -> (term, ?support:term list -> unit -> smodel) smt_status_with_answers
 
-  (* The next two functions are just adding declarations to the log,
-     they do not actually introduce new Yices types and terms *)
-  val declare_type   : t -> ?card:int -> typ -> unit
-  val declare_fun    : t -> term -> typ -> unit
-
 end
 
 module type Names = sig
   type t
   type context
-  val set      : ?contexts:context list -> t -> string -> unit
+  val set      : t -> string -> unit
   val remove   : string -> unit
   val clear    : t -> unit
   val is_name  : string -> bool
@@ -190,7 +198,7 @@ module type Type = sig
   (** Introduce a notation for pretty-printing a type (Notation computed lazily) *)
   val notation : t -> ('a, Format.formatter, unit) format -> 'a
 
-  val new_uninterpreted  : ?contexts:context list -> ?name:string -> ?card:int -> unit -> t
+  val new_uninterpreted  : ?name:string -> ?card:int -> unit -> t
 
   (** Print with specific height *)
   val pph : int -> t Format.printer
@@ -213,7 +221,7 @@ module type Term = sig
   type context
   type termset
 
-  val new_uninterpreted  : ?contexts:context list -> ?name:string -> typ -> t
+  val new_uninterpreted  : ?name:string -> typ -> t
 
   (** Introduce a notation for pretty-printing a term (Notation computed lazily) *)
   val notation : t -> ('a, Format.formatter, unit) format -> 'a
@@ -316,6 +324,7 @@ module type API = sig
 
   include High.API with type 'a eh := 'a
 
+  module Global : Global with type term := Term.t
   module Config : Config with type t = config
   module Model  : Model with type t     = Model.t
                          and type typ   := Type.t
@@ -437,7 +446,6 @@ module type API = sig
         which contexts are we looking at for editing their logs (global log is always edited) *)
     val garbage_collect :
       ?record_log:bool ->
-      ?contexts:Context.t list ->
       Term.t list -> Type.t list -> bool -> unit
   end
 
