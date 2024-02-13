@@ -73,7 +73,8 @@ module type API = sig
         smt2functions : unit HTerms.t;
       }
 
-    val create   : ?set_logic:(?logic:string -> Config.t -> unit) -> int -> t
+    val set_logic: (?logic:string -> Config.t -> unit)
+    val create   : int -> t
     val exit : t -> unit
 
   end
@@ -165,7 +166,7 @@ module Make(Ext : Ext_types.API) = struct
          Config.set config ~name:"model-interpolation" ~value:"true"
       | Some logic  -> Config.default config ~logic
 
-    let create ?(set_logic=set_logic) verbosity =
+    let create verbosity =
       print verbosity 1 "Now initialising Yices version %s@," Global.version;
       Global.init();
       print verbosity 1 "Init done@,";

@@ -46,7 +46,8 @@ module type API = sig
         smt2functions : unit Types.HTerms.t;
       }
 
-    val create   : ?set_logic:(?logic:string -> Config.t -> unit) -> int -> t
+    val set_logic: (?logic:string -> Config.t -> unit)
+    val create   : int -> t
     val exit : t -> unit
 
   end
