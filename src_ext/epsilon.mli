@@ -6,7 +6,7 @@ open WithExceptionsErrorHandling
 open Types_ext
 
 module NewTerms : sig
-  type _ t = Epsilon : Types.uninterpreted t
+  type _ t = Epsilon : Types.type_t t
   val compare : 'a t -> 'b t -> ('a, 'b) Dmap.cmp
   val index : 'a t -> (module TermIndex with type t = 'a)
 end
@@ -17,7 +17,7 @@ module Term : sig
                           and type termset := TermSet.t
                           and type context := Builder.Context.t
   val epsilon : t -> t -> t
-  val epsilon_reveal : t -> (t * Types.uninterpreted * t) option
+  val epsilon_reveal : t -> (t * Types.type_t * t) option
 end
 
 module Model : Ext_types.Model with type typ   := Type.t

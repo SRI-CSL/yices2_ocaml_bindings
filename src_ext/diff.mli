@@ -11,7 +11,7 @@ module AddDiff : sig
   include StandardExt
 
   module ExtraType : sig
-    val diff : Types.uninterpreted -> Term.t list
+    val diff : Types.type_t -> Term.t list
   end
 
   module ExtraTerm : sig
