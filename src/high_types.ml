@@ -10,16 +10,13 @@ module Types = struct
     | `STATUS_SAT of 'b
     | `STATUS_UNSAT of 'a ]
 
-  type scalar = type_t [@@deriving eq]
-  type uninterpreted = type_t [@@deriving eq]
-
   type ytype =
     | Bool
     | Int
     | Real
     | BV of int
-    | Scalar of scalar
-    | Uninterpreted of uninterpreted
+    | Scalar of type_t        (* Argument is the type itself *)
+    | Uninterpreted of type_t (* Argument is the type itself *)
     | Tuple of type_t list
     | Fun of { dom : type_t list; codom : type_t } [@@deriving eq]
 
