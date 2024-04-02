@@ -1429,7 +1429,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
            action (CheckWithAssumptions{param; assumptions}) x;
            Context.check_with_assumptions ?param x.context assumptions
 
-    let set_var_order x vars = Context.set_var_order x.context vars
+    let set_fixed_var_order x vars = Context.set_fixed_var_order x.context vars
+
+    let set_initial_var_order x vars = Context.set_initial_var_order x.context vars
 
     let get_model ?(keep_subst=true) ?support x =
       action (GetModel{ keep_subst }) x;
