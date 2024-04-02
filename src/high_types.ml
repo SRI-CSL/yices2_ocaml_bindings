@@ -3617,7 +3617,8 @@ module type Context = sig
 val check_with_model_and_hint : ?param:param -> t -> hard:term list -> soft:term list -> model -> smt_status
 
 (**
- * Set variable ordering for making mcsat decisions.
+ * Set a fixed variable ordering for making mcsat decisions. MCSAT
+ * will always first decide these variables in the given order.
  *
  * - ctx must be a context initialized with support for MCSAT
  *   (see yices_new_context, yices_new_config, yices_set_config).
@@ -3632,7 +3633,25 @@ val check_with_model_and_hint : ?param:param -> t -> hard:term list -> soft:term
  * If the context does not have the MCSAT solver enabled
  *   code = CTX_OPERATION_NOT_SUPPORTED
  **)
-val set_var_order : t -> term list -> smt_status
+val set_fixed_var_order : t -> term list -> smt_status
+
+(**
+ * Set initial variable ordering for making mcsat decisions. This is
+ * one-time ordering that is done initially in the MCSAT search.
+ *
+ * - ctx must be a context initialized with support for MCSAT
+ *   (see yices_new_context, yices_new_config, yices_set_config).
+ * - t is an array of n terms
+ *
+ *
+ * Returns STATUS_ERROR if mcsat context is not enabled, otherwise returns STATUS_IDLE
+ *
+ * Error codes:
+ *
+ * If the context does not have the MCSAT solver enabled
+ *   code = CTX_OPERATION_NOT_SUPPORTED
+ **)
+val set_initial_var_order : t -> term list -> smt_status
 
   (**
    * Check satisfiability and compute interpolant.

@@ -1591,8 +1591,10 @@ module SafeMake
       let param = opt_ptr param_t (fun x->x) param in
       (yices_check_context_with_model_and_hint ctx param model |> ofList1 term_t)
         terms !>m |> Conv.smt_status.read
-    let set_var_order ctx =
-      yices_mcsat_set_var_order ctx |> ofList1 term_t <.> Conv.smt_status.read
+    let set_fixed_var_order ctx =
+      yices_mcsat_set_fixed_var_order ctx |> ofList1 term_t <.> Conv.smt_status.read
+    let set_initial_var_order ctx =
+      yices_mcsat_set_initial_var_order ctx |> ofList1 term_t <.> Conv.smt_status.read
 
     let check_with_interpolation ?(build_model=true) ?param ctx_A ctx_B =
       let param = opt_ptr param_t (fun x->x) param in

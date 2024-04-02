@@ -999,8 +999,14 @@ module Functions (F : Ctypes.FOREIGN) = struct
                   ((@->) (ptr term_t)
                      ((@->) uint
                         (returning smt_status_t)))))))
-  let yices_mcsat_set_var_order =
-    foreign "yices_mcsat_set_var_order"
+  let yices_mcsat_set_fixed_var_order =
+    foreign "yices_mcsat_set_fixed_var_order"
+      ((@->) (ptr context_t)
+         ((@->) uint
+            ((@->) (ptr term_t)
+               (returning smt_status_t))))
+  let yices_mcsat_set_initial_var_order =
+    foreign "yices_mcsat_set_initial_var_order"
       ((@->) (ptr context_t)
          ((@->) uint
             ((@->) (ptr term_t)
