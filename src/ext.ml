@@ -1015,10 +1015,19 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       let aux sofar t =
         let a =
           if Term.is_bool t
-          then if Model.get_bool_value model t then t else Term.not1 t
-          else Model.get_value_as_term model t |> Term.eq t
+          then if Model.get_bool_value model t then [t] else [Term.not1 t]
+          else
+            let val_as_term = Model.get_value_as_term model t in
+            if Term.is_bitvector t
+            then
+              [Term.BV.bvle t val_as_term ; Term.BV.bvle val_as_term t]
+            else if Term.is_arithmetic t
+            then
+              [Term.Arith.leq t val_as_term ; Term.Arith.leq val_as_term t]
+            else
+              [Term.eq t val_as_term]
         in
-        a::sofar
+        a@sofar
       in
       List.(fold_left aux [] support |> rev)
 
