@@ -132,99 +132,105 @@ module Types (F : TYPE) = struct
     end
   let type_vector_t = typedef type_vector_s_0 "type_vector_t"
 
-  let term_constructor =
+  let term_constructor = 
+   (* prerr_endline "[ctypes_type_description.ml] term_constructor" ; *)
     let (to_int, of_int) =
       ((function
         | `YICES_CONSTRUCTOR_ERROR -> (-1L)
         | `YICES_BOOL_CONSTANT -> 0L
         | `YICES_ARITH_CONSTANT -> 1L
-        | `YICES_BV_CONSTANT -> 2L
-        | `YICES_SCALAR_CONSTANT -> 3L
-        | `YICES_VARIABLE -> 4L
-        | `YICES_UNINTERPRETED_TERM -> 5L
-        | `YICES_ITE_TERM -> 6L
-        | `YICES_APP_TERM -> 7L
-        | `YICES_UPDATE_TERM -> 8L
-        | `YICES_TUPLE_TERM -> 9L
-        | `YICES_EQ_TERM -> 10L
-        | `YICES_DISTINCT_TERM -> 11L
-        | `YICES_FORALL_TERM -> 12L
-        | `YICES_LAMBDA_TERM -> 13L
-        | `YICES_NOT_TERM -> 14L
-        | `YICES_OR_TERM -> 15L
-        | `YICES_XOR_TERM -> 16L
-        | `YICES_BV_ARRAY -> 17L
-        | `YICES_BV_DIV -> 18L
-        | `YICES_BV_REM -> 19L
-        | `YICES_BV_SDIV -> 20L
-        | `YICES_BV_SREM -> 21L
-        | `YICES_BV_SMOD -> 22L
-        | `YICES_BV_SHL -> 23L
-        | `YICES_BV_LSHR -> 24L
-        | `YICES_BV_ASHR -> 25L
-        | `YICES_BV_GE_ATOM -> 26L
-        | `YICES_BV_SGE_ATOM -> 27L
-        | `YICES_ARITH_GE_ATOM -> 28L
-        | `YICES_ARITH_ROOT_ATOM -> 29L
-        | `YICES_ABS -> 30L
-        | `YICES_CEIL -> 31L
-        | `YICES_FLOOR -> 32L
-        | `YICES_RDIV -> 33L
-        | `YICES_IDIV -> 34L
-        | `YICES_IMOD -> 35L
-        | `YICES_IS_INT_ATOM -> 36L
-        | `YICES_DIVIDES_ATOM -> 37L
-        | `YICES_SELECT_TERM -> 38L
-        | `YICES_BIT_TERM -> 39L
-        | `YICES_BV_SUM -> 40L
-        | `YICES_ARITH_SUM -> 41L
-        | `YICES_POWER_PRODUCT -> 42L),
+        | `YICES_ARITH_FF_CONSTANT -> 2L
+        | `YICES_BV_CONSTANT -> 3L
+        | `YICES_SCALAR_CONSTANT -> 4L
+        | `YICES_VARIABLE -> 5L
+        | `YICES_UNINTERPRETED_TERM -> 6L
+        | `YICES_ITE_TERM -> 7L
+        | `YICES_APP_TERM -> 8L
+        | `YICES_UPDATE_TERM -> 9L
+        | `YICES_TUPLE_TERM -> 10L
+        | `YICES_EQ_TERM -> 11L
+        | `YICES_DISTINCT_TERM -> 12L
+        | `YICES_FORALL_TERM -> 13L
+        | `YICES_LAMBDA_TERM -> 14L
+        | `YICES_NOT_TERM -> 15L
+        | `YICES_OR_TERM -> 16L
+        | `YICES_XOR_TERM -> 17L
+        | `YICES_BV_ARRAY -> 18L
+        | `YICES_BV_DIV -> 19L
+        | `YICES_BV_REM -> 20L
+        | `YICES_BV_SDIV -> 21L
+        | `YICES_BV_SREM -> 22L
+        | `YICES_BV_SMOD -> 23L
+        | `YICES_BV_SHL -> 24L
+        | `YICES_BV_LSHR -> 25L
+        | `YICES_BV_ASHR -> 26L
+        | `YICES_BV_GE_ATOM -> 27L
+        | `YICES_BV_SGE_ATOM -> 28L
+        | `YICES_ARITH_GE_ATOM -> 29L
+        | `YICES_ARITH_ROOT_ATOM -> 30L
+        | `YICES_ABS -> 31L
+        | `YICES_CEIL -> 32L
+        | `YICES_FLOOR -> 33L
+        | `YICES_RDIV -> 34L
+        | `YICES_IDIV -> 35L
+        | `YICES_IMOD -> 36L
+        | `YICES_IS_INT_ATOM -> 37L
+        | `YICES_DIVIDES_ATOM -> 38L
+        | `YICES_SELECT_TERM -> 39L
+        | `YICES_BIT_TERM -> 40L
+        | `YICES_BV_SUM -> 41L
+        | `YICES_ARITH_SUM -> 42L
+        | `YICES_ARITH_FF_SUM -> 43L
+        | `YICES_POWER_PRODUCT -> 44L),
+       (* function x -> (print_endline (String.concat "" ["KN int64: "; (Int64.to_string x)]) ;  *)
        (function
         | (-1L) -> `YICES_CONSTRUCTOR_ERROR
         | 0L -> `YICES_BOOL_CONSTANT
         | 1L -> `YICES_ARITH_CONSTANT
-        | 2L -> `YICES_BV_CONSTANT
-        | 3L -> `YICES_SCALAR_CONSTANT
-        | 4L -> `YICES_VARIABLE
-        | 5L -> `YICES_UNINTERPRETED_TERM
-        | 6L -> `YICES_ITE_TERM
-        | 7L -> `YICES_APP_TERM
-        | 8L -> `YICES_UPDATE_TERM
-        | 9L -> `YICES_TUPLE_TERM
-        | 10L -> `YICES_EQ_TERM
-        | 11L -> `YICES_DISTINCT_TERM
-        | 12L -> `YICES_FORALL_TERM
-        | 13L -> `YICES_LAMBDA_TERM
-        | 14L -> `YICES_NOT_TERM
-        | 15L -> `YICES_OR_TERM
-        | 16L -> `YICES_XOR_TERM
-        | 17L -> `YICES_BV_ARRAY
-        | 18L -> `YICES_BV_DIV
-        | 19L -> `YICES_BV_REM
-        | 20L -> `YICES_BV_SDIV
-        | 21L -> `YICES_BV_SREM
-        | 22L -> `YICES_BV_SMOD
-        | 23L -> `YICES_BV_SHL
-        | 24L -> `YICES_BV_LSHR
-        | 25L -> `YICES_BV_ASHR
-        | 26L -> `YICES_BV_GE_ATOM
-        | 27L -> `YICES_BV_SGE_ATOM
-        | 28L -> `YICES_ARITH_GE_ATOM
-        | 29L -> `YICES_ARITH_ROOT_ATOM
-        | 30L -> `YICES_ABS
-        | 31L -> `YICES_CEIL
-        | 32L -> `YICES_FLOOR
-        | 33L -> `YICES_RDIV
-        | 34L -> `YICES_IDIV
-        | 35L -> `YICES_IMOD
-        | 36L -> `YICES_IS_INT_ATOM
-        | 37L -> `YICES_DIVIDES_ATOM
-        | 38L -> `YICES_SELECT_TERM
-        | 39L -> `YICES_BIT_TERM
-        | 40L -> `YICES_BV_SUM
-        | 41L -> `YICES_ARITH_SUM
-        | 42L -> `YICES_POWER_PRODUCT
-        | _ -> failwith "enum to_int")) in
+        | 2L -> `YICES_ARITH_FF_CONSTANT
+        | 3L -> `YICES_BV_CONSTANT
+        | 4L -> `YICES_SCALAR_CONSTANT
+        | 5L -> `YICES_VARIABLE
+        | 6L -> `YICES_UNINTERPRETED_TERM
+        | 7L -> `YICES_ITE_TERM
+        | 8L -> `YICES_APP_TERM
+        | 9L -> `YICES_UPDATE_TERM
+        | 10L -> `YICES_TUPLE_TERM
+        | 11L -> `YICES_EQ_TERM
+        | 12L -> `YICES_DISTINCT_TERM
+        | 13L -> `YICES_FORALL_TERM
+        | 14L -> `YICES_LAMBDA_TERM
+        | 15L -> `YICES_NOT_TERM
+        | 16L -> `YICES_OR_TERM
+        | 17L -> `YICES_XOR_TERM
+        | 18L -> `YICES_BV_ARRAY
+        | 19L -> `YICES_BV_DIV
+        | 20L -> `YICES_BV_REM
+        | 21L -> `YICES_BV_SDIV
+        | 22L -> `YICES_BV_SREM
+        | 23L -> `YICES_BV_SMOD
+        | 24L -> `YICES_BV_SHL
+        | 25L -> `YICES_BV_LSHR
+        | 26L -> `YICES_BV_ASHR
+        | 27L -> `YICES_BV_GE_ATOM
+        | 28L -> `YICES_BV_SGE_ATOM
+        | 29L -> `YICES_ARITH_GE_ATOM
+        | 30L -> `YICES_ARITH_ROOT_ATOM
+        | 31L -> `YICES_ABS
+        | 32L -> `YICES_CEIL
+        | 33L -> `YICES_FLOOR
+        | 34L -> `YICES_RDIV
+        | 35L -> `YICES_IDIV
+        | 36L -> `YICES_IMOD
+        | 37L -> `YICES_IS_INT_ATOM
+        | 38L -> `YICES_DIVIDES_ATOM
+        | 39L -> `YICES_SELECT_TERM
+        | 40L -> `YICES_BIT_TERM
+        | 41L -> `YICES_BV_SUM
+        | 42L -> `YICES_ARITH_SUM
+        | 43L -> `YICES_ARITH_FF_SUM
+        | 44L -> `YICES_POWER_PRODUCT
+        | _ -> failwith "enum to_int") (* x) *)) in
     object
       method ctype = sint
       method to_int = to_int
@@ -240,21 +246,23 @@ module Types (F : TYPE) = struct
         | `YVAL_BOOL -> 1L
         | `YVAL_RATIONAL -> 2L
         | `YVAL_ALGEBRAIC -> 3L
-        | `YVAL_BV -> 4L
-        | `YVAL_SCALAR -> 5L
-        | `YVAL_TUPLE -> 6L
-        | `YVAL_FUNCTION -> 7L
-        | `YVAL_MAPPING -> 8L),
+        | `YVAL_FINITEFIELD -> 4L
+        | `YVAL_BV -> 5L
+        | `YVAL_SCALAR -> 6L
+        | `YVAL_TUPLE -> 7L
+        | `YVAL_FUNCTION -> 8L
+        | `YVAL_MAPPING -> 9L),
        (function
         | 0L -> `YVAL_UNKNOWN
         | 1L -> `YVAL_BOOL
         | 2L -> `YVAL_RATIONAL
         | 3L -> `YVAL_ALGEBRAIC
-        | 4L -> `YVAL_BV
-        | 5L -> `YVAL_SCALAR
-        | 6L -> `YVAL_TUPLE
-        | 7L -> `YVAL_FUNCTION
-        | 8L -> `YVAL_MAPPING
+        | 4L -> `YVAL_FINITEFIELD
+        | 5L -> `YVAL_BV
+        | 6L -> `YVAL_SCALAR
+        | 7L -> `YVAL_TUPLE
+        | 8L -> `YVAL_FUNCTION
+        | 9L -> `YVAL_MAPPING
         | _ -> failwith "enum to_int")) in
     object
       method ctype = uint
@@ -432,6 +440,9 @@ module Types (F : TYPE) = struct
         | `MDL_GEN_UNSUPPORTED_TERM -> 903L
         | `MCSAT_ERROR_UNSUPPORTED_THEORY -> 1000L
         | `MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED -> 1001L
+        | `INVALID_FFCONSTANT -> 1002L
+        | `INVALID_FFSIZE -> 1003L
+        | `INCOMPATIBLE_FFSIZES -> 1004L
         | `OUTPUT_ERROR -> 9000L
         | `INTERNAL_EXCEPTION -> 9999L),
        (function
@@ -554,6 +565,10 @@ module Types (F : TYPE) = struct
         | 902L -> `MDL_GEN_FAILED
         | 903L -> `MDL_GEN_UNSUPPORTED_TERM
         | 1000L -> `MCSAT_ERROR_UNSUPPORTED_THEORY
+        | 1001L -> `MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
+        | 1002L -> `INVALID_FFCONSTANT
+        | 1003L -> `INVALID_FFSIZE
+        | 1004L -> `INCOMPATIBLE_FFSIZES
         | 9000L -> `OUTPUT_ERROR
         | 9999L -> `INTERNAL_EXCEPTION
         | _ -> failwith "enum to_int")) in

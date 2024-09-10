@@ -115,6 +115,13 @@ module Arg = struct
          | None -> true
        in
        List.for_all aux l
+    | FF_Sum l ->
+       let aux (_, x) =
+         match x with
+         | Some x -> check x
+         | None -> true
+       in
+       List.for_all aux l
     | Sum l ->
        let aux (_, x) =
          match x with

@@ -34,6 +34,8 @@ module MType(M : Monad) = struct
 
 end
 
+exception KN_UNIMPLEMENTED
+
 (* Monadic map on terms *)
 module MTerm(M : Monad) = struct
   open M
@@ -84,6 +86,7 @@ module MTerm(M : Monad) = struct
         return(Projection(c,i,t))
       | BV_Sum l -> let+ l = polymap f l in return(BV_Sum l)
       | Sum l    -> let+ l = polymap f l in return(Sum l)
+      | FF_Sum l -> raise KN_UNIMPLEMENTED
       | Product(isBV, l) ->
         let aux (t,p) =
           let+ t = f t in
@@ -414,7 +417,7 @@ module SafeMake
     let allocV make  = aux addr make
     
     let nocheck cont (y,f) = cont f y 
-    let check cont (y,f) = 
+    let check cont (y,f) =
       let<= x = f in
       return (cont x y)
 
@@ -942,9 +945,9 @@ module SafeMake
     let sum_component term i =
       let cont q t = MPQ.to_q q, term_ptr2term_opt (!@ t) in
       Alloc.(load ((SInt.of_int <.> yices_sum_component term) i)
-             |> allocQ
+                       |> allocQ
              |> alloc term_t
-             |> check2 cont)
+             |> Alloc.check2 cont)
 
     let bvsum_component term i =
       let cont carray t = Array.to_list carray |> List.map Conv.bool.read, term_ptr2term_opt (!@ t) in
@@ -964,8 +967,8 @@ module SafeMake
     let args f t =
       let+ x = num_children t in
       let rec aux accu i = if i < 0 then return accu else
-          let+ call = f t i in
-          aux (call::accu) (i-1)
+                             let+ call = f t i in
+                             aux (call::accu) (i-1)
       in
       aux [] (x-1)
     let bvsum_components   = args bvsum_component
@@ -996,7 +999,7 @@ module SafeMake
             expected
             Types.pp_term_constructor constructor
             (List.length args)
-      
+    
     let reveal t = let+ c = constructor t in
       match c with
       | `YICES_CONSTRUCTOR_ERROR -> raise_yices_error ()
@@ -1012,7 +1015,9 @@ module SafeMake
         let+ arg   = proj_arg t in
         return(Term(Projection(c, index, arg)))
       | `YICES_BV_SUM        -> let+ x = bvsum_components t in return(Term(BV_Sum x))
-      | `YICES_ARITH_SUM     -> let+ x = sum_components t   in return(Term(Sum x))
+      | `YICES_ARITH_SUM     -> let+ x = sum_components t in
+                                return(Term(Sum x))
+      | `YICES_ARITH_FF_CONSTANT | `YICES_ARITH_FF_SUM  -> raise KN_UNIMPLEMENTED
 
       | `YICES_POWER_PRODUCT ->
         let+ x = product_components t in
@@ -1143,6 +1148,7 @@ module SafeMake
           return(summand::sofar)
         in
         List.rev l |> List.fold_left aux (return []) |+> BV.bvsum
+      | FF_Sum _ -> raise KN_UNIMPLEMENTED
       | Sum l ->
         let aux sofar (coeff, term) =
           let+ sofar = sofar in
@@ -1197,6 +1203,7 @@ module SafeMake
          return(`Scalar(typ, c))
       | `YICES_VARIABLE
         | `YICES_UNINTERPRETED_TERM -> return `SYMBOLIC
+      | `YICES_ARITH_FF_CONSTANT -> raise KN_UNIMPLEMENTED
 
     let const_as_term : atomic_const -> t EH.t = function
       | `Bool true  -> true0()
@@ -1465,6 +1472,7 @@ module SafeMake
 
     let reveal m t : yval EH.t =
       match val_get_tag t with
+      | `YVAL_FINITEFIELD -> raise KN_UNIMPLEMENTED
         | `YVAL_BOOL -> let+ b  = val_get_bool m t in return(`Bool b)
         | `YVAL_RATIONAL -> let+ q = val_get_mpq m t in return(`Rational q)
         | `YVAL_BV       ->

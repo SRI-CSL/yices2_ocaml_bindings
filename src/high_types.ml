@@ -25,8 +25,8 @@ module Types = struct
   (** Internal term structure:
 
       - atomic terms are Boolean, bitvector, arithmetic constants,
-        and variables and uninterpreted terms (i.e., terms that
-        don't have subterms)
+        finite field rational constants, and variables
+        and uninterpreted terms (i.e., terms that don't have subterms)
 
       - composite terms are of the form
         (constructor, number-of-children, list-of-children)
@@ -39,11 +39,16 @@ module Types = struct
         where a_0 ... a_n are rational coefficients (constant)
         and t_0 ... t_n are arithmetic terms
 
+      - a finite field sum is a sm
+          a_0 t_0 + ... + a_n t_n
+        where a_0 ... a_n are finite field rational coefficients (constant)
+        and t_0 ... t_n is a finite field arithmetic term
+        
       - a bitvector sum is a sum
           a_0 t_0 + ... + a_n t_n
         where the coefficients a_0 ... a_n are bitvector constants
         and t_0 ... t_n are bitvector terms
-
+        
       - a product is a term of the form t_0^d_0 x ... x t_n ^d_n
         where d_0 ... d_n are positive exponents,
         and t_0 ... t_n are either all arithmetic terms or all
@@ -130,6 +135,7 @@ module Types = struct
   type 'a termstruct =
     | A0 : [< `YICES_BOOL_CONSTANT
            | `YICES_ARITH_CONSTANT
+           | `YICES_ARITH_FF_CONSTANT
            | `YICES_BV_CONSTANT
            | `YICES_SCALAR_CONSTANT
            | `YICES_VARIABLE
@@ -171,6 +177,7 @@ module Types = struct
     | Update    : { array : term_t; index : term_t list; value : term_t}    -> [`update] composite termstruct
     | Projection : [< `YICES_SELECT_TERM | `YICES_BIT_TERM ] * int * term_t -> [`projection] termstruct
     | BV_Sum    : (bool list * (term_t option)) list -> [`bvsum] termstruct
+    | FF_Sum    : (rational * (term_t option)) list -> [`ffsum] termstruct
     | Sum       : (rational * (term_t option)) list   -> [`sum]   termstruct
     | Product   : bool * (term_t * uint) list    -> [`prod]  termstruct
     (** In Product(b,l), b is true if the power product is on bitvectors,

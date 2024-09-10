@@ -287,7 +287,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                 | _ -> s
             in
             Atom s
-         | `YICES_ARITH_CONSTANT -> sexp_gmpq t
+         | `YICES_ARITH_CONSTANT | `YICES_ARITH_FF_CONSTANT -> sexp_gmpq t
             (* (try *)
             (*    sexp_gmpq t *)
             (*  with ExceptionsErrorHandling.YicesBindingsException _ -> Atom(s())) *)
@@ -452,10 +452,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          in
          sexp "bvadd" (List.map aux l) 
 
-      | Sum [a] ->
-         sum_aux to_sexp a 
+      | Sum [a] | FF_Sum [a] ->
+         sum_aux to_sexp a
 
-      | Sum l ->
+      | Sum l | FF_Sum l ->
          sexp "+" (List.map (sum_aux to_sexp) l) 
 
       | Product(isBV, l) ->
