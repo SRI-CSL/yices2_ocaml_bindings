@@ -20,7 +20,7 @@ module type YicesContext = sig
 
   type t (* Type of contexts in the extension of Yices *)
   val malloc : ?config:config -> unit -> t
-  val malloc_mcsat : unit -> t
+  val malloc_mcsat : ?interpol:bool -> unit -> t
   val free   : t -> unit
   val status : t -> Types.smt_status
   val push   : t -> unit

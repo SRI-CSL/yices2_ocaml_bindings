@@ -48,9 +48,9 @@ YicesContext with type term = C.term
       status = ref (Context.status old_context);
       state }
 
-  let malloc_mcsat () =
+  let malloc_mcsat ?interpol () =
     let _, state = C.malloc () in
-    let old_context = Context.malloc_mcsat () in
+    let old_context = Context.malloc_mcsat ?interpol () in
     { old_context;
       model  = ref None;
       status = ref (Context.status old_context);

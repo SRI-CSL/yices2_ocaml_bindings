@@ -146,7 +146,8 @@ module type Context = sig
   val pp_log : t Format.printer
 
   val malloc : ?config:config -> unit -> t
-  val malloc_mcsat : unit -> t
+  (** Default is to allow interpolation. Call malloc_mcsat ~interpol:false () if you want it disabled *)
+  val malloc_mcsat : ?interpol:bool -> unit -> t
   val malloc_logic : string -> t
 
   (** Free does not free the config field (which could be shared with other contexts) *)
@@ -163,7 +164,7 @@ module type Context = sig
   val assert_formulas : t -> term list -> unit
   val assert_blocking_clause : t -> unit
 
-  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> ?hints:term list -> t -> smt_status
+  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel -> ?as_inequalities:bool -> ?hints:term list -> t -> smt_status
   val set_fixed_var_order : t -> term list -> smt_status
   val set_initial_var_order : t -> term list -> smt_status
 
@@ -291,7 +292,7 @@ module type SModel = sig
   (* turns every assignment (x |-> v) into (x === v);
      unless x is Boolean in which case it produces x or (not x) depending on v;
      crashes if v cannot be expressed as a term, like algebraic numbers or functional values *)
-  val as_assumptions : t -> term list
+  val as_assumptions : ?as_inequalities:bool -> t -> term list
 
   (* converts assumptions into supported model,
      turning every assumption f into a Boolean assignment (x |-> true),

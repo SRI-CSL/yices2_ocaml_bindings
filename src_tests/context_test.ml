@@ -1,6 +1,7 @@
 open Yices2.High
 
-module EH1 = Make(ExceptionsErrorHandling)
+(* module EH1 = Make(ExceptionsErrorHandling) *)
+module EH1 = Make(NoErrorHandling)
 
 module type Context = sig
   open EH1

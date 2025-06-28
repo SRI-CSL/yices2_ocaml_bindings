@@ -1011,14 +1011,19 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
 
 
-    let as_assumptions (SModel{support;model}) =
+    let as_assumptions ?(as_inequalities=false) (SModel{support;model}) =
       let aux sofar t =
-        let a =
           if Term.is_bool t
-          then if Model.get_bool_value model t then t else Term.not1 t
-          else Model.get_value_as_term model t |> Term.eq t
-        in
-        a::sofar
+          then 
+            if Model.get_bool_value model t 
+            then t::sofar else Term.not1 t::sofar
+          else 
+            let value = Model.get_value_as_term model t in
+            if Term.is_arithmetic t && as_inequalities
+            then Term.Arith.leq t value::Term.Arith.geq t value::sofar
+            else if Term.is_arithmetic t && as_inequalities
+              then Term.BV.bvle t value::Term.BV.bvge t value::sofar
+              else Term.eq t value::sofar
       in
       List.(fold_left aux [] support |> rev)
 
@@ -1267,10 +1272,10 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       incr next_id;
       context
 
-    let malloc_mcsat () =
+    let malloc_mcsat ?(interpol=true) () =
       let cfg = Config.malloc () in
       Config.set cfg ~name:"solver-type" ~value:"mcsat";
-      Config.set cfg ~name:"model-interpolation" ~value:"true";
+      if interpol then Config.set cfg ~name:"model-interpolation" ~value:"true";
       let ctx = malloc ~config:cfg () in
       Config.free cfg;
       ctx
@@ -1388,7 +1393,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       end;
       Context.assert_blocking_clause x.context
 
-    let check ?param ?assumptions ?smodel ?hints x =
+    let check ?param ?assumptions ?smodel ?as_inequalities ?hints x =
       unblock x;
       HTerms.reset x.last_check_model;
       match assumptions, smodel, hints with
@@ -1421,7 +1426,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          else
            let assumptions, extra =
              match smodel with
-             | Some smodel -> let extra = SModel.as_assumptions smodel in
+             | Some smodel -> let extra = SModel.as_assumptions ?as_inequalities smodel in
                               assumptions @ extra, extra
              | None -> assumptions, []
            in
