@@ -1021,7 +1021,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
             let value = Model.get_value_as_term model t in
             if Term.is_arithmetic t && as_inequalities
             then Term.Arith.leq t value::Term.Arith.geq t value::sofar
-            else if Term.is_arithmetic t && as_inequalities
+            else if Term.is_bitvector t && as_inequalities
               then Term.BV.bvle t value::Term.BV.bvge t value::sofar
               else Term.eq t value::sofar
       in
