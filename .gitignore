@@ -23,6 +23,7 @@ gmp.mlh
 
 *.docdir
 *.log
+ppx_optcomp_cookie.lines
 
 # MacOS
 .DS_Store
