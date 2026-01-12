@@ -73,13 +73,28 @@ let () = Context_test.test_context()
 let () = print_endline ""
 let () = Context_test.test_ext_context()
 let () = print_endline ""
+let () =
+  (* Minimal sanity check for funptr-based callback registration *)
+  print_endline "Funptr test: registering out-of-memory callback";
+  let callback = Funptr_test.test_out_of_mem_callback () in
+  Yices2.Low.yices_set_out_of_mem_callback callback;
+  print_endline "Funptr test completed";
+  print_endline ""
+
 (* let () = Context_test.test_lfun() *)
 (* let () = print_endline "" *)
 
 (* let () = Context_test.test_mcsat_arrays() *)
 (* let () = print_endline "" *)
 
-let _ = Context_test.test_tupleblast()
+let () =
+  try
+    Context_test.test_tupleblast()
+  with
+  | Yices2.High.ExceptionsErrorHandling.YicesException _ as ex ->
+      Printf.printf "tupleblast error: %s\n%!"
+        (EH1.ErrorPrint.string ());
+      raise ex
 let () = print_endline ""
 
 let () = Error_test.test()

@@ -1,6 +1,7 @@
 (test
  (name test)
  (libraries ctypes sexplib containers libpoly_bindings yices2 extensions)
+ (foreign_stubs (language c) (names funptr_test_stubs))
  (flags (:standard -cclib -lyices -ccopt "$LDFLAGS"))
  (preprocess (pps ppx_deriving.std))
 )
