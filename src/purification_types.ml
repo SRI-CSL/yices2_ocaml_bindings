@@ -1,3 +1,4 @@
+(** Types for the purification subsystem used by the Ext layer. *)
 open Common
    
 type 'a purified = { proxy : 'a; body : 'a }

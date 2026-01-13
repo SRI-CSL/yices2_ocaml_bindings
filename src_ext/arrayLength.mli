@@ -3,9 +3,7 @@ open WithExceptionsErrorHandling
 
 open Types_ext
 
-(***********************)
-(* Arrays with lengths *)
-(***********************)
+(** {2 Arrays with lengths} *)
 
 module AddLength : sig
 

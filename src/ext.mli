@@ -1,3 +1,4 @@
+(** Extended API: higher-level bindings plus convenience utilities. *)
 open Containers
 open Sexplib
 

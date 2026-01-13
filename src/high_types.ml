@@ -1,3 +1,4 @@
+(** High-level type definitions and signatures shared across the API. *)
 open Ctypes
 open Unsigned
 open Signed
@@ -188,15 +189,17 @@ module Types = struct
     (** Pretty printing uses a rectangular display area, characterized
         by its width, height, and offset as follows.
 
-                        <----------- width ------------->
-                         _______________________________
-       <---- offset --->|                               |   ^
-                        |                               |   |
-                        |                               | Height
-                        |                               |   |
-                        |                               |   v
-                         -------------------------------
-        *)
+        {v
+         <----------- width ------------->
+         _______________________________
+         <---- offset --->|                               |   ^
+         |                               |   |
+         |                               | Height
+         |                               |   |
+         |                               |   v
+         -------------------------------
+        v}
+  *)
   type display = {
     width:int;
     height:int;
@@ -253,33 +256,28 @@ module type Names = sig
 
   type 'a eh (* Error handling monad *)
 
-  (** *********
-        NAMES   *
-     ******** *)
+  (** {2 NAMES} *)
 
   (** It's possible to assign names to terms and types, and later
         retrieve the term or type from these names.
 
         For each term and type, Yices stores a base name that's
         used for pretty printing. By default, the base name is NULL.
-        The base name is set on the first call to yices_set_term_name or
-        yices_set_type_name.
+        The base name is set on the first call to set.
 
         In addition, Yices stores two symbol tables that maps names to
         terms and types, respectively. The name spaces for types and terms
         are disjoint. The term or type that a name refers to can be changed,
         and Yices provides a scoping mechanism:
-        - when function  yices_set_term_name(t, name) is called,
-          then the previous mapping for 'name' (if any) is hidden and now
-          'name' refers to term 't'.
-        - if function yices_remove_term_name(name) is called, then the current
-          mapping for 'name' is removed and the previous mapping (if any)
-          is restored.  *)
+        - when set is called with name, the previous mapping for name (if any)
+          is hidden and name refers to the new term or type.
+        - when remove is called, the current mapping for name is removed and
+          the previous mapping (if any) is restored.  *)
 
   type t
 
   (** The following functions attach a name to a type or a term
-        - name  must be a '\0'-terminated string
+        - name is an OCaml string
         - if tau or t does not have a base name yet, then name is stored
           as base name for tau or t.
         - if name referred to another term or another type, then this
@@ -292,15 +290,27 @@ module type Names = sig
   val set : t -> string -> unit eh
 
   (** Remove the current mapping of name
+   
+   {v
+   remove s
+   v}
+   
         - no effect if name is not assigned to a term or type
         - if name is assigned to some term t or type tau, then this current
           mapping is removed. If name was previously mapped to another term
           or type, then the previous mapping is restored.  *)
   val remove : string -> unit
 
-  (** Get type or term of the given name
-        - return NULL_TYPE or NULL_TERM if there's no type or term with that name  *)
+  (** Call:
+   {v
+   is_name s
+   v} *)
   val is_name : string -> bool
+
+  (** Call:
+   {v
+   of_name s
+   v} *)
   val of_name : string -> t eh
 
   (** Remove the base name of a type tau or of a term t.
@@ -327,15 +337,18 @@ module type Names = sig
 end
 
 
-(** ************************
- *  ERROR REPORTING PRINTS *
- ************************ *)
+(** {2 ERROR REPORTING PRINTS} *)
 
 module type ErrorPrint = sig
 
   type 'a eh (* Error handling monad *)
 
   (** Print an error message on stream f.  This converts the current error
+   
+   {v
+   print f
+   v}
+   
         code + error report structure into an error message.
         - f must be a non-NULL open stream (writable)
 
@@ -346,6 +359,11 @@ module type ErrorPrint = sig
   val print : FILE.t ptr -> unit_t eh
 
   (** Print an error message on file descriptor fd.  This converts the current error
+   
+   {v
+   print_fd i
+   v}
+   
         code + error report structure into an error message.
         - fd must be an open file descriptor (writable)
 
@@ -377,9 +395,7 @@ module type Type = sig
   (** Checking a type *)
   val is_good : t -> bool
 
-  (** ********************
-        TYPE CONSTRUCTORS  *
-     ******************* *)
+  (** {2 TYPE CONSTRUCTORS} *)
 
   (** All constructors return NULL_TYPE (-1) if the type definition is wrong.  *)
 
@@ -401,6 +417,11 @@ module type Type = sig
   val bv : int -> t eh
 
   (** New uninterpreted type.
+   
+   {v
+   new_uninterpreted ?name tau
+   v}
+   
       Optionally give a name to type.
       Optionally give cardinality (Yices's "scalar type").
       If not given, cardinality is infinite and no error report.
@@ -410,52 +431,70 @@ module type Type = sig
       badval = size.  *)
   val new_uninterpreted : ?name:string -> ?card:int -> unit -> t eh
 
-  (** Tuple type tau[0] x ... x tau[n-1].
-        Requires n>0 and tau[0] ... tau[n-1] to be well defined types.
+  (** Tuple type tau0 x ... x taun-1.
+   
+   {v
+   tuple ts
+   v}
+   
+        Requires n>0 and tau0 ... taun-1 to be well defined types.
 
-        Error report
+        Error report:
+        {v
         if n == 0,
-         code = POS_INT_REQUIRED
-         badval = n
+          code = POS_INT_REQUIRED
+          badval = n
         if n > YICES_MAX_ARITY
-         code = TOO_MANY_ARGUMENTS
-         badval = n
-        if tau[i] is not well defined (and tau[0] .. tau[i-1] are)
-         code = INVALID_TYPE
-         type1 = tau[i]  *)
+          code = TOO_MANY_ARGUMENTS
+          badval = n
+        if taui is not well defined (and tau0 .. taui-1 are)
+          code = INVALID_TYPE
+          type1 = taui
+        v}
+  *)
   val tuple : t list -> t eh
 
 
-  (** Function type: dom[0] ... dom[n-1] -> range
-        Requires n>0, and dom[0] ... dom[n-1] and range to be well defined
+  (** Function type: dom0 ... domn-1 -> range
+   
+   {v
+   func ts t
+   v}
+   
+        Requires n>0, and dom0 ... domn-1 and range to be well defined
 
-        Error report
+        Error report:
+        {v
         if n == 0,
-         code = POS_INT_REQUIRED
-         badval = n
+          code = POS_INT_REQUIRED
+          badval = n
         if n > YICES_MAX_ARITY
-         code = TOO_MANY_ARGUMENTS
-         badval = n
+          code = TOO_MANY_ARGUMENTS
+          badval = n
         if range undefined
-         code = INVALID_TYPE
-         type1 = range
-        if dom[i] is undefined (and dom[0] ... dom[i-1] are)
-         code = INVALID_TYPE
-         type1 = dom[i]  *)
+          code = INVALID_TYPE
+          type1 = range
+        if domi is undefined (and dom0 ... domi-1 are)
+          code = INVALID_TYPE
+          type1 = domi
+        v}
+  *)
   val func : t list -> t -> t eh
 
-  (** **********************
-         TYPE EXPLORATION    *
-     ********************* *)
+  (** {2 TYPE EXPLORATION} *)
 
   (** Checks on a type tau:
-   *
-   * yices_type_is_arithmetic(tau) returns true if tau is either int or real.
-   *
-   * if tau not a valid type, the functions return false
-   * and set the error report:
-   *   code = INVALID_TYPE
-   *   type1 = tau *)
+   
+   {v
+   is_bool t
+   v}
+   
+   yices_type_is_arithmetic(tau) returns true if tau is either int or real.
+   
+   if tau not a valid type, the functions return false
+   and set the error report:
+     code = INVALID_TYPE
+     type1 = tau *)
 
   val is_bool       : t -> bool eh
   val is_int        : t -> bool eh
@@ -484,71 +523,116 @@ module type Type = sig
   val compatible_types : t -> t -> bool eh
 
   (** Number of bits for type tau
-   * - returns 0 if there's an error
-   *
-   * Error report:
-   * if tau is not a valid type
-   *    code = INVALID_TYPE
-   *    type1 = tau
-   * if tau is not a bitvector type
-   *    code = BVTYPE_REQUIRED
-   *    type1 = tau *)
+   
+   {v
+   bvsize t
+   v}
+   
+   - returns 0 if there's an error
+   
+   Error report:
+   
+   {v
+    if tau is not a valid type
+      code = INVALID_TYPE
+      type1 = tau
+    if tau is not a bitvector type
+      code = BVTYPE_REQUIRED
+      type1 = tau
+   v}
+  *)
   val bvsize : t -> int eh
 
   (** Cardinality of a scalar type
-   * - returns 0 if there's an error
-   *
-   * Error report:
-   * if tau is not a valid type
-   *   code = INVALID_TYPE
-   *   type1 = tau
-   * if tau is not a scalar type
-   *   code = INVALID_TYPE_OP *)
+   
+   {v
+   scalar_card t
+   v}
+   
+   - returns 0 if there's an error
+   
+   Error report:
+   
+   {v
+    if tau is not a valid type
+      code = INVALID_TYPE
+      type1 = tau
+    if tau is not a scalar type
+      code = INVALID_TYPE_OP
+   v}
+  *)
   val scalar_card : t -> int eh
 
   (** Number of children of type tau
-   * - if tau is a tuple type (tuple tau_1 ... tau_n), returns n
-   * - if tau is a function type (-> tau_1 ... tau_n sigma), returns n+1
-   * - if tau is any other type, returns 0
-   *
-   * - returns -1 if tau is not a valid type
-   *
-   * Error report:
-   * if tau is not a valid type
-   *   code = INVALID_TYPE
-   *   type1 = tau *)
+   
+   {v
+   num_children t
+   v}
+   
+   - if tau is a tuple type (tuple tau_1 ... tau_n), returns n
+   - if tau is a function type (-> tau_1 ... tau_n sigma), returns n+1
+   - if tau is any other type, returns 0
+   
+   - returns -1 if tau is not a valid type
+   
+   Error report:
+   
+   {v
+    if tau is not a valid type
+      code = INVALID_TYPE
+      type1 = tau
+   v}
+  *)
   val num_children : t -> int eh
 
   (** i-th child of type tau.
-   * - i must be in 0 and n-1 where n = yices_type_num_children(tau)
-   * - returns NULL_TYPE if there's an error
-   *
-   * For a function type (-> tau_1 ... tau_n sigma), the first n
-   * children are tau_1 ... tau_n (indexed from 0 to n-1) and the last
-   * child is sigma (with index i=n).
-   *
-   * Error report:
-   * if tau is not a valid type
-   *   code = INVALID_TYPE
-   *   type1 = tau
-   * if is is negative or larger than n
-   *   code = INVALID_TYPE_OP *)
+   
+   {v
+   child t i
+   v}
+   
+   - i must be in 0 and n-1 where n = num_children tau
+   
+   For a function type (-> tau_1 ... tau_n sigma), the first n
+   children are tau_1 ... tau_n (indexed from 0 to n-1) and the last
+   child is sigma (with index i=n).
+   
+   Error report:
+   
+   {v
+    if tau is not a valid type
+      code = INVALID_TYPE
+      type1 = tau
+    if is is negative or larger than n
+      code = INVALID_TYPE_OP
+   v}
+  *)
   val child : t -> int -> t eh
 
   (** Collect all the children of type tau in vector *v
-   * - v must be initialized by calling yices_init_type_vector
-   * - if tau is not valid, the function returns -1 and leaves *v unchanged
-   * - otherwise, the children are stored in *v:
-   *    v->size = number of children
-   *    v->data[0 ... v->size-1] = the children
-   *
-   * The children are stored in the same order as given by yices_type_child:
-   *    v->data[i] = child of index i.
-   *
-   * Error report:
-   * if tau is not a valid type
-   *   code = INVALID_TYPE
-   *   type1 = tau *)
+   
+   {v
+   children t
+   v}
+   
+   - v must be initialized by calling yices_init_type_vector
+   - if tau is not valid, the function returns -1 and leaves *v unchanged
+   - otherwise, the children are stored in *v:
+   
+      v->size = number of children
+      v->data0 ... v->size-1 = the children
+   
+   The children are stored in the same order as given by yices_type_child:
+      v->datai = child of index i.
+   
+   Error report:
+   
+   {v
+    if tau is not a valid type
+      code = INVALID_TYPE
+      type1 = tau
+   v}
+  *)
   val children : t -> t list eh
     
   module Names : Names with type 'a eh := 'a eh and type t := t
@@ -559,6 +643,11 @@ module type Type = sig
   val map    : (t -> t eh) -> ytype -> ytype eh
 
   (** Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
+   
+   {v
+   parse s
+   v}
+   
         - convert an input string s to a type or term.
         - s must be terminated by '\0'
 
@@ -586,12 +675,10 @@ module type Term = sig
   (** Checking a term *)
   val is_good : t -> bool
 
-  (** ********************
-        TERM CONSTRUCTORS  *
-     ******************* *)
+  (** {2 TERM CONSTRUCTORS} *)
 
   (** Type checking rules for function applications:
-        - if f has type [tau_1 ... tau_n -> u]
+        - if f has type tau_1 ... tau_n -> u
           x_1 has type sigma_1, ..., x_n has type sigma_n
         - then (f x1 ... xn) is type correct if sigma_i
           is a subtype of tau_i for i=1,...,n.
@@ -607,6 +694,11 @@ module type Term = sig
   val bool   : bool -> t eh
 
   (** Constant of type tau and id = index
+   
+   {v
+   constant tau ~id
+   v}
+   
         - tau must be a scalar type or an uninterpreted type
         - index must be non-negative, and, if tau is scalar,
           index must be less than tau's cardinality.
@@ -615,19 +707,27 @@ module type Term = sig
         of type tau that have different indices are distinct.
 
         Error report:
-        if tau is undefined
-         code = INVALID_TYPE
-         type1 = tau
-        if tau is not scalar or uninterpreted,
-         code = SCALAR_OR_UTYPE_REQUIRED
-         type1 = tau
-        if the index is negative or too large
-         code = INVALID_CONSTANT_INDEX
-         type1 = tau
-         badval = index  *)
+        
+        {v
+         if tau is undefined
+           code = INVALID_TYPE
+           type1 = tau
+         if tau is not scalar or uninterpreted,
+           code = SCALAR_OR_UTYPE_REQUIRED
+           type1 = tau
+         if the index is negative or too large
+           code = INVALID_CONSTANT_INDEX
+           type1 = tau
+           badval = index
+        v}
+  *)
   val constant : typ -> id:int -> t eh
 
   (** Uninterpreted term of type tau
+   
+   {v
+   new_uninterpreted ?name tau
+   v}
 
         An uninterpreted term is like a global variable of type tau. But, we
         don't call it a variable, because variables have a different meaning
@@ -639,79 +739,115 @@ module type Term = sig
         Optionally give a name to term. 
         
         Error report:
-        if tau is undefined
-         code = INVALID_TYPE
-         type1 = tau  *)
+        
+        {v
+         if tau is undefined
+           code = INVALID_TYPE
+           type1 = tau
+        v}
+  *)
   val new_uninterpreted : ?name:string -> typ -> t eh
 
   (** Variable of type tau. This creates a new variable.
+   
+   {v
+   new_variable tau
+   v}
 
         Variables are different form uninterpreted terms. They are used
         in quantifiers and to support substitutions.
 
         Error report:
-        if tau is undefined
-         code = INVALID_TYPE
-         type1 = tau  *)
+        
+        {v
+         if tau is undefined
+           code = INVALID_TYPE
+           type1 = tau
+        v}
+  *)
   val new_variable : typ -> t eh
 
   (** Application of an uninterpreted function to n arguments.
-
-        Error report:
-        if n == 0,
-         code = POS_INT_REQUIRED
-         badval = n
-        if fun or arg[i] is not defined
-         code = INVALID_TERM
-         term1 = fun or arg[i]
-        if fun is not a function
-         code = FUNCTION_REQUIRED
-         term1 = fun
-        if n != number of arguments required for fun
-         code = WRONG_NUMBER_OF_ARGUMENTS
-         type1 = type of fun
-         badval = n
-        if arg[i] has a wrong type
-         code = TYPE_MISMATCH
-         term1 = arg[i]
-         type1 = expected type  *)
+   
+   {v
+   application t ts
+   v}
+   
+   Error report:
+   
+   {v
+    if n == 0,
+      code = POS_INT_REQUIRED
+      badval = n
+    if fun or argi is not defined
+      code = INVALID_TERM
+      term1 = fun or argi
+    if fun is not a function
+      code = FUNCTION_REQUIRED
+      term1 = fun
+    if n != number of arguments required for fun
+      code = WRONG_NUMBER_OF_ARGUMENTS
+      type1 = type of fun
+      badval = n
+    if argi has a wrong type
+      code = TYPE_MISMATCH
+      term1 = argi
+      type1 = expected type
+   v}
+  *)
   val application : t -> t list -> t eh
 
-  (** if-then-else
-
-        Error report:
-        if cond, then_term, or else_term is not a valid term
-         code = INVALID_TERM
-         term1 = whichever of cond, then_term, or else_term is invalid
-        if cond is not boolean
-         code = TYPE_MISMATCH
-         term1 = cond
-         type1 = bool (expected type)
-        if then_term and else_term have incompatible types
-         code = INCOMPATIBLE_TYPES
-         term1 = then_term
-         type1 = term1's type
-         term2 = else_term
-         type2 = term2's type  *)
+  (** If-then-else.
+   
+   {v
+   ite t u v
+   v}
+   
+   Error report:
+   
+   {v
+    if cond, then_term, or else_term is not a valid term
+      code = INVALID_TERM
+      term1 = whichever of cond, then_term, or else_term is invalid
+    if cond is not boolean
+      code = TYPE_MISMATCH
+      term1 = cond
+      type1 = bool (expected type)
+    if then_term and else_term have incompatible types
+      code = INCOMPATIBLE_TYPES
+      term1 = then_term
+      type1 = term1's type
+      term2 = else_term
+      type2 = term2's type
+   v}
+  *)
   val ite : t -> t -> t -> t eh
 
   (** Equality (= left right)
+   
+   {v
+   eq t u
+   v}
+   
         Disequality (/= left right),
         and their infix abbreviations.
 
         Mnemotechnic: infix operators that produce Boolean terms are 3-symbol long.
 
         Error report:
-        if left or right is not a valid term
-         code = INVALID_TERM
-         term1 = left or right
-        if left and right do not have compatible types
-         code = INCOMPATIBLE_TYPES
-         term1 = left
-         type1 = term1's type
-         term2 = right
-         type2 = term2's type  *)
-
+        
+        {v
+         if left or right is not a valid term
+           code = INVALID_TERM
+           term1 = left or right
+         if left and right do not have compatible types
+           code = INCOMPATIBLE_TYPES
+           term1 = left
+           type1 = term1's type
+           term2 = right
+           type2 = term2's type
+        v}
+  *)
   val eq  : t -> t -> t eh
   val neq : t -> t -> t eh
   val (===) : t -> t -> t eh
@@ -723,36 +859,42 @@ module type Term = sig
         Mnemotechnic: prefix operators are 2-symbol long starting with !.
 
         Error report:
-        if arg is invalid
-          code = INVALID_TERM
-          term1 = arg
-        if arg is not boolean
-          code = TYPE_MISMATCH
-          term1 = arg
-          type1 = bool (expected type)  *)
-
+        
+        {v
+         if arg is invalid
+           code = INVALID_TERM
+           term1 = arg
+         if arg is not boolean
+           code = TYPE_MISMATCH
+           term1 = arg
+           type1 = bool (expected type)
+        v}
+  *)
   val not1 : t -> t eh
   val (!!) : t -> t eh
 
-  (** (or  arg[0] ... arg[n-1])
-        (and arg[0] ... arg[n-1])
-        (xor arg[0] ... arg[n-1])
+  (** (or  arg0 ... argn-1)
+        (and arg0 ... argn-1)
+        (xor arg0 ... argn-1)
         and their prefix abbreviations
 
         NOTE: ARRAY ARG MAY BE MODIFIED.
 
         Error report:
-        if n > YICES_MAX_ARITY
-         code = TOO_MANY_ARGUMENTS
-         badval = n
-        if arg[i] is not a valid term
-         code = INVALID_TERM
-         term1 = arg[i]
-        if arg[i] is not boolean
-         code = TYPE_MISMATCH
-         term1 = arg[i]
-         type1 = bool (expected type)  *)
-
+        
+        {v
+         if n > YICES_MAX_ARITY
+           code = TOO_MANY_ARGUMENTS
+           badval = n
+         if argi is not a valid term
+           code = INVALID_TERM
+           term1 = argi
+         if argi is not boolean
+           code = TYPE_MISMATCH
+           term1 = argi
+           type1 = bool (expected type)
+        v}
+  *)
   val orN  : t list -> t eh
   val andN : t list -> t eh
   val xorN : t list -> t eh
@@ -770,59 +912,88 @@ module type Term = sig
   val ( *** ) : t -> t -> t eh
 
   (** (iff left right)
+   
+   {v
+   iff t u
+   v}
+   
         (implies left right)
         and their infix abbreviations
 
         Error report:
-        if left or right is invalid
-          code = INVALID_TERM
-          term1 = left/right
-        if left or right is not boolean
-          code = TYPE_MISMATCH
-          term1 = left/right
-          type1 = bool (expected type)  *)
-
+        
+        {v
+         if left or right is invalid
+           code = INVALID_TERM
+           term1 = left/right
+         if left or right is not boolean
+           code = TYPE_MISMATCH
+           term1 = left/right
+           type1 = bool (expected type)
+        v}
+  *)
   val iff : t -> t -> t eh
   val implies  : t -> t -> t eh
   val (<=>) : t -> t -> t eh
   val (==>) : t -> t -> t eh
 
   (** Tuple constructor
+   
+   {v
+   tuple ts
+   v}
 
         Error report:
-        if n == 0
-         code = POS_INT_REQUIRED
-         badval = n
-        if n > YICES_MAX_ARITY
-         code = TOO_MANY_ARGUMENTS
-         badval = n
-        if one arg[i] is invalid
-         code = INVALID_TERM
-         term1 = arg[i]  *)
+        
+        {v
+         if n == 0
+           code = POS_INT_REQUIRED
+           badval = n
+         if n > YICES_MAX_ARITY
+           code = TOO_MANY_ARGUMENTS
+           badval = n
+         if one argi is invalid
+           code = INVALID_TERM
+           term1 = argi
+        v}
+  *)
   val tuple : t list -> t eh
 
   (** Tuple projection
+   
+   {v
+   select i t
+   v}
 
         The index must be between 1 and n (where n = number of components in tuple)
 
         Error report:
-        if tuple is invalid
-          code = INVALID_TERM
-          term1 = tuple
-        if tuple does not have a tuple type
-          code = TUPLE_REQUIRED
-          term1 = tuple
-        if index = 0 or index > number of components in tuple
-          code = INVALID_TUPLE_INDEX
-          type1 = type of tuple
-          badval = index  *)
+        
+        {v
+         if tuple is invalid
+           code = INVALID_TERM
+           term1 = tuple
+         if tuple does not have a tuple type
+           code = TUPLE_REQUIRED
+           term1 = tuple
+         if index = 0 or index > number of components in tuple
+           code = INVALID_TUPLE_INDEX
+           type1 = type of tuple
+           badval = index
+        v}
+  *)
   val select : int -> t -> t eh
 
   (** Tuple update: replace component i of tuple by new_v
+   
+   {v
+   tuple_update t i u
+   v}
 
         The index must be between 1 and n (where n = number of components in tuple)
 
         Error report
+        {v
         if tuple or new_v is invalid
           code = INVALID_TERM
           term1 = tuple/new_v
@@ -836,123 +1007,154 @@ module type Term = sig
         if new_v has a wrong type
           code = TYPE_MISMATCH
           term1 = new_v
-          type1 = expected type (i-th component type in tuple)  *)
+          type1 = expected type (i-th component type in tuple)
+        v}
+  *)
   val tuple_update : t -> int -> t -> t eh
 
   (** Function update
+   
+   {v
+   update t ts u
+   v}
 
         Error report:
-        if n = 0
-          code = POS_INT_REQUIRED
-          badval = n
-        if fun or new_v, or one of arg[i] is invalid
-          code = INVALID_TERM
-          term1 = fun, new_v, or arg[i]
-        if fun does not have a function type
-          code = FUNCTION_REQUIRED
-          term1 = fun
-        if n != number of arguments for fun
-          code = WRONG_NUMBER_OF_ARGUMENTS
-          type1 = type of fun
-          badval = n
-        if new_v has a wrong type (not a subtype of fun's range)
-          code = TYPE_MISMATCH
-          term1 = new_v
-          type1 = fun's range (expected type)
-        if arg[i] has a wrong type for i-th arg of fun
-          code = TYPE_MISMATCH
-          term1 = arg[i]
-          type1 = expected type  *)
+        
+        {v
+         if n = 0
+           code = POS_INT_REQUIRED
+           badval = n
+         if fun or new_v, or one of argi is invalid
+           code = INVALID_TERM
+           term1 = fun, new_v, or argi
+         if fun does not have a function type
+           code = FUNCTION_REQUIRED
+           term1 = fun
+         if n != number of arguments for fun
+           code = WRONG_NUMBER_OF_ARGUMENTS
+           type1 = type of fun
+           badval = n
+         if new_v has a wrong type (not a subtype of fun's range)
+           code = TYPE_MISMATCH
+           term1 = new_v
+           type1 = fun's range (expected type)
+         if argi has a wrong type for i-th arg of fun
+           code = TYPE_MISMATCH
+           term1 = argi
+           type1 = expected type
+        v}
+  *)
   val update : t -> t list -> t -> t eh
 
 
   (** Distinct
+   
+   {v
+   distinct ts
+   v}
 
         NOTE: ARG MANY BE MODIFIED
 
         Error report:
-        if n == 0
-          code = POS_INT_REQUIRED
-          badval = n
-        if n > YICES_MAX_ARITY
-          code = TOO_MANY_ARGUMENTS
-          badval = n
-        if arg[i] is not a valid term
-          code = INVALID_TERM
-          term1 = arg[i]
-        if two terms arg[i] and arg[j] don't have compatible types
-          code = INCOMPATIBLE_TYPES
-          term1 = arg[i]
-          type1 = term1's type
-          term2 = arg[j]
-          type2 = term2's type  *)
+        
+        {v
+         if n == 0
+           code = POS_INT_REQUIRED
+           badval = n
+         if n > YICES_MAX_ARITY
+           code = TOO_MANY_ARGUMENTS
+           badval = n
+         if argi is not a valid term
+           code = INVALID_TERM
+           term1 = argi
+         if two terms argi and argj don't have compatible types
+           code = INCOMPATIBLE_TYPES
+           term1 = argi
+           type1 = term1's type
+           term2 = argj
+           type2 = term2's type
+        v}
+  *)
   val distinct : t list -> t eh
 
   (** Quantified terms
-        (forall (var[0] ... var[n-1]) body)
-        (exists (var[0] ... var[n-1]) body)
+   
+   {v
+   forall ts t
+   v}
+   
+        (forall (var0 ... varn-1) body)
+        (exists (var0 ... varn-1) body)
 
         NOTE: ARRAY VAR MAY BE MODIFIED
 
         Error report:
-        if n == 0
-          code = POS_INT_REQUIRED
-          badval = n
-        if n > YICES_MAX_VARS
-          code = TOO_MANY_VARS
-          badval = n
-        if body or one of var[i] is invalid
-          code = INVALID_TERM
-          term1 = body or var[i]
-        if body is not boolean
-          code = TYPE_MISMATCH
-          term1 = body
-          type1 = bool (expected type)
-        if one of var[i] is not a variable
-          code = VARIABLE_REQUIRED
-          term1 = var[i]
-        if one variable occurs twice in var
-          code = DUPLICATE_VARIABLE
-          term1 = var[i]  *)
-
+        
+        {v
+         if n == 0
+           code = POS_INT_REQUIRED
+           badval = n
+         if n > YICES_MAX_VARS
+           code = TOO_MANY_VARS
+           badval = n
+         if body or one of vari is invalid
+           code = INVALID_TERM
+           term1 = body or vari
+         if body is not boolean
+           code = TYPE_MISMATCH
+           term1 = body
+           type1 = bool (expected type)
+         if one of vari is not a variable
+           code = VARIABLE_REQUIRED
+           term1 = vari
+         if one variable occurs twice in var
+           code = DUPLICATE_VARIABLE
+           term1 = vari
+        v}
+  *)
   val forall : t list -> t -> t eh
   val exists : t list -> t -> t eh
 
   (** Lambda terms
+   
+   {v
+   lambda ts t
+   v}
 
         Error report:
-        if n == 0
-          code = POS_INT_REQUIRED
-          badval = n
-        if n > YICES_MAX_VARS
-          code = TOO_MANY_VARS
-          badval = n
-        if body or one of var[i] is invalid
-          code = INVALID_TERM
-          term1 = body or var[i]
-        if one of var[i] is not a variable
-          code = VARIABLE_REQUIRED
-          term1 = var[i]
-        if one variable occurs twice in var
-          code = DUPLICATE_VARIABLE
-          term1 = var[i]
-   *)
+        
+        {v
+         if n == 0
+           code = POS_INT_REQUIRED
+           badval = n
+         if n > YICES_MAX_VARS
+           code = TOO_MANY_VARS
+           badval = n
+         if body or one of vari is invalid
+           code = INVALID_TERM
+           term1 = body or vari
+         if one of vari is not a variable
+           code = VARIABLE_REQUIRED
+           term1 = vari
+         if one variable occurs twice in var
+           code = DUPLICATE_VARIABLE
+           term1 = vari
+        v}
+  *)
   val lambda : t list -> t -> t eh
 
 
   module Arith : sig
 
-    (** *******************************
-     *  ARITHMETIC TERM CONSTRUCTORS  *
-     ******************************* *)
+    (** {2 ARITHMETIC TERM CONSTRUCTORS} *)
 
     (** RATIONAL/INTEGER CONSTANTS
-     *
-     * Constant terms can be constructed from integers, GMP numbers,
-     * or by parsing strings.
-     *
-     * The constant term constructors return NULL_TERM (-1) if there's
-     * an error and set the error report.  *)
+     
+     Constant terms can be constructed from integers, GMP numbers,
+     or by parsing strings.
+     
+     The constant term constructors return NULL_TERM (-1) if there's
+     an error and set the error report.  *)
 
     (** Zero: no error  *)
     val zero : unit -> t eh
@@ -964,14 +1166,22 @@ module type Term = sig
     val int64 : long -> t eh
 
     (** Rational constants
-     * - den must be non-zero
-     * - common factors are removed
-     *
-     * Error report:
-     * if den is zero
-     *   code = DIVISION_BY_ZERO  *)
-
-    val rational   : int -> int -> t eh
+     
+     {v
+     rational i j
+     v}
+     
+     - den must be non-zero
+     - common factors are removed
+     
+     Error report:
+     
+     {v
+      if den is zero
+        code = DIVISION_BY_ZERO
+     v}
+  *)
+  val rational   : int -> int -> t eh
     val rational32 : sint -> uint -> t eh
     val rational64 : long -> ulong -> t eh
 
@@ -979,55 +1189,75 @@ module type Term = sig
     val mpq : Q.t -> t eh
         
     (** Convert a string to a rational or integer term.
-     * The string format is
-     *     <optional_sign> <numerator>/<denominator>
-     *  or <optional_sign> <numerator>
-     *
-     * where <optional_sign> is + or - or nothing
-     * <numerator> and <denominator> are sequences of
-     * decimal digits.
-     *
-     * Error report:
-     *   code = INVALID_RATIONAL_FORMAT if s is not in this format
-     *   code = DIVISION_BY_ZERO if the denominator is zero  *)
-    val parse_rational : string -> t eh
+     
+     {v
+     parse_rational s
+     v}
+     
+     The string format is
+         <optional_sign> <numerator>/<denominator>
+      or <optional_sign> <numerator>
+     
+     where <optional_sign> is + or - or nothing
+     <numerator> and <denominator> are sequences of
+     decimal digits.
+     
+     Error report:
+     
+     {v
+      code = INVALID_RATIONAL_FORMAT if s is not in this format
+      code = DIVISION_BY_ZERO if the denominator is zero
+     v}
+  *)
+  val parse_rational : string -> t eh
 
     (** Convert a string in floating point format to a rational
-     * The string must be in one of the following formats:
-     *   <optional sign> <integer part> . <fractional part>
-     *   <optional sign> <integer part> <exp> <optional sign> <integer>
-     *   <optional sign> <integer part> . <fractional part> <exp> <optional sign> <integer>
-     *
-     * where <optional sign> is + or - or nothing
-     *       <exp> is either 'e' or 'E'
-     *
-     * Error report:
-     * code = INVALID_FLOAT_FORMAT  *)
-    val parse_float : string -> t eh
+     The string must be in one of the following formats:
+       <optional sign> <integer part> . <fractional part>
+       <optional sign> <integer part> <exp> <optional sign> <integer>
+       <optional sign> <integer part> . <fractional part> <exp> <optional sign> <integer>
+     
+     where <optional sign> is + or - or nothing
+           <exp> is either 'e' or 'E'
+     
+     Error report:
+     
+     {v
+      code = INVALID_FLOAT_FORMAT
+     v}
+  *)
+  val parse_float : string -> t eh
 
     (** ARITHMETIC OPERATIONS
-     * and their infix and prefix operations:
+     
+     {v
+     add t u
+     v}
+     
+     and their infix and prefix operations:
 
-       * Mnemotechnic:
+       Mnemotechnic:
           infix operations returning Bool are 3-symbol long;
           those returning an arithmetic type are 2-symbol long;
           prefix operations are 2-symbol long starting with !
 
-       * Error reports:
-       * if t1 or t2 is not valid
-       *   code = INVALID_TERM
-       *   term1 = t1 or t2
-       * if t1 or t2 is not an arithmetic term
-       *   code = ARITHTERM_REQUIRED
-       *   term1 = t1 or t2
-       *
-       * for yices_mul, yices_square, and yices_power,
-       * if the result's degree is too large,
-       * then the error report is
-       *   code = DEGREE_OVERFLOW
-       *   badval = product degree  *)
-
-    val add : t -> t -> t eh
+       Error reports:
+       
+       {v
+        if t1 or t2 is not valid
+          code = INVALID_TERM
+          term1 = t1 or t2
+        if t1 or t2 is not an arithmetic term
+          code = ARITHTERM_REQUIRED
+          term1 = t1 or t2
+          *  for yices_mul, yices_square, and yices_power,
+        if the result's degree is too large,
+          then the error report is
+          code = DEGREE_OVERFLOW
+          badval = product degree
+       v}
+  *)
+  val add : t -> t -> t eh
     val sub : t -> t -> t eh
     val neg : t -> t eh
     val mul : t -> t -> t eh
@@ -1040,187 +1270,250 @@ module type Term = sig
     val ( ^^ ) : t -> int -> t eh
     val square : t -> t eh
 
-    (** Sum of n arithmetic terms t[0] ... t[n-1]
-     *
-     * Return NULL_TERM if there's an error
-     *
-     * Error reports:
-     * if t[i] is not valid
-     *   code = INVALID_TERM
-     *   term1 = t[i]
-     * if t[i] is not an arithmetic term
-     *   code = ARITHTERM_REQUIRED
-     *   term1 = t[i]  *)
-
-    val sum : t list -> t eh
+    (** Sum of n arithmetic terms t0 ... tn-1
+     
+     {v
+     sum ts
+     v}
+     
+     Return NULL_TERM if there's an error
+     
+     Error reports:
+     
+     {v
+      if ti is not valid
+        code = INVALID_TERM
+        term1 = ti
+      if ti is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = ti
+     v}
+  *)
+  val sum : t list -> t eh
     val (!+ ) : t list -> t eh
 
-    (** Product of n arithmetic terms t[0] ... t[n-1]
-     *
-     * Return NULL_TERM if there's an error
-     *
-     * Error reports:
-     * if t[i] is not valid
-     *   code = INVALID_TERM
-     *   term1 = t[i]
-     * if t[i] is not an arithmetic term
-     *   code = ARITHTERM_REQUIRED
-     *   term1 = t[i]
-     * if the result has degree > YICES_MAX_DEGREE
-     *   code = DEGREE OVERFLOW
-     *   badval = degree  *)
-
-    val product : t list -> t eh
+    (** Product of n arithmetic terms t0 ... tn-1
+     
+     {v
+     product ts
+     v}
+     
+     Return NULL_TERM if there's an error
+     
+     Error reports:
+     
+     {v
+      if ti is not valid
+        code = INVALID_TERM
+        term1 = ti
+      if ti is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = ti
+      if the result has degree > YICES_MAX_DEGREE
+        code = DEGREE OVERFLOW
+        badval = degree
+     v}
+  *)
+  val product : t list -> t eh
     val (!* ) : t list -> t eh
 
     (** Division:  t1/t2
-     *
-     * t1 and t2 must be arithmetic terms
-     *
-     * NOTE: Until Yices 2.5.0, t2 was required to be a non-zero constant.
-     * This is no longer the case: t2 can be any arithmetic term.
-     *
-     * Return NULL_TERM if there's an error
-     *
-     * Error report:
-     * if t1 or t2 is not valid
-     *    code = INVALID_TERM
-     *    term1 = t1 or t2
-     * if t1 or t2 is not an arithmetic term
-     *    code = ARITHTERM_REQUIRED
-     *    term1 = t1 or t2  *)
-
-    val division : t -> t -> t eh
+     
+     {v
+     division t u
+     v}
+     
+     t1 and t2 must be arithmetic terms
+     
+     NOTE: Until Yices 2.5.0, t2 was required to be a non-zero constant.
+     This is no longer the case: t2 can be any arithmetic term.
+     
+     Return NULL_TERM if there's an error
+     
+     Error report:
+     
+     {v
+      if t1 or t2 is not valid
+        code = INVALID_TERM
+        term1 = t1 or t2
+      if t1 or t2 is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = t1 or t2
+     v}
+  *)
+  val division : t -> t -> t eh
     val (//) : t -> t -> t eh
 
     (** Integer division and modulo
-     *
-     * t1 and t2 must arithmetic terms
-     *
-     * The semantics is as defined in SMT-LIB 2.0 (theory Ints),
-     * except that t1 and t2 are not required to be integer.
-     *
-     * NOTE: Until Yices 2.5.0, t2 was required to be a non-zero constant.
-     * This is no longer the case: t2 can be any arithmetic term.
-     *
-     * The functions (div t1 t2) and (mod t1 t2) satisfy the following
-     * constraints:
-     *    t1 = (div t1 t2) * t2 + (mod t1 t2)
-     *    0 <= (mod t1 t2) < (abs t2)
-     *    (div t1 t2) is an integer
-     *
-     * The functions return NULL_TERM if there's an error.
-     *
-     * Error report:
-     * if t1 or t2 is not valid
-     *    code = INVALID_TERM
-     *    term1 = t1 or t2
-     * if t1 or t2 is not an arithmetic term
-     *    code = ARITHTERM_REQUIRED
-     *    term1 = t1 or t2  *)
-
-    val idiv : t -> t -> t eh
+     
+     {v
+     idiv t u
+     v}
+     
+     t1 and t2 must arithmetic terms
+     
+     The semantics is as defined in SMT-LIB 2.0 (theory Ints),
+     except that t1 and t2 are not required to be integer.
+     
+     NOTE: Until Yices 2.5.0, t2 was required to be a non-zero constant.
+     This is no longer the case: t2 can be any arithmetic term.
+     
+     The functions (div t1 t2) and (mod t1 t2) satisfy the following
+     constraints:
+        t1 = (div t1 t2) * t2 + (mod t1 t2)
+        0 <= (mod t1 t2) < (abs t2)
+        (div t1 t2) is an integer
+     
+     The functions return NULL_TERM if there's an error.
+     
+     Error report:
+     
+     {v
+      if t1 or t2 is not valid
+        code = INVALID_TERM
+        term1 = t1 or t2
+      if t1 or t2 is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = t1 or t2
+     v}
+  *)
+  val idiv : t -> t -> t eh
     val imod : t -> t -> t eh
     val ( /. ) : t -> t -> t eh
     val ( %. ) : t -> t -> t eh
 
     (** Divisibility test:
-     *
-     * t1 must be an arihtmetic constant.
-     * t2 must be an arithmetic term.
-     *
-     * This function constructs the atom (divides t1 t2).
-     * The semantics is
-     *   (divides t1 t2) IFF (there is an integer k such that t2 = k * t1)
-     *
-     * The functions return NULL_TERM if there's an error.
-     *
-     * Error report:
-     * if t1 or t2 is not valid
-     *    code = INVALID_TERM
-     *    term1 = t1 or t2
-     * if t1 is not an arithmetic term
-     *    code = ARITHTERM_REQUIRED
-     *    term1 = t1
-     * if t2 is not an arithmetic constant
-     *    code = ARITHCONSTANT_REQUIRED
-     *    term1 = t2  *)
-
-    val divides_atom : t -> t -> t eh
+     
+     {v
+     divides_atom t u
+     v}
+     
+     t1 must be an arihtmetic constant.
+     t2 must be an arithmetic term.
+     
+     This function constructs the atom (divides t1 t2).
+     The semantics is
+       (divides t1 t2) IFF (there is an integer k such that t2 = k * t1)
+     
+     The functions return NULL_TERM if there's an error.
+     
+     Error report:
+     
+     {v
+      if t1 or t2 is not valid
+        code = INVALID_TERM
+        term1 = t1 or t2
+      if t1 is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = t1
+      if t2 is not an arithmetic constant
+        code = ARITHCONSTANT_REQUIRED
+        term1 = t2
+     v}
+  *)
+  val divides_atom : t -> t -> t eh
     val ( ||. ) : t -> t -> t eh
 
     (** Integrality test:
-     *
-     * t must be an arithmetic term.
-     *
-     * This function constructs the atom (is-int t) as defined in
-     * SMT-LIB 2: (is-int t) is true iff t is an integer. Also, we have
-     * (is-int t) iff (divides 1 t).
-     *
-     * The function returns NULL_TERM if there's an error.
-     *
-     * Error report:
-     * if t is not valid
-     *    code = INVALID_TERM
-     *    term1 = t
-     * if t is not an arithmetic term
-     *    code = ARITHTERM_REQUIRED
-     *    term1 = t
-     *  *)
-    val is_int_atom : t -> t eh
+     
+     {v
+     is_int_atom t
+     v}
+     
+     t must be an arithmetic term.
+     
+     This function constructs the atom (is-int t) as defined in
+     SMT-LIB 2: (is-int t) is true iff t is an integer. Also, we have
+     (is-int t) iff (divides 1 t).
+     
+     The function returns NULL_TERM if there's an error.
+     
+     Error report:
+     
+     {v
+      if t is not valid
+        code = INVALID_TERM
+        term1 = t
+      if t is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = t
+        * v}
 
-    (** Absolute value, floor, ceiling
-     *
-     * t must be an arithmetic term
-     *
-     * floor t is the largest integer that's less than or equal to t
-     * ceiling t is the smallest integer that's greater than or equal to t
-     * The functions return NULL_TERM if there's an error.
-     *
-     * Error report:
-     * if t is not valid
-     *    code = INVALID_TERM
-     *    term1 = t
-     * if t is not an arithmetic term
-     *    code = ARITHTERM_REQUIRED
-     *    term1 = t  *)
 
-    val abs   : t -> t eh
+        (** Absolute value, floor, ceiling
+
+        {v
+        abs t
+     v}
+  *)
+  val is_int_atom : t -> t eh
+     
+     t must be an arithmetic term
+     
+     floor t is the largest integer that's less than or equal to t
+     ceiling t is the smallest integer that's greater than or equal to t
+     The functions return NULL_TERM if there's an error.
+     
+     Error report:
+     
+     {v
+      if t is not valid
+        code = INVALID_TERM
+        term1 = t
+      if t is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = t
+     v}
+  *)
+  val abs   : t -> t eh
     val floor : t -> t eh
     val ceil  : t -> t eh
 
     (** POLYNOMIALS  *)
 
-    (** The functions below construct the term a_0 t_0 + ... + a_{n-1} t_{n-1}
-     * given n constant coefficients a_0, ..., a_{n-1} and
-     *       n arithmetic terms t_0, ..., t_{n-1}.
-     *
-     * If there's an error, the functions return NULL_TERM (-1).
-     *
-     * Error reports:
-     * if t[i] is not valid
-     *   code = INVALID_TERM
-     *   term1 = t[i]
-     * if t[i] is not an arithmetic term
-     *   code = ARITHTERM_REQUIRED
-     *   term1 = t[i]  *)
+    (** The functions below construct the term a_0 t_0 + ... + a_(n-1) t_(n-1)
+     given n constant coefficients a_0, ..., a_(n-1) and
+           n arithmetic terms t_0, ..., t_(n-1).
+     
+     If there's an error, the functions return NULL_TERM (-1).
+     
+     Error reports:
+     
+     {v
+      if ti is not valid
+        code = INVALID_TERM
+        term1 = ti
+      if ti is not an arithmetic term
+        code = ARITHTERM_REQUIRED
+        term1 = ti
+     v}
+*)
 
     (** Polynomial with integer coefficients
-     * - a and t must both be arrays of size n  *)
+     
+     - a and t must both be arrays of size n  *)
 
     val poly_int   : (int*t)  list -> t eh
     val poly_int32 : (sint*t) list -> t eh
     val poly_int64 : (long*t) list -> t eh
 
     (** Polynomial with rational coefficients
-     * - den, num, and t must be arrays of size n
-     * - the coefficient a_i is num[i]/den[i]
-     *
-     * Error report:
-     * if den[i] is 0
-     *   code = DIVISION_BY_ZERO  *)
-
-    val poly_rational   : (int*int*t) list -> t eh
+     
+     {v
+     poly_rational xs
+     v}
+     
+     - den, num, and t must be arrays of size n
+     - the coefficient a_i is numi/deni
+     
+     Error report:
+     
+     {v
+      if deni is 0
+        code = DIVISION_BY_ZERO
+     v}
+  *)
+  val poly_rational   : (int*int*t) list -> t eh
     val poly_rational32 : (sint*uint*t) list -> t eh
     val poly_rational64 : (long*ulong*t) list -> t eh
 
@@ -1233,16 +1526,23 @@ module type Term = sig
     (** ARITHMETIC ATOMS  *)
 
     (** All operations return NULL_TERM if there's an error (NULL_TERM = -1)
-     *
-     * Error reports
-     * if t1 or t2 is not valid
-     *   code = INVALID_TERM
-     *   term1 = t1 or t2
-     * if t1 or t2 is not an arithmetic term
-     *   code = ARITHTERM_REQUIRED
-     *   term1 = t1 or t2  *)
+     
+     {v
+     arith_eq t u
+     v}
+     
+     Error reports
+     {v
+     if t1 or t2 is not valid
+       code = INVALID_TERM
+       term1 = t1 or t2
+     if t1 or t2 is not an arithmetic term
+       code = ARITHTERM_REQUIRED
+       term1 = t1 or t2
+     v}
+  *)
 
-    val arith_eq  : t -> t -> t eh
+  val arith_eq  : t -> t -> t eh
     val arith_neq : t -> t -> t eh
     val geq : t -> t -> t eh
     val leq : t -> t -> t eh
@@ -1250,18 +1550,25 @@ module type Term = sig
     val lt  : t -> t -> t eh
 
     (** Comparison with 0:
-     *
-     * Return NULL_TERM if there's an error.
-     *
-     * Error report:
-     * if t is not valid:
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not an arithmetic term
-     *   code = ARITH_TERM_REQUIRED
-     *   term1 = t  *)
-
-    val eq0  : t -> t eh
+     
+     {v
+     eq0 t
+     v}
+     
+     Return NULL_TERM if there's an error.
+     
+     Error report:
+     
+     {v
+      if t is not valid:
+        code = INVALID_TERM
+        term1 = t
+      if t is not an arithmetic term
+        code = ARITH_TERM_REQUIRED
+        term1 = t
+     v}
+  *)
+  val eq0  : t -> t eh
     val neq0 : t -> t eh
     val geq0 : t -> t eh
     val leq0 : t -> t eh
@@ -1270,167 +1577,232 @@ module type Term = sig
   end
 
   module BV : sig
-    (** ******************************
-     *  BITVECTOR TERM CONSTRUCTORS  *
-     ****************************** *)
+    (** {2 BITVECTOR TERM CONSTRUCTORS} *)
 
     (** BITVECTOR CONSTANTS
-     *
-     * Constants can be constructed from C integers (32 or 64 bits),
-     * from GMP integers, from arrays, or by parsing strings.
-     *
-     * The constant constructors return NULL_TERM (-1) if there's
-     * an error and set the error report.  *)
+     
+     Constants can be constructed from C integers (32 or 64 bits),
+     from GMP integers, from arrays, or by parsing strings.  *)
 
     (** Conversion of an integer to a bitvector constant.
-     * - n = number of bits
-     * - x = value
-     * The low-order bit of x is bit 0 of the constant.
-     *
-     * For yices_bvconst_uint32:
-     * - if n is less than 32, then the value of x is truncated to
-     *   n bits (i.e., only the n least significant bits of x are considered)
-     * - if n is more than 32, then the value of x is zero-extended to
-     *   n bits.
-     *
-     * For yices_bvconst_uint64:
-     * - if n is less than 64, then the value of x is truncated to
-     *   n bits (i.e., only the n least significant bits of x are considered)
-     * - if n is more than 64, then the value of x is zero-extended to
-     *   n bits.
-     *
-     * For yices_bvconst_int32:
-     * - if n is less than 32, then the value of x is truncated to
-     *   n bits (i.e., only the n least significant bits of x are considered)
-     * - if n is more than 32, then the value of x is sign-extended to
-     *   n bits.
-     *
-     * For yices_bvconst_int64:
-     * - if n is less than 64, then the value of x is truncated to
-     *   n bits (i.e., only the n least significant bits of x are considered)
-     * - if n is more than 64, then the value of x is sign-extended to
-     *   n bits.
-     *
-     * For yices_bvconst_mpz:
-     * - x is interpreted as a signed number in 2-s complement
-     * - if x has fewer than n bits (in 2's complement), then the value is sign-extended
-     * - if x has more than n bits (in 2's complement) then the value is truncated
-     *   (to n least significant bits).
-     *
-     * Error report:
-     * if n = 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if n > YICES_MAX_BVSIZE
-     *    code = MAX_BVSIZE_EXCEEDED
-     *    badval = n  *)
+     
+     {v
+     bvconst_int ~width i
+     v}
+     
+     - width = number of bits
+     - i = value
+     
+     The low-order bit of i is bit 0 of the constant.
+     
+     Error report:
+     
+     {v
+      if width = 0
+        code = POS_INT_REQUIRED
+        badval = width
+      if width > YICES_MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = width
+     v}
+  *)
+  val bvconst_int    : width:int -> int -> t eh
 
-    val bvconst_int    : width:int -> int -> t eh
+    (**
+     {v
+     bvconst_uint32 ~width i
+     v}
+     
+     - if width is less than 32, then the value of i is truncated to
+     
+       width bits (i.e., only the width least significant bits of i are considered)
+     
+     - if width is more than 32, then the value of i is zero-extended to
+     
+       width bits. *)
     val bvconst_uint32 : width:int -> uint -> t eh
+
+    (**
+     {v
+     bvconst_uint64 ~width i
+     v}
+     
+     - if width is less than 64, then the value of i is truncated to
+     
+       width bits (i.e., only the width least significant bits of i are considered)
+     
+     - if width is more than 64, then the value of i is zero-extended to
+     
+       width bits. *)
     val bvconst_uint64 : width:int -> ulong -> t eh
+
+    (**
+     {v
+     bvconst_int32 ~width i
+     v}
+     
+     - if width is less than 32, then the value of i is truncated to
+     
+       width bits (i.e., only the width least significant bits of i are considered)
+     
+     - if width is more than 32, then the value of i is sign-extended to
+     
+       width bits. *)
     val bvconst_int32  : width:int -> sint -> t eh
+
+    (**
+     {v
+     bvconst_int64 ~width i
+     v}
+     
+     - if width is less than 64, then the value of i is truncated to
+     
+       width bits (i.e., only the width least significant bits of i are considered)
+     
+     - if width is more than 64, then the value of i is sign-extended to
+     
+       width bits. *)
     val bvconst_int64  : width:int -> long -> t eh
-      val bvconst_mpz    : width:int -> Z.t -> t eh
+
+    (**
+     {v
+     bvconst_mpz ~width i
+     v}
+     
+     - i is interpreted as a signed number in 2's complement
+     - if i has fewer than width bits (in 2's complement), then the value is sign-extended
+     - if i has more than width bits (in 2's complement) then the value is truncated
+     
+       (to width least significant bits). *)
+    val bvconst_mpz    : width:int -> Z.t -> t eh
   
     (** bvconst_zero: set all bits to 0
-     * bvconst_one: set low-order bit to 1, all the other bits to 0
-     * bvconst_minus_one: set all bits to 1
-     *
-     * The input is interpreted little-endian:
-     * a[0] = low-order bit (least significant)
-     * a[n-1] = high-order bit (most significant)
-     *
-     * Error report:
-     * if n = 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if n > YICES_MAX_BVSIZE
-     *    code = MAX_BVSIZE_EXCEEDED
-     *    badval = n  *)
-
-    val bvconst_zero      : width:int -> t eh
+     bvconst_one: set low-order bit to 1, all the other bits to 0
+     bvconst_minus_one: set all bits to 1
+     
+     The input is interpreted little-endian:
+     a0 = low-order bit (least significant)
+     an-1 = high-order bit (most significant)
+     
+     Error report:
+     
+     {v
+      if n = 0
+        code = POS_INT_REQUIRED
+        badval = n
+      if n > YICES_MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = n
+     v}
+  *)
+  val bvconst_zero      : width:int -> t eh
     val bvconst_one       : width:int -> t eh
     val bvconst_minus_one : width:int -> t eh
 
     (** Construction from an integer array
-     * bit i of the constant is 0 if a[i] == 0
-     * bit i of the constant is 1 if a[i] != 0
-     *
-     * Error report:
-     * if n = 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if n > YICES_MAX_BVSIZE
-     *    code = MAX_BVSIZE_EXCEEDED
-     *    badval = n  *)
-    val bvconst_from_list : bool list -> t eh
+     bit i of the constant is 0 if ai == 0
+     bit i of the constant is 1 if ai != 0
+     
+     Error report:
+     
+     {v
+      if n = 0
+        code = POS_INT_REQUIRED
+        badval = n
+      if n > YICES_MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = n
+     v}
+  *)
+  val bvconst_from_list : bool list -> t eh
 
     (** Parsing from a string of characters '0' and '1'
-     * First character = high-order bit
-     * Last character = low-order bit
-     * The constant has n bits if the strings has n characters.
-     *
-     * Error report:
-     * if the format is incorrect:
-     *   code = INVALID_BVBIN_FORMAT
-     * if the string has more than YICES_MAX_BVSIZE digits
-     *   code = MAX_BVSIZE_EXCEEDED
-     *   badval = n  *)
-    val parse_bvbin : string -> t eh
+     First character = high-order bit
+     Last character = low-order bit
+     The constant has n bits if the strings has n characters.
+     
+     Error report:
+     
+     {v
+      if the format is incorrect:
+        code = INVALID_BVBIN_FORMAT
+      if the string has more than YICES_MAX_BVSIZE digits
+        code = MAX_BVSIZE_EXCEEDED
+        badval = n
+     v}
+  *)
+  val parse_bvbin : string -> t eh
 
     (** Parsing from a hexadecimal string
-     * All characters must be '0' to '9' or 'a' to 'f' or 'A' to 'F'
-     * - First character = 4 high-order bits
-     * - Last character = 4 low-order bits
-     * The constant has 4n bits if s has n characters.
-     *
-     * Error report:
-     * if the format is incorrect:
-     *   code = INVALID_BVHEX_FORMAT
-     * if the result would have more than YICES_MAX_BVSIZE digits
-     *   code = MAX_BVSIZE_EXCEEDED
-     *   badval = 4n  *)
-    val parse_bvhex : string -> t eh
+     
+     {v
+     parse_bvhex s
+     v}
+     
+     All characters must be '0' to '9' or 'a' to 'f' or 'A' to 'F'
+     
+     - First character = 4 high-order bits
+     - Last character = 4 low-order bits
+     
+     The constant has 4n bits if s has n characters.
+     
+     Error report:
+     
+     {v
+      if the format is incorrect:
+        code = INVALID_BVHEX_FORMAT
+      if the result would have more than YICES_MAX_BVSIZE digits
+        code = MAX_BVSIZE_EXCEEDED
+        badval = 4n
+     v}
+  *)
+  val parse_bvhex : string -> t eh
 
     (** BIT-VECTOR ARITHMETIC  *)
 
     (** Binary operations: both arguments must be bitvector terms of the same size.
-     * The functions return NULL_TERM (-1) if there's an error.
-     *
-     * Error reports
-     * if t1 or t2 is not valid
-     *   code = INVALID_TERM
-     *   term1 = t1 or t2
-     * if t1 or t2 is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t1 or t2
-     * if t1 and t2 do not have the same bitvector type
-     *   code = INCOMPATIBLE_TYPES
-     *   term1 = t1
-     *   type1 = type of t1
-     *   term2 = t2
-     *   type2 = type of t2
-     *
-     * For bvmul, bvsquare, or bvpower, if the degree is too large
-     *   code = DEGREE_OVERFLOW
-     *
-     *
-     * In case of division by 0, Yices uses the following conventions:
-     *
-     *   (bvdiv  x 0b00...0) is the  largest unsigned integer that can be represented using n bits
-     *                       (i.e., 0b111....1)
-     *
-     *   (bvrem  x 0b00...0) is x
-     *
-     *   (bvsdiv x 0b00...0) is   0b00..01 (i.e., +1) if x's sign bit is 1
-     *                       and  0b111111 (i.e., -1) if x's sign bit is 0
-     *
-     *   (bvsrem x 0b00...0) is x
-     *
-     *   (bvsmod x 0b00...0) is x
-     *  *)
-
-    val bvadd : t -> t -> t eh
+     
+     {v
+     bvadd t u
+     v}
+     
+     The functions return NULL_TERM (-1) if there's an error.
+     
+     Error reports
+     {v
+     if t1 or t2 is not valid
+       code = INVALID_TERM
+       term1 = t1 or t2
+     if t1 or t2 is not a bitvector term
+       code = BITVECTOR_REQUIRED
+       term1 = t1 or t2
+     if t1 and t2 do not have the same bitvector type
+       code = INCOMPATIBLE_TYPES
+       term1 = t1
+       type1 = type of t1
+       term2 = t2
+       type2 = type of t2
+     v}
+     
+     For bvmul, bvsquare, or bvpower, if the degree is too large
+       code = DEGREE_OVERFLOW
+     
+     
+     In case of division by 0, Yices uses the following conventions:
+     
+       (bvdiv  x 0b00...0) is the  largest unsigned integer that can be represented using n bits
+                           (i.e., 0b111....1)
+     
+       (bvrem  x 0b00...0) is x
+     
+       (bvsdiv x 0b00...0) is   0b00..01 (i.e., +1) if x's sign bit is 1
+                           and  0b111111 (i.e., -1) if x's sign bit is 0
+     
+       (bvsrem x 0b00...0) is x
+     
+       (bvsmod x 0b00...0) is x
+  *)
+  val bvadd : t -> t -> t eh
     val bvsub : t -> t -> t eh
     val bvneg : t -> t eh
     val bvmul : t -> t -> t eh
@@ -1448,114 +1820,145 @@ module type Term = sig
     val bvshl  : t -> t -> t eh
     val bvlshr : t -> t -> t eh
     val bvashr : t -> t -> t eh
-
     (** Bitvector and/or/xor
-     *
-     * The general form takes an array t[0 ...n-1] as argument (n must be positive).
-     * - all t[i]s must be bitvector term of the same type (i.e., the same number of bits).
-     * - special forms are provided for convenience for n=2 and 3.
-     *
-     * These function return NULL_TERM if there's an error.
-     *
-     * Error reports:
-     * if n == 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if t[i] is not valid
-     *    code = INVALID_TERM
-     *    term1 = t[i]
-     * if t[i] is not a bitvector term
-     *    code = BITVECTOR_REQUIRED
-     *    badval = n
-     * if t[0] and t[i] don't have the same bitvector type
-     *    code = INCOMPATIBLE_TYPES
-     *    term1 = t[0]
-     *    type1 = type of t[0]
-     *    term2 = t[i]
-     *    type2 = type of t[i]
-     *  *)
+     
+     {v
+     bvand ts
+     v}
+     
+     The general form takes an array t0 ... n-1 as argument (n must be positive).
+     
+     - all tis must be bitvector term of the same type (i.e., the same number of bits).
+     - special forms are provided for convenience for n=2 and 3.
+     
+     These function return NULL_TERM if there's an error.
+     
+     Error reports:
+     
+     {v
+     if n == 0
+       code = POS_INT_REQUIRED
+       badval = n
+     if ti is not valid
+       code = INVALID_TERM
+       term1 = ti
+     if ti is not a bitvector term
+       code = BITVECTOR_REQUIRED
+       badval = n
+     if t0 and ti don't have the same bitvector type
+       code = INCOMPATIBLE_TYPES
+       term1 = t0
+       type1 = type of t0
+       term2 = ti
+       type2 = type of ti
+     v}
+*)
+    val bvand : t list -> t eh
+    val bvor  : t list -> t eh
+    val bvxor : t list -> t eh
 
-    val bvand  : t list -> t eh
-    val bvor   : t list -> t eh
-    val bvxor  : t list -> t eh
+    (** Sum of n bitvector terms t0 ... tn-1
+     
+     {v
+     bvsum ts
+     v}
+     
+     - n must be positive
+     - all tis must be bitvector terms of the same type (same number of bits)
+     
+     Return NULL_TERM if there's an error.
+     
+     Error reports:
+     
+     {v
+     if n == 0
+       code = POS_INT_REQUIRED
+       badval = n
+     if ti is not valid
+       code = INVALID_TERM
+       term1 = ti
+     if ti is not a bitvector term
+       code = BITVECTOR_REQUIRED
+       badval = n
+     if t0 and ti don't have the same bitvector type
+       code = INCOMPATIBLE_TYPES
+       term1 = t0
+       type1 = type of t0
+       term2 = ti
+       type2 = type of ti
+     v}
+*)
+    val bvsum : t list -> t eh
 
-    (** Sum of n bitvector terms t[0] ... t[n-1]
-     * - n must be positive
-     * - all t[i]s must be bitvector terms of the same type (same number of bits)
-     *
-     * Return NULL_TERM if there's an error.
-     *
-     * Error reports:
-     * if n == 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if t[i] is not valid
-     *    code = INVALID_TERM
-     *    term1 = t[i]
-     * if t[i] is not a bitvector term
-     *    code = BITVECTOR_REQUIRED
-     *    badval = n
-     * if t[0] and t[i] don't have the same bitvector type
-     *    code = INCOMPATIBLE_TYPES
-     *    term1 = t[0]
-     *    type1 = type of t[0]
-     *    term2 = t[i]
-     *    type2 = type of t[i]  *)
-    val bvsum  : t list -> t eh
-
-    (** Product of n bitvector terms t[0] ... t[n-1]
-     *
-     * - n must be positive
-     * - all t[i]s must be bitvector terms of the same type (same number of bits)
-     *
-     * Return NULL_TERM if there's an error.
-     *
-     * Error reports:
-     * if n == 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if t[i] is not valid
-     *    code = INVALID_TERM
-     *    term1 = t[i]
-     * if t[i] is not a bitvector term
-     *    code = BITVECTOR_REQUIRED
-     *    term1 = t[i]
-     * if t[0] and t[i] don't have the same bitvector type
-     *    code = INCOMPATIBLE_TYPES
-     *    term1 = t[0]
-     *    type1 = type of t[0]
-     *    term2 = t[i]
-     *    type2 = type of t[i]
-     * if the result has degree > YICES_MAX_DEGREE
-     *    code = DEGREE_OVERFLOW
-     *    badval = degree  *)
-    val bvproduct : t list -> t eh
+    (** Product of n bitvector terms t0 ... tn-1
+     
+     {v
+     bvproduct ts
+     v}
+     
+     - n must be positive
+     - all tis must be bitvector terms of the same type (same number of bits)
+     
+     Return NULL_TERM if there's an error.
+     
+     Error reports:
+     
+     {v
+      if n == 0
+        code = POS_INT_REQUIRED
+        badval = n
+      if ti is not valid
+        code = INVALID_TERM
+        term1 = ti
+      if ti is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = ti
+      if t0 and ti don't have the same bitvector type
+        code = INCOMPATIBLE_TYPES
+        term1 = t0
+        type1 = type of t0
+        term2 = ti
+        type2 = type of ti
+      if the result has degree > YICES_MAX_DEGREE
+        code = DEGREE_OVERFLOW
+        badval = degree
+     v}
+  *)
+  val bvproduct : t list -> t eh
 
     (** Shift or rotation by an integer constant n
-     * - shift_left0 sets the low-order bits to zero
-     * - shift_left1 sets the low-order bits to one
-     * - shift_right0 sets the high-order bits to zero
-     * - shift_right1 sets the high-order bits to one
-     * - ashift_right is arithmetic shift, it copies the sign bit
-     * - rotate_left: circular rotation
-     * - rotate_right: circular rotation
-     *
-     * If t is a vector of m bits, then n must satisfy 0 <= n <= m.
-     *
-     * The functions return NULL_TERM (-1) if there's an error.
-     *
-     * Error reports:
-     * if t is not valid
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t
-     * if n > size of t
-     *   code = INVALID_BITSHIFT
-     *   badval = n  *)
-
-    val shift_left0  : t -> int -> t eh
+     
+     {v
+     shift_left0 t i
+     v}
+     
+     - shift_left0 sets the low-order bits to zero
+     - shift_left1 sets the low-order bits to one
+     - shift_right0 sets the high-order bits to zero
+     - shift_right1 sets the high-order bits to one
+     - ashift_right is arithmetic shift, it copies the sign bit
+     - rotate_left: circular rotation
+     - rotate_right: circular rotation
+     
+     If t is a vector of m bits, then n must satisfy 0 <= n <= m.
+     
+     The functions return NULL_TERM (-1) if there's an error.
+     
+     Error reports:
+     
+     {v
+      if t is not valid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = t
+      if n > size of t
+        code = INVALID_BITSHIFT
+        badval = n
+     v}
+  *)
+  val shift_left0  : t -> int -> t eh
     val shift_left1  : t -> int -> t eh
     val shift_right0 : t -> int -> t eh
     val shift_right1 : t -> int -> t eh
@@ -1564,214 +1967,302 @@ module type Term = sig
     val rotate_right : t -> int -> t eh
 
     (** Extract a subvector of t
-     * - t must be a bitvector term of size m
-     * - i and j must satisfy i <= j <= m-1
-     * The result is the bits i to j of t.
-     *
-     * Return NULL_TERM (-1) if there's an error.
-     *
-     * Error reports:
-     * if t is not valid
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t
-     * if i <= j <= m-1 does not hold
-     *   code = INVALID_BVEXTRACT  *)
-    val bvextract : t -> int -> int -> t eh
+     
+     {v
+     bvextract t i j
+     v}
+     
+     - t must be a bitvector term of size m
+     - i and j must satisfy i <= j <= m-1
+     
+     The result is the bits i to j of t.
+     
+     Return NULL_TERM (-1) if there's an error.
+     
+     Error reports:
+     
+     {v
+      if t is not valid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = t
+      if i <= j <= m-1 does not hold
+        code = INVALID_BVEXTRACT
+     v}
+  *)
+  val bvextract : t -> int -> int -> t eh
 
     (** Concatenation
-     * - t1 and t2 must be bitvector terms
-     *
-     * NOTE: t1 is the high-order part of the result, t2 is the low-order part.
-     * For example, if t1 is 0b0000 and t2 is 0b11111, then the function will
-     * construct 0b000011111.
-     *
-     * Return NULL_TERM (-1) if there's an error.
-     *
-     * Error reports
-     * if t1 or t2 is not a valid term
-     *   code = INVALID_TERM
-     *   term1 = t1 or t2
-     * if t1 or t2 is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t1 or t2
-     * if the size of the result would be larger than MAX_BVSIZE
-     *   code = MAX_BVSIZE_EXCEEDED
-     *   badval = n1 + n2 (n1 = size of t1, n2 = size of t2)  *)
-    val bvconcat2 : t -> t -> t eh
+     
+     {v
+     bvconcat2 t u
+     v}
+     
+     - t1 and t2 must be bitvector terms
+     
+     NOTE: t1 is the high-order part of the result, t2 is the low-order part.
+     For example, if t1 is 0b0000 and t2 is 0b11111, then the function will
+     construct 0b000011111.
+     
+     Return NULL_TERM (-1) if there's an error.
+     
+     Error reports
+     {v
+     if t1 or t2 is not a valid term
+       code = INVALID_TERM
+       term1 = t1 or t2
+     if t1 or t2 is not a bitvector term
+       code = BITVECTOR_REQUIRED
+       term1 = t1 or t2
+     if the size of the result would be larger than MAX_BVSIZE
+       code = MAX_BVSIZE_EXCEEDED
+       badval = n1 + n2 (n1 = size of t1, n2 = size of t2)
+     v}
+  *)
+  val bvconcat2 : t -> t -> t eh
 
     (** General form of concatenation: the input is an array of n bitvector terms
-     * - n must be positive.
-     *
-     * NOTE: t[0] is the high-order part of the result, and t[n-1] is the low-order
-     * part. For example, if n=3, t[0] is 0b000, t[1] is 0b111, and t[2] is 0b01, then
-     * the function constructs 0b00011101.
-     *
-     * Error reports:
-     * if n == 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if t[i] is not valid
-     *    code = INVALID_TERM
-     *    term1 = t[i]
-     * if t[i] is not a bitvector term
-     *    code = BITVECTOR_REQUIRED
-     *    term1 = t[i]
-     * if the size of the result would be more than YICES_MAX_BVSIZE
-     *    code = MAX_BVSIZE_EXCEEDED
-     *    badval = sum of the size of t[i]s  *)
-    val bvconcat : t list -> t eh
+     
+     {v
+     bvconcat ts
+     v}
+     
+     - n must be positive.
+     
+     NOTE: t0 is the high-order part of the result, and tn-1 is the low-order
+     part. For example, if n=3, t0 is 0b000, t1 is 0b111, and t2 is 0b01, then
+     the function constructs 0b00011101.
+     
+     Error reports:
+     
+     {v
+      if n == 0
+        code = POS_INT_REQUIRED
+        badval = n
+      if ti is not valid
+        code = INVALID_TERM
+        term1 = ti
+      if ti is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = ti
+      if the size of the result would be more than YICES_MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = sum of the size of tis
+     v}
+  *)
+  val bvconcat : t list -> t eh
 
     (** Repeated concatenation:
-     * - make n copies of t and concatenate them
-     * - n must be positive
-     *
-     * Return NULL_TERM (-1) if there's an error
-     *
-     * Error report:
-     * if t is not valid
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t
-     * if n == 0
-     *   code = POS_INT_REQUIRED
-     *   badval = n
-     * if n * size of t > MAX_BVSIZE
-     *   code = MAX_BVSIZE_EXCEEDED
-     *   badval = n * size of t  *)
-    val bvrepeat : t -> int -> t eh
+     
+     {v
+     bvrepeat t i
+     v}
+     
+     - make n copies of t and concatenate them
+     - n must be positive
+     
+     Return NULL_TERM (-1) if there's an error
+     
+     Error report:
+     
+     {v
+      if t is not valid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = t
+      if n == 0
+        code = POS_INT_REQUIRED
+        badval = n
+      if n * size of t > MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = n * size of t
+     v}
+  *)
+  val bvrepeat : t -> int -> t eh
 
     (** Sign extension
-     * - add n copies of t's sign bit
-     *
-     * Return NULL_TERM if there's an error.
-     *
-     * Error reports:
-     * if t is invalid
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not a bitvector
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t
-     * if n + size of t > MAX_BVSIZE
-     *   code = MAX_BVSIZE_EXCEEDED
-     *   badval = n * size of t  *)
-    val sign_extend : t -> int -> t eh
+     
+     {v
+     sign_extend t i
+     v}
+     
+     - add n copies of t's sign bit
+     
+     Return NULL_TERM if there's an error.
+     
+     Error reports:
+     
+     {v
+      if t is invalid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector
+        code = BITVECTOR_REQUIRED
+        term1 = t
+      if n + size of t > MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = n * size of t
+     v}
+  *)
+  val sign_extend : t -> int -> t eh
 
     (** Zero extension
-     * - add n zeros to t
-     *
-     * Return NULL_TERM if there's an error.
-     *
-     * Error reports:
-     * if t is invalid
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not a bitvector
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t
-     * if n + size of t > MAX_BVSIZE
-     *   code = MAX_BVSIZE_EXCEEDED
-     *   badval = n * size of t  *)
-    val zero_extend : t -> int -> t eh
+     
+     {v
+     zero_extend t i
+     v}
+     
+     - add n zeros to t
+     
+     Return NULL_TERM if there's an error.
+     
+     Error reports:
+     
+     {v
+      if t is invalid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector
+        code = BITVECTOR_REQUIRED
+        term1 = t
+      if n + size of t > MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = n * size of t
+     v}
+  *)
+  val zero_extend : t -> int -> t eh
 
     (** AND-reduction:
-     * if t is b[m-1] ... b[0], then the result is a bit-vector of 1 bit
-     * equal to the conjunction of all bits of t (i.e., (and b[0] ... b[m-1])
-     *
-     * OR-reduction: compute (or b[0] ... b[m-1])
-     *
-     * Return NULL_TERM if there's an error
-     *
-     * Error reports:
-     * if t is invalid
-     *   code = INVALID_TERM
-     *   term1 = t
-     * if t is not a bitvector
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t  *)
-
-    val redand : t -> t eh
+     
+     {v
+     redand t
+     v}
+     
+     if t is bm-1 ... b0, then the result is a bit-vector of 1 bit
+     equal to the conjunction of all bits of t (i.e., (and b0 ... bm-1)
+     
+     OR-reduction: compute (or b0 ... bm-1)
+     
+     Return NULL_TERM if there's an error
+     
+     Error reports:
+     
+     {v
+      if t is invalid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector
+        code = BITVECTOR_REQUIRED
+        term1 = t
+     v}
+  *)
+  val redand : t -> t eh
     val redor  : t -> t eh
 
     (** Bitwise equality comparison: if t1 and t2 are bitvectors of size n,
-     * construct (bvredand (bvxnor t1 t2))
-     *
-     * Return NULL_TERM if there's an error
-     *
-     * Error reports:
-     * if t1 or t2 is not valid
-     *   code = INVALID_TERM
-     *   term1 = t1 or t2
-     * if t1 or t2 is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t1 or t2
-     * if t1 and t2 do not have the same bitvector type
-     *   code = INCOMPATIBLE_TYPES
-     *   term1 = t1
-     *   type1 = type of t1
-     *   term2 = t2
-     *   type2 = type of t2  *)
-    val redcomp : t -> t -> t eh
+     
+     {v
+     redcomp t u
+     v}
+     
+     construct (bvredand (bvxnor t1 t2))
+     
+     Return NULL_TERM if there's an error
+     
+     Error reports:
+     
+     {v
+      if t1 or t2 is not valid
+        code = INVALID_TERM
+        term1 = t1 or t2
+      if t1 or t2 is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = t1 or t2
+      if t1 and t2 do not have the same bitvector type
+        code = INCOMPATIBLE_TYPES
+        term1 = t1
+        type1 = type of t1
+        term2 = t2
+        type2 = type of t2
+     v}
+  *)
+  val redcomp : t -> t -> t eh
 
-    (** Convert an array of boolean terms arg[0 ... n-1] into
-     * a bitvector term of n bits
-     * - arg[0] = low-order bit of the result
-     * - arg[n-1] = high-order bit
-     *
-     * Error report:
-     * if n == 0
-     *    code = POS_INT_REQUIRED
-     *    badval = n
-     * if n > YICES_MAX_BVSIZE
-     *    code = MAX_BVSIZE_EXCEEDED
-     *    badval = size
-     * if arg[i] is invalid
-     *    code = INVALID_TERM
-     *    term1 = arg[i]
-     * if arg[i] is not a boolean
-     *    code = TYPE_MISMATCH
-     *    term1 = arg[i]
-     *    type1 = bool  *)
-    val bvarray : t list -> t eh
+    (** Convert an array of boolean terms arg0 ... n-1 into
+     a bitvector term of n bits
+     
+     - arg0 = low-order bit of the result
+     - argn-1 = high-order bit
+     
+     Error report:
+     
+     {v
+      if n == 0
+        code = POS_INT_REQUIRED
+        badval = n
+      if n > YICES_MAX_BVSIZE
+        code = MAX_BVSIZE_EXCEEDED
+        badval = size
+      if argi is invalid
+        code = INVALID_TERM
+        term1 = argi
+      if argi is not a boolean
+        code = TYPE_MISMATCH
+        term1 = argi
+        type1 = bool
+     v}
+  *)
+  val bvarray : t list -> t eh
 
     (** Extract bit i of vector t (as a boolean)
-     * - if t is a bitvector of n bits, then i must be between 0 and n-1
-     * - the low-order bit of t has index 0
-     * - the high-order bit of t has index (n-1)
-     *
-     * Error report:
-     * if t is invalid
-     *    code = INVALID_TERM
-     *    term1 = t
-     * if t is not a bitvector term
-     *    code = BITVECTOR_REQUIRED
-     *    term1 = t
-     * if i >= t's bitsize
-     *    code = INVALID_BITEXTRACT  *)
-    val bitextract : t -> int -> t eh
+     
+     {v
+     bitextract t i
+     v}
+     
+     - if t is a bitvector of n bits, then i must be between 0 and n-1
+     - the low-order bit of t has index 0
+     - the high-order bit of t has index (n-1)
+     
+     Error report:
+     
+     {v
+      if t is invalid
+        code = INVALID_TERM
+        term1 = t
+      if t is not a bitvector term
+        code = BITVECTOR_REQUIRED
+        term1 = t
+      if i >= t's bitsize
+        code = INVALID_BITEXTRACT
+     v}
+  *)
+  val bitextract : t -> int -> t eh
 
     (** BITVECTOR ATOMS  *)
 
     (** All operations return NULL_TERM (i.e., a negative index) on error
-     *
-     * Error reports
-     * if t1 or t2 is not valid
-     *   code = INVALID_TERM
-     *   term1 = t1 or t2
-     * if t1 or t2 is not a bitvector term
-     *   code = BITVECTOR_REQUIRED
-     *   term1 = t1 or t2
-     * if t1 and t2 do not have the same bitvector type
-     *   code = INCOMPATIBLE_TYPES
-     *   term1 = t1
-     *   type1 = type of t1
-     *   term2 = t2
-     *   type2 = type of t2  *)
+     
+     Error reports
+     {v
+     if t1 or t2 is not valid
+       code = INVALID_TERM
+       term1 = t1 or t2
+     if t1 or t2 is not a bitvector term
+       code = BITVECTOR_REQUIRED
+       term1 = t1 or t2
+     if t1 and t2 do not have the same bitvector type
+       code = INCOMPATIBLE_TYPES
+       term1 = t1
+       type1 = type of t1
+       term2 = t2
+       type2 = type of t2
+     v}
+     *)
 
     (** Equality and disequality  *)
 
@@ -1793,41 +2284,53 @@ module type Term = sig
     val bvslt : t -> t -> t eh
   end
 
-  (** ****************
-        SUBSTITUTIONS  *
-     *************** *)
+  (** {2 SUBSTITUTIONS} *)
 
   (** Apply the substitution defined by arrays var and map to a term t
+   
+   {v
+   subst_term xs t
+   v}
+   
         - var must be an array of n terms. Each element of var must
           be either an uninterpreted term or a variable.
           (cf. yices_new_uninterpreted_term and yices_new_variable).
         - map must be an array of n terms
-        - the type of map[i] must be a subtype of var[i]'s type
-        - every occurrence of var[i] in t is replaced by map[i]
+        - the type of mapi must be a subtype of vari's type
+        - every occurrence of vari in t is replaced by mapi
         - if an uninterpreted term / variable occurs several times in v,
         the last occurrence counts.
-        (e.g., if v[i] = x and v[j] = x with i < j, and
+        (e.g., if vi = x and vj = x with i < j, and
         there are no other occurrences of x in v, then x is
-        replaced by map[j]).
+        replaced by mapj).
 
         Return the resulting term or NULL_TERM if there's an error.
 
         Error codes:
-        - INVALID_TERM if var[i] or map[i] is not valid
-        - VARIABLE_REQUIRED if var[i] is not a variable or an uninterpreted term
-        - TYPE_MISMATCH if map[i]'s type is not a subtype of var[i]'s type
-        - DEGREE_OVERFLOW if the substitution causes an overflow  *)
+        
+        {v
+         - INVALID_TERM if vari or mapi is not valid
+         - VARIABLE_REQUIRED if vari is not a variable or an uninterpreted term
+         - TYPE_MISMATCH if mapi's type is not a subtype of vari's type
+         - DEGREE_OVERFLOW if the substitution causes an overflow
+        v}
+  *)
   val subst_term : (t*t) list -> t -> t eh
 
   (** Apply a substitution to m terms in parallel
+   
+   {v
+   subst_terms xs ts
+   v}
+   
         - the substitution is defined by arrays var and map:
           var must be an array of n variables or uninterpreted terms
           map must be an array of n terms
-          map[i]'s type must be a subtype of var[i]'s type
-        - the substitution is applied to terms t[0] ... t[m-1]
-        - on entry to the function: t[i] must be a valid term
-          the function applies the substitution to t[i]
-          then store the result in place (i.e., t[i] := subst(n, var, map, t[i])).
+          mapi's type must be a subtype of vari's type
+        - the substitution is applied to terms t0 ... tm-1
+        - on entry to the function: ti must be a valid term
+          the function applies the substitution to ti
+          then store the result in place (i.e., ti := subst(n, var, map, ti)).
 
         Note: it's more efficient to call this function than to call
         yices_subst_term m times.
@@ -1840,11 +2343,14 @@ module type Term = sig
   val subst_terms : (t*t) list -> t list -> t list eh
 
 
-  (** ********************
-        TERM EXPLORATION   *
-     ******************* *)
+  (** {2 TERM EXPLORATION} *)
 
   (** Get the type of term t
+   
+   {v
+   type_of_term t
+   v}
+   
         returns NULL_TYPE if t is not a valid term
         and sets the error report:
          code = INVALID_TERM
@@ -1852,6 +2358,11 @@ module type Term = sig
   val type_of_term : t -> typ eh
 
   (** Check the type of a term t:
+   
+   {v
+   is_bool t
+   v}
+   
         - returns 0 for false, 1 for true
 
         - term_is_arithmetic checks whether t's type is either int or real
@@ -1872,18 +2383,31 @@ module type Term = sig
   val is_scalar     : t -> bool eh
 
   (** Size of a bitvector term (i.e., number of bits)
+   
+   {v
+   bitsize t
+   v}
+   
         - returns 0 if there's an error
 
         Error report:
-        if t is not a valid term
-          code = INVALID_TERM
-          term1 = t
-        if t is not a bitvector term
-          code = BITVECTOR_REQUIRED
-          term1 = t  *)
+        
+        {v
+         if t is not a valid term
+           code = INVALID_TERM
+           term1 = t
+         if t is not a bitvector term
+           code = BITVECTOR_REQUIRED
+           term1 = t
+        v}
+  *)
   val bitsize : t -> int eh
 
   (** Check whether t is a ground term (i.e., does not have free variables)
+   
+   {v
+   is_ground t
+   v}
 
         Also return false and set the error report if t is not valid  *)
   val is_ground : t -> bool eh
@@ -1910,60 +2434,67 @@ module type Term = sig
   val map    : (t -> t eh) -> 'a termstruct -> 'a termstruct eh
     
   (** Constructor of term t:
+   
+   {v
+   constructor t
+   v}
+   
         - if t is a valid term, the function returns one of the following codes
           defined in yices_types.h:
+   
+   {v
+   if t is atomic:
 
-         if t is atomic:
+     `YICES_BOOL_CONSTANT        boolean constant
+     `YICES_ARITH_CONSTANT       rational constant
+     `YICES_BV_CONSTANT          bitvector constant
+     `YICES_SCALAR_CONSTANT      constant of uninterpreted/scalar
+     `YICES_VARIABLE             variable in quantifiers/lambda terms
+     `YICES_UNINTERPRETED_TERM   global variables
 
-          YICES_BOOL_CONSTANT        boolean constant
-          YICES_ARITH_CONSTANT       rational constant
-          YICES_BV_CONSTANT          bitvector constant
-          YICES_SCALAR_CONSTANT      constant of uninterpreted/scalar
-          YICES_VARIABLE             variable in quantifiers/lambda terms
-          YICES_UNINTERPRETED_TERM   global variables
+   if t is a composite terms:
 
-         if t is a composite terms:
+     `YICES_ITE_TERM             if-then-else
+     `YICES_APP_TERM             application of an uninterpreted function
+     `YICES_UPDATE_TERM          function update
+     `YICES_TUPLE_TERM           tuple constructor
+     `YICES_EQ_TERM              equality
+     `YICES_DISTINCT_TERM        (distinct t_1 ... t_n)
+     `YICES_FORALL_TERM          quantifier
+     `YICES_LAMBDA_TERM          lambda
+     `YICES_NOT_TERM             (not t)
+     `YICES_OR_TERM              n-ary OR
+     `YICES_XOR_TERM             n-ary XOR
 
-          YICES_ITE_TERM             if-then-else
-          YICES_APP_TERM             application of an uninterpreted function
-          YICES_UPDATE_TERM          function update
-          YICES_TUPLE_TERM           tuple constructor
-          YICES_EQ_TERM              equality
-          YICES_DISTINCT_TERM        (distinct t_1 ... t_n)
-          YICES_FORALL_TERM          quantifier
-          YICES_LAMBDA_TERM          lambda
-          YICES_NOT_TERM             (not t)
-          YICES_OR_TERM              n-ary OR
-          YICES_XOR_TERM             n-ary XOR
+     `YICES_BV_ARRAY             array of boolean terms
+     `YICES_BV_DIV               unsigned division
+     `YICES_BV_REM               unsigned remainder
+     `YICES_BV_SDIV              signed division
+     `YICES_BV_SREM              remainder in signed division (rounding to 0)
+     `YICES_BV_SMOD              remainder in signed division (rounding to -infinity)
+     `YICES_BV_SHL               shift left (padding with 0)
+     `YICES_BV_LSHR              logical shift right (padding with 0)
+     `YICES_BV_ASHR              arithmetic shift right (padding with sign bit)
+     `YICES_BV_GE_ATOM           unsigned bitvector comparison: (t1 >= t2)
+     `YICES_BV_SGE_ATOM          signed bitvector comparison (t1 >= t2)
 
-          YICES_BV_ARRAY             array of boolean terms
-          YICES_BV_DIV               unsigned division
-          YICES_BV_REM               unsigned remainder
-          YICES_BV_SDIV              signed division
-          YICES_BV_SREM              remainder in signed division (rounding to 0)
-          YICES_BV_SMOD              remainder in signed division (rounding to -infinity)
-          YICES_BV_SHL               shift left (padding with 0)
-          YICES_BV_LSHR              logical shift right (padding with 0)
-          YICES_BV_ASHR              arithmetic shift right (padding with sign bit)
-          YICES_BV_GE_ATOM           unsigned bitvector comparison: (t1 >= t2)
-          YICES_BV_SGE_ATOM          signed bitvector comparison (t1 >= t2)
+     `YICES_ARITH_GE_ATOM        arithmetic comparison (t1 >= t2)
+     `YICES_ARITH_ROOT_ATOM      nonlinear arithmetic constraint
 
-          YICES_ARITH_GE_ATOM        arithmetic comparison (t1 >= t2)
-          YICES_ARITH_ROOT_ATOM      nonlinear arithmetic constraint
+   if t is a projection
 
-         if t is a projection
+     `YICES_SELECT_TERM          tuple projection
+     `YICES_BIT_TERM             bit-select: extract the i-th bit of a bitvector
 
-          YICES_SELECT_TERM          tuple projection
-          YICES_BIT_TERM             bit-select: extract the i-th bit of a bitvector
+   if t is a sum
 
-         if t is a sum
+     `YICES_BV_SUM               sum of pairs a * t where a is a bitvector constant (and t is a bitvector term)
+     `YICES_ARITH_SUM            sum of pairs a * t where a is a rational (and t is an arithmetic term)
 
-          YICES_BV_SUM               sum of pairs a * t where a is a bitvector constant (and t is a bitvector term)
-          YICES_ARITH_SUM            sum of pairs a * t where a is a rational (and t is an arithmetic term)
+   if t is a product
 
-        if t is a product
-
-          YICES_POWER_PRODUCT         power products: (t1^d1 * ... * t_n^d_n)
+     `YICES_POWER_PRODUCT         power products: (t1^d1 * ... * t_n^d_n)
+   v}
 
         If t is not a valid term, the function returns a negative number,
         (i.e., YICES_CONSTRUCTOR_ERROR) and sets the error report.
@@ -1972,6 +2503,11 @@ module type Term = sig
   val constructor : t -> term_constructor eh
 
   (** Number of children of term t
+   
+   {v
+   num_children t
+   v}
+   
         - for atomic terms, returns 0
         - for composite terms, returns the number of children
         - for projections, returns 1
@@ -1982,57 +2518,87 @@ module type Term = sig
   val num_children : t -> int eh
 
   (** Get i-th child of a composite term
+   
+   {v
+   child t i
+   v}
+   
         - if t has n children (as returned by yices_term_num_children)
           then i must be between 0 and n-1.
 
         - the function returns NULL_TERM if there's an error.
 
         Error codes:
-        if t is not valid
-          code = INVALID_TERM
-          term1 = t
-        if t is not a composite, or i is not in the range [0 .. n-1]
-          code = INVALID_TERM_OP  *)
+        
+        {v
+         if t is not valid
+           code = INVALID_TERM
+           term1 = t
+         if t is not a composite, or i is not in the range 0 .. n-1
+           code = INVALID_TERM_OP
+        v}
+  *)
   val child : t -> int -> t eh
 
   (** Collect all the children of composite term t in vector *v
+   
+   {v
+   children t
+   v}
+   
       - v must be initialized by calling yices_init_term_vector
       - if t is not valid or is not a composite term, the function
         returns -1 and leaves *v unchanged
       - otherwise, the children are stored in *v:
          v->size = number of children
-         v->data[0 ... v->size-1] = the children
+         v->data0 ... v->size-1 = the children
      
       The vector->size is equal to yices_term_num_children(t).
       The children are stored in the same order as given by yices_term_child:
-         v->data[i] = child of index i.
+         v->datai = child of index i.
      
       Error report:
-      if t is not a valid type
-        code = INVALID_TERM
-        term1 = t
-      if t is not a composite term
-        code = INVALID_TERM_OP
+      
+      {v
+       if t is not a valid type
+         code = INVALID_TERM
+         term1 = t
+       if t is not a composite term
+         code = INVALID_TERM_OP
+      v}
      
       Since 2.6.2. *)
   val children : t -> t list eh
 
   (** Get the argument and index of a projection
+   
+   {v
+   proj_index t
+   v}
+   
         - if t is invalid or not a projection term then
            yices_proj_index returns -1
            yices_proj_arg returns NULL_TERM
 
         Error codes:
-        if t is not valid
-          code = INVALID_TERM
-          term1 = t
-        if t is not a projection
-          code = INVALID_TERM_OP  *)
-
+        
+        {v
+         if t is not valid
+           code = INVALID_TERM
+           term1 = t
+         if t is not a projection
+           code = INVALID_TERM_OP
+        v}
+  *)
   val proj_index : t -> int eh
   val proj_arg   : t -> t eh
 
   (** Value of a constant term:
+   
+   {v
+   bool_const_value t
+   v}
+   
         - these functions return 0 if t is a valid term and store t's value
           in *val (or in q)
         - if t is invalid or it's not the right kind of term, then the
@@ -2041,26 +2607,36 @@ module type Term = sig
         For yices_rational_const_value, q must be initialized.
 
         Error codes:
-        if t is not valid
-          code = INVALID_TERM
-          term1 = t
-        if t is not of the right kind
-          code = INVALID_TERM_OP  *)
-
+        
+        {v
+         if t is not valid
+           code = INVALID_TERM
+           term1 = t
+         if t is not of the right kind
+           code = INVALID_TERM_OP
+        v}
+  *)
   val bool_const_value     : t -> bool eh
   val bv_const_value       : t -> bool list eh
   val scalar_const_value   : t -> int eh
   val rational_const_value : t -> Q.t eh
 
-  (** Packaging the above functions into a conversion into [ atomic_const | `SYMBOLIC ] *)
+  (** Packaging the above functions into a conversion into atomic_const | `SYMBOLIC *)
   val const_value : [`a0] termstruct -> [ atomic_const | `SYMBOLIC ] eh
+
   (** Converse function from atomic_const to terms *)
   val const_as_term : atomic_const -> t eh
+
   (** Generalizing to all yval, given a conversion from yval_t ptr to terms *)
   val yval_as_term : (yval_t ptr -> t eh) -> yval -> t eh
 
                                         
   (** Components of a sum t
+   
+   {v
+   sum_component t i
+   v}
+   
         - i = index (must be between 0 and t's number of children - 1)
         - for an arithmetic sum, each component is a pair (rational, term)
         - for a bitvector sum, each component is a pair (bvconstant, term)
@@ -2071,16 +2647,24 @@ module type Term = sig
         These two functions return 0 on success and -1 on error.
 
         Error codes:
-        if t is not valid
-          code = INVALID_TERM
-          term1 = t
-        if t is not of the right kind of the index is invalid
-          code = INVALID_TERM_OP  *)
-
+        
+        {v
+         if t is not valid
+           code = INVALID_TERM
+           term1 = t
+         if t is not of the right kind of the index is invalid
+           code = INVALID_TERM_OP
+        v}
+  *)
   val sum_component   : t -> int -> (Q.t  * (t option)) eh
   val bvsum_component : t -> int -> (bool list * (t option)) eh
 
   (** Component of power product t
+   
+   {v
+   product_component t i
+   v}
+   
         - i = index (must be between 0 and t's arity - 1)
         - the component is of the form (term, exponent)
           (where exponent is a positive integer)
@@ -2088,16 +2672,25 @@ module type Term = sig
         The function returns 0 on success and -1 on error.
 
         Error codes:
-        if t is not valid
-          code = INVALID_TERM
-          term1 = t
-        if t is not of the right kind or i is invalid
-          code = INVALID_TERM_OP  *)
+        
+        {v
+         if t is not valid
+           code = INVALID_TERM
+           term1 = t
+         if t is not of the right kind or i is invalid
+           code = INVALID_TERM_OP
+        v}
+  *)
   val product_component : t -> int -> (t * uint) eh
 
   module Names : Names with type 'a eh := 'a eh and type t := t
 
   (** Parsing uses the Yices language (cf. doc/YICES-LANGUAGE)
+   
+   {v
+   parse s
+   v}
+   
         - convert an input string s to a type or term.
         - s must be terminated by '\0'
 
@@ -2132,9 +2725,7 @@ module type Global = sig
   (** Check whether the library was compiled in THREAD_SAFE mode.  *)
   val is_thread_safe : unit -> bool eh
 
-  (** ************************************
-        GLOBAL INITIALIZATION AND CLEANUP  *
-     *********************************** *)
+  (** {2 GLOBAL INITIALIZATION AND CLEANUP} *)
 
   (** This function must be called before anything else to initialize
         internal data structures.  *)
@@ -2145,6 +2736,11 @@ module type Global = sig
   val exit : unit -> unit
 
   (** Full reset
+   
+   {v
+   reset ()
+   v}
+   
         - delete all terms and types and reset the symbol tables
         - delete all contexts, models, configuration descriptors and
           parameter records.  *)
@@ -2164,9 +2760,7 @@ module type Global = sig
   val hTypes_create : ?after_gc:('a HTypes.t -> unit) -> int -> 'a HTypes.t
   val hTerms_create : ?after_gc:('a HTerms.t -> unit) -> int -> 'a HTerms.t
 
-  (** ************************
-        OUT-OF-MEMORY CALLBACK  *
-     *********************** *)
+  (** {2 OUT-OF-MEMORY CALLBACK} *)
 
   (** By default, when Yices runs out of memory, it
         first prints an error message on stderr; then it calls
@@ -2183,17 +2777,22 @@ module type Global = sig
         previously.
 
         In other words, the code that handles out-of-memory is as follows:
-     
-         if (callback != NULL) {
-           callback();
-         } else {
-           fprintf(stderr, ...);
-         }
-         exit(YICES_EXIT_OUT_OF_MEMORY); *)
+
+        {[
+        if (callback != NULL) {
+          callback();
+        } else {
+          fprintf(stderr, ...);
+        }
+        exit(YICES_EXIT_OUT_OF_MEMORY);
+        ]} *)
 
   (**
-       IMPORTANT
-       ---------
+       
+       {v
+        IMPORTANT
+        ---------
+       v}
        After Yices runs out of memory, its internal data structures may be
        left in an inconsistent/corrupted state. The API is effectively
        unusable at this point and nothing can be done to recover cleanly.
@@ -2213,9 +2812,7 @@ module type GC = sig
   type typ
   type term
 
-  (** **********************
-        GARBAGE COLLECTION   *
-     ********************* *)
+  (** {2 GARBAGE COLLECTION} *)
 
   (** By default, Yices never deletes any terms or types. All terms and
         types returned by the functions above can always be used by the
@@ -2272,10 +2869,18 @@ module type GC = sig
   val num_types : unit -> int
 
   (** Reference counting support:
+   
+   {v
+   incref_term t
+   v}
+   
         - the functions return -1 if there's an error, 0 otherwise
 
         Error reports:
-        - INVALID_TERM or INVALID_TYPE if the argument is not valid
+        
+        {v
+         - INVALID_TERM or INVALID_TYPE if the argument is not valid
+        v}
 
         The decref functions also report an error if the argument has a
         current reference count of zero. The error report's code is set to
@@ -2295,6 +2900,11 @@ module type GC = sig
   val num_posref_types : unit -> int
 
   (** Call the garbage collector.
+   
+   {v
+   garbage_collect ts taus b
+   v}
+   
         - t = optional array of terms
         - nt = size of t
         - tau = optional array of types
@@ -2304,9 +2914,9 @@ module type GC = sig
 
         The set of roots is determined as follows:
         1) all terms/types used by contexts and models are roots.
-        2) if t is non NULL, then all elements in t[0 ... nt-1] are added to
+        2) if t is non NULL, then all elements in t0 ... nt-1 are added to
           the set of root terms.
-        3) if tau is non NULL, then all elements in tau[0 ... ntau - 1] are added
+        3) if tau is non NULL, then all elements in tau0 ... ntau - 1 are added
           to the set of root types.
         4) if keep_named is non zero (i.e., true), then all terms and types
           that are referenced in the symbol tables are added to the set of
@@ -2314,7 +2924,7 @@ module type GC = sig
         5) all terms and types with a positive reference count are added to
           the set of roots.
 
-        The function silently ignores any term t[i] or any type tau[j] that's not valid.  *)
+        The function silently ignores any term ti or any type tauj that's not valid.  *)
 
   val garbage_collect : term list -> typ list -> bool -> unit
 
@@ -2326,9 +2936,7 @@ module type Config = sig
 
   type t = ctx_config_t ptr
 
-    (** *************************
-        CONTEXT CONFIGURATION   *
-     ************************ *)
+    (** {2 CONTEXT CONFIGURATION} *)
 
     (** When a context is created, it is possible to configure it to use a
         specific solver or a specific combination of solvers.  It is also
@@ -2418,70 +3026,86 @@ module type Config = sig
   val free   : t -> unit
 
     (** Set a configuration parameter:
+   
+   {v
+   set t ~name ~value
+   v}
+   
         - name = the parameter name
         - value = the value
 
         The following table specifies the parameters and allowed values for each parameter name:
 
-                  name    |    value            |      meaning
+        {v
+         name    |    value            |      meaning
          ----------------------------------------------------------------------------------------
-                  "mode"  | "one-shot"          |  only one call to check is supported
-                          |                     |
-                          | "multi-checks"      |  several calls to assert and check are
-                          |                     |  possible
-                          |                     |
-                          | "push-pop"          |  like multi-check and with support for
-                          |                     |  retracting assertions (via push/pop)
-                          |                     |
-                          | "interactive"       |  like push-pop, but with automatic context clean
-                          |                     |  up when search is interrupted.
+         "mode"  | "one-shot"          |  only one call to check is supported
+         |                     |
+         | "multi-checks"      |  several calls to assert and check are
+         |                     |  possible
+         |                     |
+         | "push-pop"          |  like multi-check and with support for
+         |                     |  retracting assertions (via push/pop)
+         |                     |
+         | "interactive"       |  like push-pop, but with automatic context clean
+         |                     |  up when search is interrupted.
          ----------------------------------------------------------------------------------------
-          "solver-type"   | "dpllt"             | DPLL(T) style solver (default)
-                          | "mcsat"             | MCSat style solver
+         "solver-type"   | "dpllt"             | DPLL(T) style solver (default)
+         | "mcsat"             | MCSat style solver
          ----------------------------------------------------------------------------------------
-          "uf-solver"     | "default"           |  the uf-solver is included (i.e., the egraph)
-                          | "none"              |  no uf-solver
+         "uf-solver"     | "default"           |  the uf-solver is included (i.e., the egraph)
+         | "none"              |  no uf-solver
          ----------------------------------------------------------------------------------------
-          "bv-solver"     | "default"           |  the bitvector solver is included
-                          | "none"              |  no bitvector solver
+         "bv-solver"     | "default"           |  the bitvector solver is included
+         | "none"              |  no bitvector solver
          ----------------------------------------------------------------------------------------
-          "array-solver"  | "default"           |  the array solver is included
-                          | "none"              |  no array solver
+         "array-solver"  | "default"           |  the array solver is included
+         | "none"              |  no array solver
          ----------------------------------------------------------------------------------------
-          "arith-solver"  | "ifw"               |  solver for IDL, based on the Floyd-Warshall
-                          |                     |  algorithm
-                          |                     |
-                          | "rfw"               |  solver for RDL, based on Floyd-Warshall
-                          |                     |
-                          | "simplex"           |  solver for linear arithmetic, based on Simplex
-                          |                     |
-                          | "default"           |  same as "simplex"
-                          |                     |
-                          | "auto"              |  same as "simplex" unless mode="one-shot" and
-                          |                     |  logic is QF_IDL or QF_RDL, in which case the
-                          |                     |  solver is determined after the first call to
-                          |                     |  yices_assert_formula(s).
-                          |                     |
-                          | "none"              |  no arithmetic solver
+         "arith-solver"  | "ifw"               |  solver for IDL, based on the Floyd-Warshall
+         |                     |  algorithm
+         |                     |
+         | "rfw"               |  solver for RDL, based on Floyd-Warshall
+         |                     |
+         | "simplex"           |  solver for linear arithmetic, based on Simplex
+         |                     |
+         | "default"           |  same as "simplex"
+         |                     |
+         | "auto"              |  same as "simplex" unless mode="one-shot" and
+         |                     |  logic is QF_IDL or QF_RDL, in which case the
+         |                     |  solver is determined after the first call to
+         |                     |  yices_assert_formula(s).
+         |                     |
+         | "none"              |  no arithmetic solver
          ----------------------------------------------------------------------------------------
          "arith-fragment" | "IDL"               |  integer difference logic
-                          | "RDL"               |  real difference logic
-                          | "LIA"               |  linear integer arithmetic
-                          | "LRA"               |  linear real arithmetic
-                          | "LIRA"              |  mixed linear arithmetic (real + integer variables)
+         | "RDL"               |  real difference logic
+         | "LIA"               |  linear integer arithmetic
+         | "LRA"               |  linear real arithmetic
+         | "LIRA"              |  mixed linear arithmetic (real + integer variables)
          ----------------------------------------------------------------------------------------
          "model-interpolation" | "false"        | don't enable model interpolation (default)
-                               | "true"         | enable model interpolation
+         | "true"         | enable model interpolation
+        v}
 
 
         The function returns -1 if there's an error, 0 otherwise.
 
         Error codes:
-        CTX_UNKNOWN_PARAMETER if name is not a known parameter name
-        CTX_INVALID_PARAMETER_VALUE if name is known but value does not match the parameter type  *)
+        
+        {v
+         CTX_UNKNOWN_PARAMETER if name is not a known parameter name
+         CTX_INVALID_PARAMETER_VALUE if name is known but value does not match the parameter type
+        v}
+  *)
   val set : t -> name:string -> value:string -> unit eh
 
     (** Set config to a default solver type or solver combination for the given logic
+     
+     {v
+     default ctx t
+     v}
+     
         - return -1 if there's an error
         - return 0 otherwise
 
@@ -2554,6 +3178,7 @@ module type Config = sig
 
         Error codes:
 
+
         CTX_UNKNOWN_LOGIC if logic is not a valid name
         CTX_LOGIC_NOT_SUPPORTED if logic is known but not supported  *)
   val default : ?logic:string -> t -> unit eh
@@ -2566,18 +3191,21 @@ module type Model = sig
   type term
  
   type t
-  (** ***********
-         MODELS   *
-     ********** *)
+  (** {2 MODELS} *)
 
   (** Delete model mdl  *)
   val free : t -> unit
 
   (** Build a model from a term-to-term mapping:
+   
+   {v
+   from_map ts
+   v}
+   
         - the mapping is defined by two arrays var[] and map[]
         - every element of var must be an uninterpreted term
           every element of map must be a constant of primitive or tuple type
-          map[i]'s type must be a subtype of var[i]
+          mapi's type must be a subtype of vari
         - there must not be duplicates in array var
 
         The function returns NULL and sets up the error report if something
@@ -2585,16 +3213,25 @@ module type Model = sig
         the model is no longer used, it must be deleted by calling yices_free_model.
 
         Error report:
-        - code = INVALID_TERM if var[i] or map[i] is not valid
-        - code = TYPE_MISMATCH if map[i]'s type is not a subtype of var[i]'s type
-        - code = MDL_UNINT_REQUIRED if var[i] is not an uninterpreted term
-        - code = MDL_CONSTANT_REQUIRED if map[i] is not a constant
-        - code = MDL_DUPLICATE_VAR if var contains duplicate elements
-        - code = MDL_FTYPE_NOT_ALLOWED if one of var[i] has a function type
-        - code = MDL_CONSTRUCTION_FAILED: something else went wrong  *)
+        
+        {v
+         - code = INVALID_TERM if vari or mapi is not valid
+         - code = TYPE_MISMATCH if mapi's type is not a subtype of vari's type
+         - code = MDL_UNINT_REQUIRED if vari is not an uninterpreted term
+         - code = MDL_CONSTANT_REQUIRED if mapi is not a constant
+         - code = MDL_DUPLICATE_VAR if var contains duplicate elements
+         - code = MDL_FTYPE_NOT_ALLOWED if one of vari has a function type
+         - code = MDL_CONSTRUCTION_FAILED: something else went wrong
+        v}
+  *)
   val from_map : (term * term) list -> t eh
 
   (** Collect all the uninterpreted terms that have a value in model mdl.
+   
+   {v
+   collect_defined_terms t
+   v}
+   
         - these terms are returned in vector v
         - v must be an initialized term_vector
 
@@ -2616,48 +3253,63 @@ module type Model = sig
   val collect_defined_terms : t -> term list
 
   (**
-   * Build an empty model: no error.
-   *
-   * Since 2.6.4.
-   *)
+   Build an empty model: no error.
+   
+   Since 2.6.4.
+  *)
   val empty : unit -> t eh
 
   (**
-   * The following functions extend a model by assigning a value to an uninterpreted term
-   * - var must be an uninterpreted term
-   * - var must not have a value in model
-   *
-   * All functions return -1 if there's an error and set the error report.
-   * They return 0 otherwise.
-   *
-   * Error report:
-   * - code = INVALID_TERM if var is not valid
-   * - code = MDL_UNINT_REQUIRED if var is not uninterpreted
-   * - code = TYPE_MISMATCH if the uninterpreted term and the value don't have compatible types.
-   * - code = MDL_DUPLICATE_VAR if var already has a value in model
-   *)
+   The following functions extend a model by assigning a value to an uninterpreted term
+   
+   - var must be an uninterpreted term
+   - var must not have a value in model
+   
+   All functions return -1 if there's an error and set the error report.
+   They return 0 otherwise.
+   
+   Error report:
+   
+   {v
+    - code = INVALID_TERM if var is not valid
+    - code = MDL_UNINT_REQUIRED if var is not uninterpreted
+    - code = TYPE_MISMATCH if the uninterpreted term and the value don't have compatible types.
+    - code = MDL_DUPLICATE_VAR if var already has a value in model
+   v}
+*)
 
   (**
-   * Assign a value to a Boolean uninterpreted term
-   * - val 0 means false, anything else means true.
-   *
-   * Since 2.6.4.
-   *)
+   
+   {v
+   set_bool t u b
+   v}
+   
+   Assign a value to a Boolean uninterpreted term
+   
+   - val 0 means false, anything else means true.
+   
+   Since 2.6.4.
+  *)
   val set_bool : t -> term -> bool -> unit eh
 
   (**
-   * Assign a value to a numerical uninterpreted term.  The value can be given as
-   * an integer, a GMP integer, a GMP rational, or an algebraic number.
-   *
-   * The assignment fails (TYPE_MISMATCH) is the uninterpreted term has integer type
-   * and the value is not an integer.
-   *
-   * For functions yices_model_set_rational32 and
-   * yices_model_set_rational64, the value is num/den.  These two
-   * functions fail and report DIVISION_BY_ZERO if den is zero.
-   *
-   * Since 2.6.4.
-   *)
+   
+   {v
+   set_int32 t u i
+   v}
+   
+   Assign a value to a numerical uninterpreted term.  The value can be given as
+   an integer, a GMP integer, a GMP rational, or an algebraic number.
+   
+   The assignment fails (TYPE_MISMATCH) is the uninterpreted term has integer type
+   and the value is not an integer.
+   
+   For functions yices_model_set_rational32 and
+   yices_model_set_rational64, the value is num/den.  These two
+   functions fail and report DIVISION_BY_ZERO if den is zero.
+   
+   Since 2.6.4.
+  *)
   val set_int32      : t -> term -> sint -> unit eh
   val set_int64      : t -> term -> long -> unit eh
   val set_int        : t -> term -> int  -> unit eh
@@ -2671,23 +3323,32 @@ module type Model = sig
   val set_algebraic_number : t -> term -> lp_algebraic_number_t ptr -> unit eh
 
   (**
-   * Assign an integer value to a bitvector uninterpreted term.
-   *
-   * Rules for truncation and zero/sign extension:
-   * - let n be the number of bits in var
-   * - if val has more than n bits then it is truncated. The n least significant bits are used.
-   *   Other bits are ignored.
-   * - if val has fewer than n bits, the value is obtained by zero or sign extension, depending
-   *   on the function:
-   *     set_bv_int32:  sign extension
-   *     set_bv_int64:  sign extension
-   *     set_bv_uint32: zero extension
-   *     set_bv_uint64: zero extension
-   *     set_bv_mpz:    sign extension
-   *
-   *
-   * Since 2.6.4.
-   *)
+   
+   {v
+   set_bv_int32 t u i
+   v}
+   
+   Assign an integer value to a bitvector uninterpreted term.
+   
+   Rules for truncation and zero/sign extension:
+   
+   - let n be the number of bits in var
+   - if val has more than n bits then it is truncated. The n least significant bits are used.
+   
+     Other bits are ignored.
+   
+   - if val has fewer than n bits, the value is obtained by zero or sign extension, depending
+   
+     on the function:
+       set_bv_int32:  sign extension
+       set_bv_int64:  sign extension
+       set_bv_uint32: zero extension
+       set_bv_uint64: zero extension
+       set_bv_mpz:    sign extension
+   
+   
+   Since 2.6.4.
+  *)
   val set_bv_int32 : t -> term -> sint -> unit eh
   val set_bv_int64 : t -> term -> long -> unit eh
   val set_bv_int   : t -> term -> int -> unit eh
@@ -2698,26 +3359,32 @@ module type Model = sig
                                          
 
   (**
-   * Assign a bitvector value to a bitvector uninterpreted term, using an array of bits.
-   * - var = bitvector uninterpreted term
-   * - a = array of n bits
-   * - var must be an uninterpreted term of type (bitvector n)
-   *   (and var must not have a value in model).
-   *
-   * Elements of a are interpreted as in yices_bvconst_from_array:
-   * - bit i is 0 if a[i] == 0 and bit i is 1 if a[i] != 0
-   * - a[0] is the low-order bit
-   * - a[n-1] is the high-order bit
-   *
-   *
-   * Since 2.6.4.
-   *)
+   
+   {v
+   set_bv_from_list t u xs
+   v}
+   
+   Assign a bitvector value to a bitvector uninterpreted term, using an array of bits.
+   
+   - var = bitvector uninterpreted term
+   - a = array of n bits
+   - var must be an uninterpreted term of type (bitvector n)
+   
+     (and var must not have a value in model).
+   
+   Elements of a are interpreted as in yices_bvconst_from_array:
+   
+   - bit i is 0 if ai == 0 and bit i is 1 if ai != 0
+   - a0 is the low-order bit
+   - an-1 is the high-order bit
+   
+   
+   Since 2.6.4.
+  *)
   val set_bv_from_list : t -> term -> bool list -> unit eh
 
 
-  (** ********************
-        VALUES IN A MODEL  *
-     ******************* *)
+  (** {2 VALUES IN A MODEL} *)
 
   (** Evaluation functions. Once a model is constructed, it's possible
         to query for the value of a term t in that model. The following
@@ -2750,11 +3417,15 @@ module type Model = sig
   (** Value of boolean term t: returned as an integer val
 
         Error codes:
-        If t is not boolean
-         code = TYPE_MISMATCH
-         term1 = t
-         type1 = bool (expected type)
-        + the other evaluation error codes above.  *)
+        
+        {v
+         If t is not boolean
+           code = TYPE_MISMATCH
+           term1 = t
+           type1 = bool (expected type)
+           + the other evaluation error codes above.
+        v}
+  *)
   val get_bool_value : t -> term -> bool eh
 
   (** Value of arithmetic term t. The value can be returned as an integer, a
@@ -2762,12 +3433,15 @@ module type Model = sig
         mpz_t and mpq_t representations, or as a libpoly algebraic number.
 
         Error codes:
-        If t is not an arithmetic term:
-         code = ARITHTERM_REQUIRED
-         term1 = t
-        If t's value does not fit in the *val object
-         code = EVAL_OVERFLOW  *)
-
+        
+        {v
+         If t is not an arithmetic term:
+           code = ARITHTERM_REQUIRED
+           term1 = t
+         If t's value does not fit in the *val object
+           code = EVAL_OVERFLOW
+        v}
+  *)
   val get_int32_value      : t -> term -> sint eh
   val get_int64_value      : t -> term -> long eh
   val get_rational32_value : t -> term -> (sint*uint) eh
@@ -2777,26 +3451,38 @@ module type Model = sig
   val get_mpq_value        : t -> term -> Q.t eh
                                             
   (**  * Conversion to an algebraic number.
-   *
-   * t must be an arithmetic term.
-   *
-   * Error codes:
-   * - if t's value is rational:
-   *    code = EVAL_CONVERSION_FAILED
-   * - if yices is compiled without support for MCSAT
-   *    code = EVAL_NOT_SUPPORTED
-   *)
+   
+   {v
+   get_algebraic_number_value t u
+   v}
+   
+   t must be an arithmetic term.
+   
+   Error codes:
+   
+   {v
+    - if t's value is rational:
+    code = EVAL_CONVERSION_FAILED
+    - if yices is compiled without support for MCSAT
+    code = EVAL_NOT_SUPPORTED
+   v}
+  *)
   val get_algebraic_number_value : t -> term -> Types.algebraic eh
 
   (** Value of bitvector term t in mdl
+   
+   {v
+   get_bv_value t u
+   v}
+   
         - the value is returned in array val
         - val must be an integer array of sufficient size to store all bits of t
           (the number of bits of t can be found by calling yices_term_bitsize).
-        - bit i of t is stored in val[i] (val[i] is either 0 or 1)
+        - bit i of t is stored in vali (vali is either 0 or 1)
         - the value is returned using small-endian convention:
-          val[0] is the low-order bit
+          val0 is the low-order bit
           ...
-          val[n-1] is the high-order bit
+          valn-1 is the high-order bit
 
         If t is not a bitvector term
          code = BITVECTOR_REQUIRED
@@ -2804,6 +3490,11 @@ module type Model = sig
   val get_bv_value : t -> term -> bool list eh
 
   (** Value of term t of uninterpreted or scalar type
+   
+   {v
+   get_scalar_value t u
+   v}
+   
         - the value is returned as a constant index in *val
           (with the same meaning as in function yices_constant):
         - if t has type tau and tau is a scalar type of size n then
@@ -2815,9 +3506,13 @@ module type Model = sig
         equal in the model mdl, then their values will be distinct indices k.
 
         Error codes:
-        - if t does not have a scalar or uninterpreted type:
-          code = SCALAR_TERM_REQUIRED
-          term1 = t  *)
+        
+        {v
+         - if t does not have a scalar or uninterpreted type:
+         code = SCALAR_TERM_REQUIRED
+         term1 = t
+        v}
+  *)
   val get_scalar_value : t -> term -> sint eh
 
   (** GENERIC FORM: VALUE DESCRIPTORS AND NODES  *)
@@ -2829,11 +3524,12 @@ module type Model = sig
       A node in the DAG is represented by a structure of type yval_t defined
       as follows in yices_types.h: *)
 
-  (**  typedef struct yval_s {
-       int32_t node_id;
-       yval_tag_t node_tag;
-       } yval_t;
-   *)
+  (** {[
+      typedef struct yval_s {
+        int32_t node_id;
+        yval_tag_t node_tag;
+      } yval_t;
+      ]} *)
 
   (** This descriptor includes the node id (all nodes have a unique id) and
       a tag that identifies the node type. Leaf nodes represent atomic constants.
@@ -2851,7 +3547,7 @@ module type Model = sig
 
       YVAL_TUPLE      Constant tuple
       YVAL_FUNCTION   Function
-      YVAL_MAPPING    Mapping of the form [val_1 .. val_k -> val]
+      YVAL_MAPPING    Mapping of the form val_1 .. val_k -> val
 
       There is also the special leaf node to indicate an error or that a value
       is not known:
@@ -2867,7 +3563,7 @@ module type Model = sig
       All functions used in the model have a simple form. They are defined
       by a finite list of mappings and a default value. Each mapping specifies the
       value of the function at a single point in its domain. For example, we could
-      have a function f of type [int, int -> int] defined by the clauses:
+      have a function f of type int, int -> int defined by the clauses:
       f(0, 0) = 0
       f(3, 1) = 1
       f(x, y) = -2 in all other cases.
@@ -2875,8 +3571,8 @@ module type Model = sig
       Yices represents such a function as a node with tag YVAL_FUNCTION
       and with three children. Two of these children are nodes with tag
       YVAL_MAPPING that represent the mappings:
-      [0, 0 -> 0]
-      [3, 1 -> 1]
+      0, 0 -> 0
+      3, 1 -> 1
       The third children represents the default value for f. In this case,
       it's a leaf node for the constant -2 (tag YVAL_RATIONAL and value -2).
 
@@ -2907,6 +3603,11 @@ module type Model = sig
   val get_value : t -> term -> yval_t ptr eh
 
   (** Queries on the value of a rational node:
+   
+   {v
+   val_is_int32 t v
+   v}
+   
       - if v->node_tag is YVAL_RATIONAL, the functions below check whether v's value
       can be converted to an integer or a pair num/den of the given size.
       - if v->node_tag != YVAL_RATIONAL, these functions return false (i.e. 0).
@@ -2931,6 +3632,11 @@ module type Model = sig
 
 
   (** Get the number of bits in a bv constant, the number of components in a tuple,
+   
+   {v
+   val_bitsize t v
+   v}
+   
       or the arity of a mapping. These function return 0 if v has the wrong tag (i.e.,
       not a bitvector constant, or not a tuple, or not a mapping).  *)
 
@@ -2939,24 +3645,44 @@ module type Model = sig
   val val_mapping_arity : t -> yval_t ptr -> int eh
 
   (** Arity of a function node. This function returns 0 if v has tag
+   
+   {v
+   val_function_arity t v
+   v}
+   
       other than YVAL_FUNCTION, otherwise it returns the function's
       arity (i.e., the number of parameters that the function takes).  *)
   val val_function_arity : t -> yval_t ptr -> int eh
 
   (** Type of a function node. This function returns -1 if v has tag
+   
+   {v
+   val_function_type t v
+   v}
+   
       other than YVAL_FUNCTION. Otherwise, it returns the type of the
       object v.
       Since 2.6.2.  *)
   val val_function_type : t -> yval_t ptr -> typ eh
 
   (** Get the value of a Boolean node v.
+   
+   {v
+   val_get_bool t v
+   v}
+   
       - returns 0 if there's no error and store v's value in *val:
-      *val is either 0 (for false) or 1 (for true).
+      val is either 0 (for false) or 1 (for true).
       - returns -1 if v does not have tag YVAL_BOOL and sets the error code
       to YVAL_INVALID_OP.  *)
   val val_get_bool : t -> yval_t ptr -> bool eh
 
   (** Get the value of a rational node v
+   
+   {v
+   val_get_int32 t v
+   v}
+   
       - the functions return 0 if there's no error and store v's value in *val
       or in the pair *num, *den (v's value is ( *num )/( *den ).
       - they return -1 if there's an error.
@@ -2980,59 +3706,68 @@ module type Model = sig
   val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
                                                  
   (**  * Export an algebraic number
-   * - v->tag must be YVAL_ALGEBRAIC
-   * - return a copy of the algebraic number in *a
-   *
-   * Error reports:
-   * - if v is not an algebraic number:
-   *    code = YVAL_INVALID_OP
-   * - if MCSAT is not supported by the yices library
-   *    code = YVAL_NOT_SUPPORTED
-   *)
+   
+   {v
+   val_get_algebraic_number_value t v
+   v}
+   
+   - v->tag must be YVAL_ALGEBRAIC
+   - return a copy of the algebraic number in *a
+   
+   Error reports:
+   
+   {v
+    - if v is not an algebraic number:
+    code = YVAL_INVALID_OP
+    - if MCSAT is not supported by the yices library
+    code = YVAL_NOT_SUPPORTED
+   v}
+  *)
   val val_get_algebraic_number_value : t -> yval_t ptr -> Types.algebraic eh
 
   (** Get the value of a bitvector node:
+   
+   {v
+   val_get_bv t v
+   v}
+   
       - val must have size at least equal to n = yices_val_bitsize(mdl, v)
-      - v's value is returned in val[0] = low-order bit, ..., val[n-1] = high-order bit.
-      every val[i] is either 0 or 1.
+      - v's value is returned in val0 = low-order bit, ..., valn-1 = high-order bit.
+      every vali is either 0 or 1.
       - the function returns 0 if v has tag YVAL_BV
       - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP.  *)
   val val_get_bv : t -> yval_t ptr -> bool list eh
 
   (** Get the value of a scalar node:
+   
+   {v
+   val_get_scalar t v
+   v}
+   
       - the function returns 0 if v's tag is YVAL_SCALAR
       the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
       - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP.  *)
   val val_get_scalar : t -> yval_t ptr -> (int*typ) eh
 
   (** Expand a tuple node:
-      - child must be an array large enough to store all children of v (i.e.,
-      at least n elements where n = yices_val_tuple_arity(mdl, v))
-      - the children nodes of v are stored in child[0 ... n-1]
-
-      Return code = 0 if v's tag is YVAL_TUPLE.
-      Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
+   
+   {v
+   val_expand_tuple t v
+   v} *)
   val val_expand_tuple : t -> yval_t ptr -> yval_t ptr list eh
 
   (** Expand a function node f
-      - the default value for f is stored in *def
-      - the set of mappings for f is stored in vector *v.
-      This vector must be initialized using yices_init_yval_vector.
-      The number of mappings is v->size and the mappings are stored
-      in v->data[0 ... n-1] where n = v->size
-
-      Return code = 0 if v's tag is YVAL_FUNCTION.
-      Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
+   
+   {v
+   val_expand_function t v
+   v} *)
   val val_expand_function : t -> yval_t ptr -> ((yval_t ptr) * (yval_t ptr list)) eh
 
   (** Expand a mapping node m
-      - the mapping is of the form [x_1 ... x_k -> v] where k = yices_val_mapping_arity(mdl, m)
-      - tup must be an array of size at least k
-      - the nodes (x_1 ... x_k) are stored in tup[0 ... k-1]
-      the node v is stored in val.
-
-      Return code = 0 if v's tag is YVAL_MAPPING.
-      Return code = -1 otherwise and the error code is then set to YVAL_INVALID_OP.  *)
+   
+   {v
+   val_expand_mapping t v
+   v} *)
   val val_expand_mapping : t -> yval_t ptr -> Types.mapping eh
 
   (** Expand a node m, of any kind, calling the functions above. *)
@@ -3041,23 +3776,40 @@ module type Model = sig
   (** CHECK THE VALUE OF BOOLEAN FORMULAS  *)
 
   (** Check whether f is true in mdl
+   
+   {v
+   formula_true_in_model t u
+   v}
+   
       - the returned value is
       1 if f is true in mdl,
       0 if f is false in mdl,
       -1 if f's value can't be evaluated (then an error code is set)
 
       Error codes:
-      - same as yices_get_bool_value  *)
+      
+      {v
+       - same as yices_get_bool_value
+      v}
+  *)
   val formula_true_in_model : t -> term -> bool eh
 
-  (** Check whether f[0 ... n-1] are all true in mdl
+  (** Check whether f0 ... n-1 are all true in mdl
+   
+   {v
+   formulas_true_in_model t ts
+   v}
+   
       - the returned value is as in the previous function:
-      1 if all f[i] are true
-      0 if one f[i] is false (and f[0 ... i-1] are all true)
-      -1 if one f[i] can't be evaluated (and f[0 ... i-1] are all true)
+      1 if all fi are true
+      0 if one fi is false (and f0 ... i-1 are all true)
+      -1 if one fi can't be evaluated (and f0 ... i-1 are all true)
 
       Error codes:
-      - same as yices_get_bool_value
+      
+      {v
+       - same as yices_get_bool_value
+      v}
 
       NOTE: if n>1, it's more efficient to call this function once than to
       call the previous function n times.  *)
@@ -3073,6 +3825,10 @@ module type Model = sig
   val val_as_term  : t -> yval_t ptr -> term eh
 
   (** Value of term t in model converted to a constant term.
+   
+   {v
+   get_value_as_term t u
+   v}
 
       For primitive types, this is the same as extracting the value
       then converting it to a constant term:
@@ -3092,16 +3848,21 @@ module type Model = sig
       and a series of if-then-else constructs; the last else branch is the default value.
 
       If t has tuple type tau, then val is a tuple of constant terms.
-   *)   
+  *)
   val get_value_as_term : t -> term -> term eh
 
-  (** Get the values of terms a[0 .. n-1] in mdl and convert the values to terms.
+  (** Get the values of terms a0 .. n-1 in mdl and convert the values to terms.
+   
+   {v
+   terms_value t ts
+   v}
+   
       - a must be an array of n terms
       - b must be large enough to store n terms
 
       This function has the same behavior and limitations as yices_get_value_as_term.
       If there's no error, the function returns 0 and store the values in array b:
-      - b[i] = value of a[i] in mdl, converted to a term
+      - bi = value of ai in mdl, converted to a term
 
       Otherwise, the function returns -1 and sets the error report.
       The error codes are the same as for yices_get_value_as_term.  *)
@@ -3114,36 +3875,52 @@ module type Model = sig
       t is (if x>0 then x+z else y) and x has value 1 in mdl, then the value of t doesn't depend
       on the value of y in mdl. In this case, support(t) = \{ x, z \}.
       
-      This extends to an array of terms a[0 ... n-1]. The support of a is a set of terms whose
-      values in mdl are sufficient to determine the values of a[0] .... a[n-1]. *)
+      This extends to an array of terms a0 ... n-1. The support of a is a set of terms whose
+      values in mdl are sufficient to determine the values of a0 .... an-1. *)
 
   (** Get the support of a term t in mdl
+   
+   {v
+   model_term_support t u
+   v}
+   
       - the support is returned in vector *v; v must be initialized by calling yices_init_term_vector.
       - if t is not a valid term, the function returns -1 and leaves v unchanged.
       - otherwise, the function returns 0 and the support of t is stored in *v:
       v->size = number of terms in the support
-      v->data[0 ... v->size-1] = the terms
+      v->data0 ... v->size-1 = the terms
       
       Error report:
-      if t is not a valid term:
-      code = INVALID_TERM
-      term1 = t
+      
+      {v
+       if t is not a valid term:
+         code = INVALID_TERM
+         term1 = t
+      v}
       
       Since 2.6.2. *)
   val model_term_support : t -> term -> term list eh
 
-  (** Get the support of terms a[0...n-1] in mdl
+  (** Get the support of terms a0...n-1 in mdl
+   
+   {v
+   model_terms_support t ts
+   v}
+   
       - the support is returned in vector *v;
       v must be initialized by calling yices_init_term_vector.
       - if one  is not a valid term, the function returns -1 and leaves v unchanged.
       - otherwise, the function returns 0 and the support is stored in *v:
       v->size = number of terms in the support
-      v->data[0 ... v->size-1] = the terms
+      v->data0 ... v->size-1 = the terms
       
       Error report:
-      if a[i] is not a valid term,
-      code = INVALID_TERM
-      term1 = a[i]
+      
+      {v
+       if ai is not a valid term,
+         code = INVALID_TERM
+         term1 = ai
+      v}
       
       Since 2.6.2. *)
   val model_terms_support : t -> term list -> term list eh
@@ -3151,16 +3928,21 @@ module type Model = sig
   (** IMPLICANTS  *)
 
   (** Compute an implicant for t in mdl
+   
+   {v
+   implicant_for_formula t u
+   v}
+   
       - t must be a Boolean term that's true in mdl
-      - the implicant is a list of Boolean terms a[0] ... a[n-1] such that
-      1) a[i] is a literal (atom or negation of an atom)
-      2) a[i] is true in mdl
-      3) the conjunction a[0] /\ ... /\ a[n-1] implies t
+      - the implicant is a list of Boolean terms a0 ... an-1 such that
+      1) ai is a literal (atom or negation of an atom)
+      2) ai is true in mdl
+      3) the conjunction a0 /\ ... /\ an-1 implies t
 
       The implicant is returned in vector v, which must be initialized by
       yices_init_term_vector:
       v->size is the number of literals in the implicant (i.e., n)
-      v->data[0] ... v->data[n-1] = the n literals
+      v->data0 ... v->datan-1 = the n literals
       If there's an error (return code -1) then v is empty:
       v->size is set to 0.
 
@@ -3168,29 +3950,33 @@ module type Model = sig
       it returns -1.
 
       Error report:
-      if t is not valid
-      code = INVALID_TERM
-      term1 = t
-      if t is not a Boolean term
-      code = TYPE_MISMATCH
-      term1 = t
-      type1 = bool
-      if t is false in the model:
-      code = EVAL_NO_IMPLICANT
-      any of the error codes for evaluation functions is also possible:
-      EVAL_UNKNOWN_TERM
-      EVAL_FREEVAR_IN_TERM
-      EVAL_QUANTIFIER
-      EVAL_LAMBDA
-      EVAL_FAILED  *)
+      
+      {v
+       if t is not valid
+         code = INVALID_TERM
+         term1 = t
+       if t is not a Boolean term
+         code = TYPE_MISMATCH
+         term1 = t
+         type1 = bool
+       if t is false in the model:
+         code = EVAL_NO_IMPLICANT
+         any of the error codes for evaluation functions is also possible:
+         EVAL_UNKNOWN_TERM
+         EVAL_FREEVAR_IN_TERM
+         EVAL_QUANTIFIER
+         EVAL_LAMBDA
+         EVAL_FAILED
+      v}
+  *)
   val implicant_for_formula : t -> term -> term list eh
 
   (** Variant: compute an implicant for an array of formulas in mdl.
       - n = size of the array
-      - a[0 ... n-1] = n input terms.
-      each a[i] must be a Boolean term and must be true in mdl
+      - a0 ... n-1 = n input terms.
+      each ai must be a Boolean term and must be true in mdl
 
-      The function computes an implicant for the conjunction (and a[0] ... a[n-1]).
+      The function computes an implicant for the conjunction (and a0 ... an-1).
 
       Return codes and errors are as in the previous function.
       The implicant is returned in vector v.
@@ -3234,9 +4020,14 @@ module type Model = sig
       Any value other than these is interpreted the same as YICES_GEN_DEFAULT  *)
 
   (** Compute a generalization of mdl for formula t
+   
+   {v
+   generalize_model t u ts mode
+   v}
+   
       - nelims = number of variables to eliminate
       - elim = variables to eliminate
-      - each term in elim[i] must be an uninterpreted term (as returned by yices_new_uninterpreted_term)
+      - each term in elimi must be an uninterpreted term (as returned by yices_new_uninterpreted_term)
       of one of the following types: Boolean, (bitvector k), or Real
       - mode defines the generalization algorithm
       - v: term_vector to return the result
@@ -3244,7 +4035,7 @@ module type Model = sig
       The generalization G(X) is returned in term_vector v that must be initialized
       using yices_init_term_vector. G(X) is the conjunction of all formulas in v.
       v->size = number of formulas returned
-      v->data[0] ....  v->data[v->size-1] = the formulas themselves.
+      v->data0 ....  v->datav->size-1 = the formulas themselves.
 
       If mode = YICES_GEN_BY_PROJ, then every element of v is guaranteed to be a literal
 
@@ -3255,7 +4046,7 @@ module type Model = sig
       -1 means that the generalization failed.  *)
   val generalize_model : t -> term -> term list -> yices_gen_mode -> term list eh
 
-  (** Compute a generalization of mdl for the conjunct (a[0] /\ ... /\ a[n-1])  *)
+  (** Compute a generalization of mdl for the conjunct (a0 /\ ... /\ an-1)  *)
   val generalize_model_list : t -> term list -> term list -> yices_gen_mode -> term list eh
 
 end
@@ -3271,9 +4062,7 @@ module type Context = sig
   type config
   type param
   
-  (** ************
-      CONTEXTS   *
-      *********** *)
+  (** {2 CONTEXTS} *)
 
   (** A context is a stack of assertions.
 
@@ -3316,6 +4105,11 @@ module type Context = sig
       other options to control heuristics used by the solver.  *)
 
   (** Create a new context:
+   
+   {v
+   malloc ()
+   v}
+   
       - config is an optional argument that defines the context configuration
       - the configuration specifies which components the context should
       include (e.g., egraph, bv_solver, simplex_solver, etc),
@@ -3347,7 +4141,7 @@ module type Context = sig
       STATUS_SAT
       STATUS_UNSAT
       STATUS_INTERRUPTED
-   *)
+  *)
   val status : t -> smt_status
 
   (** Reset: remove all assertions and restore ctx's
@@ -3359,22 +4153,35 @@ module type Context = sig
       -1 otherwise
 
       Error report:
-      - if the context is not configured to support push/pop
-      code = CTX_OPERATION_NOT_SUPPORTED
-      - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
-      code = CTX_INVALID_OPERATION  *)
+      
+      {v
+       - if the context is not configured to support push/pop
+       code = CTX_OPERATION_NOT_SUPPORTED
+       - if the context status is STATUS_UNSAT or STATUS_SEARCHING or STATUS_INTERRUPTED
+       code = CTX_INVALID_OPERATION
+      v}
+  *)
   val push : t -> unit eh
 
   (** Pop: backtrack to the previous backtrack point (i.e., the matching
+   
+   {v
+   pop t
+   v}
+   
       call to yices_push).
       - return 0 if the operation succeeds, -1 otherwise.
 
       Error report:
-      - if the context is not configured to support push/pop
-      code = CTX_OPERATION_NOT_SUPPORTED
-      - if there's no matching push (i.e., the context stack is empty)
-      or if the context's status is STATUS_SEARCHING
-      code = CTX_INVALID_OPERATION  *)
+      
+      {v
+       - if the context is not configured to support push/pop
+       code = CTX_OPERATION_NOT_SUPPORTED
+       - if there's no matching push (i.e., the context stack is empty)
+       or if the context's status is STATUS_SEARCHING
+       code = CTX_INVALID_OPERATION
+      v}
+  *)
   val pop  : t -> unit eh
 
   (** Several options determine how much simplification is performed
@@ -3419,12 +4226,20 @@ module type Context = sig
       The two functions return -1 if there's an error, 0 otherwise.
 
       Error codes:
-      CTX_UNKNOWN_PARAMETER if the option name is not one of the above.  *)
-
+      
+      {v
+       CTX_UNKNOWN_PARAMETER if the option name is not one of the above.
+      v}
+  *)
   val enable_option  : t -> option:string -> unit eh
   val disable_option : t -> option:string -> unit eh
 
   (** Assert formula t in ctx
+   
+   {v
+   assert_formula t u
+   v}
+   
       - ctx status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
       - t must be a boolean term
 
@@ -3438,26 +4253,34 @@ module type Context = sig
       This returns 0 if there's no error or -1 if there's an error.
 
       Error report:
-      if t is invalid
-      code = INVALID_TERM
-      term1 = t
-      if t is not boolean
-      code = TYPE_MISMATCH
-      term1 = t
-      type1 = bool (expected type)
-      if ctx's status is not STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
-      code = CTX_INVALID_OPERATION
-      if ctx's status is neither STATUS_IDLE nor STATUS_UNSAT, and the context is
-      not configured for multiple checks
-      code = CTX_OPERATION_NOT_SUPPORTED
+      
+      {v
+       if t is invalid
+         code = INVALID_TERM
+         term1 = t
+       if t is not boolean
+         code = TYPE_MISMATCH
+         term1 = t
+         type1 = bool (expected type)
+       if ctx's status is not STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
+         code = CTX_INVALID_OPERATION
+       if ctx's status is neither STATUS_IDLE nor STATUS_UNSAT, and the context is
+         not configured for multiple checks
+         code = CTX_OPERATION_NOT_SUPPORTED
+      v}
 
       Other error codes are defined in yices_types.h to report that t is
       outside the logic supported by ctx.  *)
   val assert_formula : t -> term -> unit eh
 
-  (** Assert an array of n formulas t[0 ... n-1]
+  (** Assert an array of n formulas t0 ... n-1
+   
+   {v
+   assert_formulas t ts
+   v}
+   
       - ctx's status must be STATUS_IDLE or STATUS_UNSAT or STATUS_SAT or STATUS_UNKNOWN
-      - all t[i]'s must be valid boolean terms.
+      - all ti's must be valid boolean terms.
 
       The function returns -1 on error, 0 otherwise.
 
@@ -3465,6 +4288,11 @@ module type Context = sig
   val assert_formulas : t -> term list -> unit eh
 
   (** Add a blocking clause: this is intended to help enumerate different models
+   
+   {v
+   assert_blocking_clause t
+   v}
+   
       for a set of assertions.
       - if ctx's status is STATUS_SAT or STATUS_UNKNOWN, then a new clause is added to ctx
       to remove the current truth assignment from the search space. After this
@@ -3477,10 +4305,14 @@ module type Context = sig
       Return code: 0 if there's no error, -1 if there's an error.
 
       Error report:
-      if ctx's status is different from STATUS_SAT or STATUS_UNKNOWN
-      code = CTX_INVALID_OPERATION
-      if ctx is not configured to support multiple checks
-      code = CTX_OPERATION_NOT_SUPPORTED  *)
+      
+      {v
+       if ctx's status is different from STATUS_SAT or STATUS_UNKNOWN
+         code = CTX_INVALID_OPERATION
+       if ctx is not configured to support multiple checks
+         code = CTX_OPERATION_NOT_SUPPORTED
+      v}
+  *)
   val assert_blocking_clause : t -> unit eh
 
   (** Check satisfiability:
@@ -3520,6 +4352,10 @@ module type Context = sig
   val check : ?param:param -> t -> smt_status
 
   (** Check satisfiability under assumptions:
+   
+   {v
+   check_with_assumptions ?param t ts
+   v}
 
       Check whether the assertions stored in ctx conjoined with n assumptions are
       satisfiable.
@@ -3527,173 +4363,214 @@ module type Context = sig
       - if params is NULL, default parameter settings are used.
       - n = number of assumptions
       - t = array of n assumptions
-      - the assumptions t[0] ... t[n-1] must all be valid Boolean terms
+      - the assumptions t0 ... tn-1 must all be valid Boolean terms
 
       This function behaves the same as the previous function.
       If it returns STATUS_UNSAT, then one can construct an unsat core by
-      calling function yices_get_unsat_core. The unsat core is a subset of t[0] ... t[n-1]
+      calling function yices_get_unsat_core. The unsat core is a subset of t0 ... tn-1
       that's inconsistent with ctx. *)
   val check_with_assumptions : ?param:param -> t -> term list -> smt_status
 
   (**
-   * Check satisfiability modulo a model.
-   *
-   * Check whether the assertions stored in ctx conjoined with a model are satisfiable.
-   * - ctx must be a context initialized with support for MCSAT
-   *   (see yices_new_context, yices_new_config, yices_set_config).
-   * - params is an optional structure to store heuristic parameters
-   *   if params is NULL, default parameter settings are used.
-   * - mdl is a model
-   * - t is an array of n terms
-   * - the terms t[0] ... t[n-1] must all be uninterpreted terms
-   *
-   * This function checks statisfiability of the constraints in ctx conjoined with
-   * a conjunction of equalities defined by t[i] and the model, namely,
-   *
-   *    t[0] == v_0 /\ .... /\ t[n-1] = v_{n-1}
-   *
-   * where v_i is the value of t[i] in mdl.
-   *
-   * NOTE: if t[i] does not have a value in mdl, then a default value is picked for v_i.
-   *
-   * If this function returns STATUS_UNSAT and the context supports
-   * model interpolation, then one can construct a model interpolant by
-   * calling function yices_get_model_interpolant.
-   *
-   * Error codes:
-   *
-   * if one of the terms t[i] is not an uninterpreted term
-   *   code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
-   *
-   * If the context does not have the MCSAT solver enabled
-   *   code = CTX_OPERATION_NOT_SUPPORTED
-   *
-   * If the resulting status is STATUS_SAT and context does not support multichecks
-   *   code = CTX_OPERATION_NOT_SUPPORTED
-   *
-   *
-   * Since 2.6.4.
-   *)
+   
+   {v
+   check_with_model ?param t mdl ts
+   v}
+   
+   Check satisfiability modulo a model.
+   
+   Check whether the assertions stored in ctx conjoined with a model are satisfiable.
+   
+   - ctx must be a context initialized with support for MCSAT
+   
+     (see yices_new_context, yices_new_config, yices_set_config).
+   
+   - params is an optional structure to store heuristic parameters
+   
+     if params is NULL, default parameter settings are used.
+   
+   - mdl is a model
+   - t is an array of n terms
+   - the terms t0 ... tn-1 must all be uninterpreted terms
+   
+   This function checks statisfiability of the constraints in ctx conjoined with
+   a conjunction of equalities defined by ti and the model, namely,
+   
+      t0 == v_0 /\ .... /\ tn-1 = v_(n-1)
+   
+   where v_i is the value of ti in mdl.
+   
+   NOTE: if ti does not have a value in mdl, then a default value is picked for v_i.
+   
+   If this function returns STATUS_UNSAT and the context supports
+   model interpolation, then one can construct a model interpolant by
+   calling function yices_get_model_interpolant.
+   
+   Error codes:
+   
+   {v
+       *  if one of the terms ti is not an uninterpreted term
+    code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
+       *  If the context does not have the MCSAT solver enabled
+    code = CTX_OPERATION_NOT_SUPPORTED
+       *  If the resulting status is STATUS_SAT and context does not support multichecks
+    code = CTX_OPERATION_NOT_SUPPORTED
+       *     *  Since 2.6.4.
+   v}
+  *)
   val check_with_model : ?param:param -> t -> model -> term list -> smt_status
 
  (**
- * Check satisfiability modulo a model and hints.
- *
- * Check whether the assertions stored in ctx conjoined with a model are satisfiable.
- * - ctx must be a context initialized with support for MCSAT
- *   (see yices_new_context, yices_new_config, yices_set_config).
- * - params is an optional structure to store heuristic parameters
- *   if params is NULL, default parameter settings are used.
- * - mdl is a model
- * - t is an array of n terms
- * - the terms t[0] ... t[n-1] must all be uninterpreted terms
- *
- * This function checks statisfiability of the constraints in ctx
- * conjoined with a conjunction of equalities defined by first m terms
- * in t and their model values, namely,
- *
- *    t[0] = v_0 /\ .... /\ t[m-1] = v_{m-1}
- *
- * and the remaining n-m terms in t are provided with hints from the
- * model, i.e.
- *
- *    t[m], ... , t[n-1] will be given v_{m}, ... , v_{n-1} values when deciding
- *
- * where v_i is the value of t[i] in mdl.
- *
- * NOTE: if t[i] does not have a value in mdl, then a default value is picked for v_i.
- *
- * If this function returns STATUS_UNSAT and the context supports
- * model interpolation, then one can construct a model interpolant by
- * calling function yices_get_model_interpolant.
- *
- * Error codes:
- *
- * if one of the terms t[i] is not an uninterpreted term
- *   code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
- *
- * If the context does not have the MCSAT solver enabled
- *   code = CTX_OPERATION_NOT_SUPPORTED
- *
- * If the resulting status is STATUS_SAT and context does not support multichecks
- *   code = CTX_OPERATION_NOT_SUPPORTED
- *
- *
- * Since 2.7.0
- **)
-val check_with_model_and_hint : ?param:param -> t -> hard:term list -> soft:term list -> model -> smt_status
+  
+  {v
+  check_with_model_and_hint ?param t ~hard ~soft mdl
+  v}
+  
+ Check satisfiability modulo a model and hints.
+ 
+ Check whether the assertions stored in ctx conjoined with a model are satisfiable.
+ 
+ - ctx must be a context initialized with support for MCSAT
+ 
+   (see yices_new_context, yices_new_config, yices_set_config).
+ 
+ - params is an optional structure to store heuristic parameters
+ 
+   if params is NULL, default parameter settings are used.
+ 
+ - mdl is a model
+ - t is an array of n terms
+ - the terms t0 ... tn-1 must all be uninterpreted terms
+ 
+ This function checks statisfiability of the constraints in ctx
+ conjoined with a conjunction of equalities defined by first m terms
+ in t and their model values, namely,
+ 
+    t0 = v_0 /\ .... /\ tm-1 = v_(m-1)
+ 
+ and the remaining n-m terms in t are provided with hints from the
+ model, i.e.
+ 
+    tm, ... , tn-1 will be given v_m, ... , v_(n-1) values when deciding
+ 
+ where v_i is the value of ti in mdl.
+ 
+ NOTE: if ti does not have a value in mdl, then a default value is picked for v_i.
+ 
+ If this function returns STATUS_UNSAT and the context supports
+ model interpolation, then one can construct a model interpolant by
+ calling function yices_get_model_interpolant.
+ 
+ Error codes:
+ 
+ {v
+   *  if one of the terms ti is not an uninterpreted term
+  code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
+   *  If the context does not have the MCSAT solver enabled
+  code = CTX_OPERATION_NOT_SUPPORTED
+   *  If the resulting status is STATUS_SAT and context does not support multichecks
+  code = CTX_OPERATION_NOT_SUPPORTED
+   *   *  Since 2.7.0
+   * v}
+  *)
+  val check_with_model_and_hint : ?param:param -> t -> hard:term list -> soft:term list -> model -> smt_status
 
 (**
- * Set a fixed variable ordering for making mcsat decisions. MCSAT
- * will always first decide these variables in the given order.
- *
- * - ctx must be a context initialized with support for MCSAT
- *   (see yices_new_context, yices_new_config, yices_set_config).
- * - t is an array of n terms
- *
- * NOTE: This will overwrite the previously set ordering.
- *
- * Returns STATUS_ERROR if mcsat context is not enabled, otherwise returns STATUS_IDLE
- *
- * Error codes:
- *
- * If the context does not have the MCSAT solver enabled
- *   code = CTX_OPERATION_NOT_SUPPORTED
- **)
-val set_fixed_var_order : t -> term list -> smt_status
+
+ {v
+ set_fixed_var_order t ts
+ v}
+ 
+ Set a fixed variable ordering for making mcsat decisions. MCSAT
+ will always first decide these variables in the given order.
+ 
+ - ctx must be a context initialized with support for MCSAT
+ 
+   (see yices_new_context, yices_new_config, yices_set_config).
+ 
+ - t is an array of n terms
+ 
+ NOTE: This will overwrite the previously set ordering.
+ 
+ Returns STATUS_ERROR if mcsat context is not enabled, otherwise returns STATUS_IDLE
+ 
+ Error codes:
+ 
+ {v
+   *  If the context does not have the MCSAT solver enabled
+  code = CTX_OPERATION_NOT_SUPPORTED
+   * v}
+  *)
+  val set_fixed_var_order : t -> term list -> smt_status
 
 (**
- * Set initial variable ordering for making mcsat decisions. This is
- * one-time ordering that is done initially in the MCSAT search.
- *
- * - ctx must be a context initialized with support for MCSAT
- *   (see yices_new_context, yices_new_config, yices_set_config).
- * - t is an array of n terms
- *
- *
- * Returns STATUS_ERROR if mcsat context is not enabled, otherwise returns STATUS_IDLE
- *
- * Error codes:
- *
- * If the context does not have the MCSAT solver enabled
- *   code = CTX_OPERATION_NOT_SUPPORTED
- **)
-val set_initial_var_order : t -> term list -> smt_status
+
+ {v
+ set_initial_var_order t ts
+ v}
+ 
+ Set initial variable ordering for making mcsat decisions. This is
+ one-time ordering that is done initially in the MCSAT search.
+ 
+ - ctx must be a context initialized with support for MCSAT
+ 
+   (see yices_new_context, yices_new_config, yices_set_config).
+ 
+ - t is an array of n terms
+ 
+ 
+ Returns STATUS_ERROR if mcsat context is not enabled, otherwise returns STATUS_IDLE
+ 
+ Error codes:
+ 
+ {v
+   *  If the context does not have the MCSAT solver enabled
+  code = CTX_OPERATION_NOT_SUPPORTED
+   * v}
+  *)
+  val set_initial_var_order : t -> term list -> smt_status
 
   (**
-   * Check satisfiability and compute interpolant.
-   *
-   * Check whether the combined assertions stored in ctx are satisfiable. If they are
-   * not, compute an interpolant (whose uninterpreted terms are common to both contexts).
-   * - params is an optional structure to store heuristic parameters
-   * - if params is NULL, default parameter settings are used.
-   *
-   * The interpolation_context is a structure with four components defined as follows:
-   *
-   *  typedef  struct interpolation_context_s {
-   *     context_t *ctx_A;
-   *     context_t *ctx_B;
-   *     term_t interpolant;
-   *     model_t *model;
-   *  } interpolation_context_t;
-   *
-   * To call this function:
-   * - ctx->ctx_A must be a context initialized with support for MCSAT and interpolation.
-   * - ctx->ctx_B can be another context (not necessarily with MCSAT support)
-   *
-   * If this function returns STATUS_UNSAT, then an interpolant is returned in ctx->interpolant.
-   *
-   * If this function returns STATUS_SAT and build_model is true, then
-   * a model is returned in ctx->model. This model must be freed when no-longer needed by
-   * calling yices_free_model.
-   *
-   * If something is wrong, the function returns STATUS_ERROR and sets the yices error report
-   * (code = CTX_INVALID_OPERATION).
-   *
-   * Since 2.6.4.
-   *
-   * build_model is true by default.
-   *)
+
+   {v
+   check_with_interpolation ?build_model ?param t u
+   v}
+   
+   Check satisfiability and compute interpolant.
+   
+   Check whether the combined assertions stored in ctx are satisfiable. If they are
+   not, compute an interpolant (whose uninterpreted terms are common to both contexts).
+   
+   - params is an optional structure to store heuristic parameters
+   - if params is NULL, default parameter settings are used.
+   
+   The interpolation_context is a structure with four components:
+   
+   - ctx_A : context_t*
+   - ctx_B : context_t*
+   - interpolant : term_t
+   - model : model_t*
+   
+   The corresponding C type is interpolation_context_t.
+   
+   To call this function:
+   
+   - ctx->ctx_A must be a context initialized with support for MCSAT and interpolation.
+   - ctx->ctx_B can be another context (not necessarily with MCSAT support)
+   
+   If this function returns STATUS_UNSAT, then an interpolant is returned in ctx->interpolant.
+   
+   If this function returns STATUS_SAT and build_model is true, then
+   a model is returned in ctx->model. This model must be freed when no-longer needed by
+   calling yices_free_model.
+   
+   If something is wrong, the function returns STATUS_ERROR and sets the yices error report
+   (code = CTX_INVALID_OPERATION).
+   
+   Since 2.6.4.
+   
+   build_model is true by default.
+  *)
   val check_with_interpolation :
     ?build_model:bool -> ?param:param -> t -> t
     -> (term, model option) Types.smt_status_with_answers
@@ -3707,43 +4584,55 @@ val set_initial_var_order : t -> term list -> smt_status
   val stop : t -> unit
   
   (** Build a model from ctx
-   * - keep_subst indicates whether the model should include
-   *   the uninterpreted terms that have been eliminated by simplification:
-   *   keep_subst = 0 means don't keep substitutions,
-   *   keep_subst != 0 means keep them
-   * - ctx status must be STATUS_SAT or STATUS_UNKNOWN
-   *
-   * The function returns NULL if the status isn't SAT or STATUS_UNKNOWN
-   * and sets an error report (code = CTX_INVALID_OPERATION).
-   *
-   * When assertions are added to the context, the simplifications may
-   * eliminate some uninterpreted terms (cf. simplification options above).
-   * The flag 'keep_subst' indicates whether the model should keep track
-   * of these eliminated terms and include their value.
-   *
-   * Example: after the following assertions
-   *
-   *    (= x (bv-add y z))
-   *    (bv-gt y 0b000)
-   *    (bg-gt z 0b000)
-   *
-   * uninterpreted term 'x' gets eliminated. Then a call to 'check_context' will
-   * return STATUS_SAT and we can ask for a model 'M'
-   * - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
-   * - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
-   *   based on the value of 'y' and 'z' in 'M'.
-   *
-   * It's always better to set 'keep_subst' true. The only exceptions
-   * are some of the large SMT_LIB benchmarks where millions of uninterpreted
-   * terms are eliminated.  In such cases, it saves memory to set 'keep_subst'
-   * false, and model construction is faster too. *)
+   
+   {v
+   get_model ?keep_subst t
+   v}
+   
+   - keep_subst indicates whether the model should include
+   
+     the uninterpreted terms that have been eliminated by simplification:
+     keep_subst = 0 means don't keep substitutions,
+     keep_subst != 0 means keep them
+   
+   - ctx status must be STATUS_SAT or STATUS_UNKNOWN
+   
+   The function returns NULL if the status isn't SAT or STATUS_UNKNOWN
+   and sets an error report (code = CTX_INVALID_OPERATION).
+   
+   When assertions are added to the context, the simplifications may
+   eliminate some uninterpreted terms (cf. simplification options above).
+   The flag 'keep_subst' indicates whether the model should keep track
+   of these eliminated terms and include their value.
+   
+   Example: after the following assertions
+   
+      (= x (bv-add y z))
+      (bv-gt y 0b000)
+      (bg-gt z 0b000)
+   
+   uninterpreted term 'x' gets eliminated. Then a call to 'check_context' will
+   return STATUS_SAT and we can ask for a model 'M'
+   
+   - if 'keep_subst' is false then the value of 'x' in 'M' is unavailable.
+   - if 'keep_subst' is true then the value of 'x' in 'M' is computed,
+   
+     based on the value of 'y' and 'z' in 'M'.
+   
+   It's always better to set 'keep_subst' true. The only exceptions
+   are some of the large SMT_LIB benchmarks where millions of uninterpreted
+   terms are eliminated.  In such cases, it saves memory to set 'keep_subst'
+   false, and model construction is faster too. *)
   val get_model : ?keep_subst:bool -> t -> model eh
   
-  (** *************
-      UNSAT CORE  *
-      ************ *)
+  (** {2 UNSAT CORE} *)
   
   (** Construct an unsat core and store the result in vector *v.
+   
+   {v
+   get_unsat_core t
+   v}
+   
       - v must be an initialized term_vector
       
       If ctx status is unsat, this function stores an unsat core in v,
@@ -3760,24 +4649,25 @@ val set_initial_var_order : t -> term list -> smt_status
   val get_unsat_core : t -> term list eh
   
   (**
-   * Construct and return a model interpolant.
-   *
-   * If ctx status is unsat and the ctx was configured with model-interpolation,
-   * this function returns a model interpolant.
-   * Otherwise, it sets an error code and return NULL_TERM.
-   *
-   * This is intended to be used after a call to
-   * yices_check_context_with_model that returned STATUS_UNSAT. In this
-   * case, the function builds an model interpolant. The model
-   * interpolant is a clause implied by the current context that is
-   * false in the model provides to yices_check_context_with_model.
-   *
-   * Error code:
-   * - CTX_OPERATION_NOT_SUPPORTED if the context is not configured with model interpolation
-   * - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.
-   *
-   * Since 2.6.4.
-   *)
+   Construct and return a model interpolant.
+   
+   If ctx status is unsat and the ctx was configured with model-interpolation,
+   this function returns a model interpolant.
+   Otherwise, it sets an error code and return NULL_TERM.
+   
+   This is intended to be used after a call to
+   yices_check_context_with_model that returned STATUS_UNSAT. In this
+   case, the function builds an model interpolant. The model
+   interpolant is a clause implied by the current context that is
+   false in the model provides to yices_check_context_with_model.
+   
+   Error code:
+   
+   - CTX_OPERATION_NOT_SUPPORTED if the context is not configured with model interpolation
+   - CTX_INVALID_OPERATION if the context's status is not STATUS_UNSAT.
+   
+   Since 2.6.4.
+  *)
   val get_model_interpolant : t -> term eh
 
 end
@@ -3820,6 +4710,11 @@ module type Param = sig
   val default : context -> t -> unit
 
   (** Set a parameter in record p
+   
+   {v
+   set t ~name ~value
+   v}
+   
       - pname = parameter name
       - value = setting
 
@@ -3829,8 +4724,12 @@ module type Param = sig
       Return -1 if there's an error, 0 otherwise.
 
       Error codes:
-      - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
-      - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter  *)
+      
+      {v
+       - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
+       - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter
+      v}
+  *)
   val set : t -> name:string -> value:string -> unit eh
 
 end
@@ -3889,9 +4788,7 @@ module type BaseAPI = sig
   end
 
   module Error : sig
-    (** ********************
-        ERROR REPORTING  *
-        ****************** *)
+    (** {2 ERROR REPORTING} *)
 
     (** Error codes and the error_report data structure are defined in
         yices_types.h. When an API function is called with invalid
@@ -3905,8 +4802,10 @@ module type BaseAPI = sig
 
     (** Get the last error code  *)
     val code   : unit -> error_code
+
     (** Get the last error report  *)
     val report : unit -> error_report
+
     (** Clear the error report  *)
     val clear  : unit -> unit
   end
@@ -3950,11 +4849,14 @@ module type API = sig
                         and type context := Context.t
                         and type t        = param_ptr
 
-  (** ********************
-   *  CHECK FORMULA(S)  *
-   *********************)
+  (** {2 CHECK FORMULA(S)} *)
 
     (** Check whether a formula is satisfiable
+   
+   {v
+   check_formula ?logic ?model ?delegate t
+   v}
+   
       - f = formula
       - logic = SMT name for a logic (or NULL)
       - model = resulting model (or NULL if no model is needed)
@@ -3988,6 +4890,7 @@ module type API = sig
      
       Error codes:
      
+     
       if f is invalid
         code = INVALID_TERM
         term1 = f
@@ -4017,11 +4920,16 @@ module type API = sig
     ?logic:string -> ?model:bool -> ?delegate:string -> term_t -> smt_status * Model.t option
 
     (** Check whether n formulas are satisfiable.
+     
+     {v
+     check_formulas ?logic ?model ?delegate ts
+     v}
+     
       - f = array of n Boolean terms
       - n = number of elements in f
      
       This is similar to yices_check_formula except that it checks whether
-      the conjunction of f[0] ... f[n-1] is satisfiable.
+      the conjunction of f0 ... fn-1 is satisfiable.
      
       Since 2.6.2.  *)
     val check_formulas :
@@ -4029,6 +4937,11 @@ module type API = sig
       -> smt_status * Model.t option
 
     (** Check whether the given delegate is supported
+     
+     {v
+     has_delegate s
+     v}
+     
       - return 0 if it's not supported.
       - return 1 if delegate is NULL or it's the name of a supported delegate
      
@@ -4037,11 +4950,14 @@ module type API = sig
       Since 2.6.2. *)
     val has_delegate : string -> bool eh
 
-    (** **********************************
-     *  BIT-BLAST AND EXPORT TO DIMACS  *
-     ***********************************)
+    (** {2 BIT-BLAST AND EXPORT TO DIMACS} *)
 
     (** Bit-blast then export the CNF to a file
+     
+     {v
+     export_formula_to_dimacs t ~filename ~simplify
+     v}
+     
       - f = a Boolean formula (in the QF_BV theory)
       - filename = name of the ouput file
       - simplify_cnf = boolean flag
@@ -4068,15 +4984,18 @@ module type API = sig
        -1 if there's an error
      
       Error reports:
-      if f is not a valid term:
-        code = INVALID_TERM
-        term1 = f
-      if f is not a Boolean term
-        code = TYPE_MISMATCH
-        term1 = f
-        type1 = bool (expected type)
-      if there's an error when opening or writing to filename
-        code = OUTPUT_ERROR
+      
+      {v
+       if f is not a valid term:
+         code = INVALID_TERM
+         term1 = f
+       if f is not a Boolean term
+         code = TYPE_MISMATCH
+         term1 = f
+         type1 = bool (expected type)
+       if there's an error when opening or writing to filename
+         code = OUTPUT_ERROR
+      v}
      
       Other errors are possible if f can't be processed by the bitvector solver.
      
@@ -4085,6 +5004,11 @@ module type API = sig
     val export_formula_to_dimacs :
       term_t -> filename:string -> simplify:bool -> (smt_status * bool) eh
     (** Bit-blast n formulas then export the CNF to a file
+     
+     {v
+     export_formulas_to_dimacs ts ~filename ~simplify
+     v}
+     
       - f = array of n Boolean formula (in the QF_BV theory)
       - n = number of formulas in f
       - filename = name of the ouput file
@@ -4098,6 +5022,7 @@ module type API = sig
      
       Error reports: same as for yices_export_formula_to_dimacs.
      
+     
       Since 2.6.2. *)
     val export_formulas_to_dimacs :
       term_t list -> filename:string -> simplify:bool -> (smt_status * bool) eh
@@ -4106,14 +5031,17 @@ module type API = sig
 
   module PP : sig
     
-    (** *******************
-        PRETTY PRINTING   *
-     ****************** *)
+    (** {2 PRETTY PRINTING} *)
 
     (** default display *)
     val ddisplay : display
     
     (** Pretty print type tau or term t on file f
+     
+     {v
+     type_file f ?display tau
+     v}
+     
         - width, height, offset define the print area (default is 80,1,0)
         - f = output file to use.
           f must be open and writable.
@@ -4137,6 +5065,11 @@ module type API = sig
     val term_file : FILE.t ptr -> ?display:display -> term_t -> unit eh
 
     (** Pretty print an array of terms:
+     
+     {v
+     terms_file f ?display ts ~layout
+     v}
+     
         - f = output file to use
         - n = number of terms in the array a
         - a = array of terms
@@ -4144,29 +5077,29 @@ module type API = sig
         - horiz = Boolean flag that determines the layout
 
         If horiz is true (non-zero), the terms are printed as follows
-           a[0]  a[1] .... a[k]
-           a[k+1] ... a[n-1]
+           a0  a1 .... ak
+           ak+1 ... an-1
 
         If horiz is false (zero), the terms are printed as follows
-           a[0]
-           a[1]
+           a0
+           a1
             ...
-           a[n-1]
+           an-1
 
-        The function first checks whether all terms in a[0... n-1] are
+        The function first checks whether all terms in a0... n-1 are
         valid.  If not, it sets the error report:
           code = INVALID_TERM
-          term = a[i] (first invalid term in the array)
+          term = ai (first invalid term in the array)
         and returns -1. Nothing is printed in this case.
 
-        Otherwise, the terms a[0... n-1] are printed in the specified
+        Otherwise, the terms a0... n-1 are printed in the specified
         print area (some terms may be omitted if the area is too small).
         The function returns 0 unless there's an error while writing to
         file f. In such as case, the function returns -1 and
         set the error report to:
           code = OUTPUT_ERROR
-        *)
-    val terms_file : FILE.t ptr -> ?display:display -> term_t list -> layout:bool -> unit eh
+  *)
+  val terms_file : FILE.t ptr -> ?display:display -> term_t list -> layout:bool -> unit eh
 
     (** Print model mdl on FILE f
         - f must be open/writable
@@ -4221,6 +5154,11 @@ module type API = sig
       and (b i) is false for any i not equal to 0 or 1.  *)
     
     (** Pretty printing:
+     
+     {v
+     model_file f ?display mdl
+     v}
+     
         - f = output file to use
         - width, height, offset define the print area
 
@@ -4243,13 +5181,21 @@ module type API = sig
       The function returns -1 on error, 0 otherwise.
      
       Error report:
-      if a[i] is not a valid term:
-        code = INVALID_TERM
-        term1 = a[i]
+      
+      {v
+       if ai is not a valid term:
+         code = INVALID_TERM
+         term1 = ai
+      v}
      
       Since 2.6.2. *)
 
     (** Pretty print the values of n terms in  a model
+     
+     {v
+     term_values_file f ?display mdl ts
+     v}
+     
       - f = output file
       - mdl = model
       - n = number of terms
@@ -4262,18 +5208,25 @@ module type API = sig
      
      
       Error report:
-      if a[i] is not a valid term:
-        code = INVALID_TERM
-        term1 = a[i]
-      if writing to f fails,
-        code = OUTPUT_ERROR
-        in this case, errno, perror, etc. can be used for diagnostic.
+      
+      {v
+       if ai is not a valid term:
+         code = INVALID_TERM
+         term1 = ai
+       if writing to f fails,
+         code = OUTPUT_ERROR
+         in this case, errno, perror, etc. can be used for diagnostic.
+      v}
      
       Since 2.6.2. *)
     val term_values_file :
       FILE.t ptr -> ?display:display -> model_t ptr -> term_t list -> unit eh
 
     (** Variants of the above functions that use file descriptors rather than file pointers.
+     
+     {v
+     type_fd i ?display tau
+     v}
 
         These functions return 0 if successful or -1 if there's an error.
         Error codes are set as in the corresponding functions above.
@@ -4285,11 +5238,17 @@ module type API = sig
     val term_fd        : sint -> ?display:display -> term_t -> unit eh
     val terms_fd       : sint -> ?display:display -> term_t list -> layout:bool -> unit eh
     val model_fd       : sint -> ?display:display -> model_t ptr -> unit eh
+
     (** Since 2.6.2. *)
     val term_values_fd : sint -> ?display:display -> model_t ptr -> term_t list -> unit eh
 
     
     (** Convert type tau or term t to a string using the pretty printer.
+     
+     {v
+     type_string ?display tau
+     v}
+     
         - width, height, offset define the print area as above.
 
         - return NULL on error
@@ -4303,12 +5262,16 @@ module type API = sig
         - possible error report for yices_term_to_string
           code = INVALID_TERM
           term1 = t
-        *)
-
-    val type_string : ?display:display -> type_t -> string eh
+  *)
+  val type_string : ?display:display -> type_t -> string eh
     val term_string : ?display:display -> term_t -> string eh
 
     (** Convert model to a string using the pretty printer.
+     
+     {v
+     model_string ?display mdl
+     v}
+     
         - width, height, offset define the print area
           Returns a '\0'-terminated string otherwise. This string must be deleted
           when no longer needed by calling yices_free_string.  *)

@@ -202,9 +202,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     (* For bitvector terms *)
     let width_of_term y = Type.bvsize(Term.type_of_term y)
 
-    (*************************)
-    (* Free Variable testing *)
-    (*************************)
+    (** {2 Free Variable testing} *)
 
     open MTerm(struct
              include Option
@@ -224,9 +222,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
            HPairs.add is_free_table (var,t) answer;
            answer
 
-    (**************************)
-    (* Sets of Free Variables *)
-    (**************************)
+    (** {2 Sets of Free Variables} *)
 
     open MTerm(struct
              type 'a t = 'a * TermSet.t

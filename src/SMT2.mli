@@ -1,3 +1,4 @@
+(** SMT-LIB v2 parser and driver built on top of the Ext API. *)
 open Sexplib
 
 open Ext

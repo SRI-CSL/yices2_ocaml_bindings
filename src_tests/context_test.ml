@@ -485,6 +485,7 @@ let test_tupleblast () =
 (*      let bcktrace = Printexc.get_backtrace() in *)
 (*      CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string()); *)
 (*      CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@," *)
-(*        Types.pp_error_report report; *)
+(*        Types.pp_error_report report;
+*)
 (*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
 (*      raise exc *)

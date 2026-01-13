@@ -4,9 +4,7 @@ open WithExceptionsErrorHandling
 
 open Types_ext
    
-(**************************************************************)
-(* This module is here to help you build extensions to Yices. *)
-(**************************************************************)
+(** {2 This module is here to help you build extensions to Yices.} *)
 
 (* This is the initial Yices implementation of the above.
    That's the base implementation you are extending. *)

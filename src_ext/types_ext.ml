@@ -4,9 +4,7 @@ open Yices2
 open Ext
 open Ext.WithExceptionsErrorHandling
 
-(**************************************************************)
-(* This module is here to help you build extensions to Yices. *)
-(**************************************************************)
+(** {2 This module is here to help you build extensions to Yices.} *)
 
 (* An "extended Yices" offers an API similar to the API of a Yices's context.
    You can use different terms, configs, and models from what Yices uses. *)

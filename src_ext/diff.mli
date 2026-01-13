@@ -2,9 +2,7 @@ open Yices2.Ext
 open WithExceptionsErrorHandling
 open Types_ext
 
-(**********************************************************)
-(* Diff symbol for extensionality in the theory of arrays *)
-(**********************************************************)
+(** {2 Diff symbol for extensionality in the theory of arrays} *)
 
 module AddDiff : sig
 

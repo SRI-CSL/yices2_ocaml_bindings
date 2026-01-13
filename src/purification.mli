@@ -1,3 +1,4 @@
+(** Term purification helpers used by the Ext layer. *)
 open Purification_types
 
 module PurificationMonad(Accu : sig type t end) : PurificationMonad with type accu := Accu.t

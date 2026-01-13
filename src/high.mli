@@ -1,3 +1,4 @@
+(** Higher-level API: OCaml-friendly wrappers over the low bindings. *)
 open Ctypes_static
 
 module type API = High_types.API

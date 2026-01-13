@@ -1,3 +1,4 @@
+(** Types and signatures for the Ext layer and its derived utilities. *)
 open Containers
 open Sexplib
 
@@ -6,6 +7,12 @@ open High
 open Types
 
 module Types = struct
+
+  type smt_status = High.Types.smt_status
+  type error_code = High.Types.error_code
+  type type_t = High.Types.type_t
+  module HTypes = High.Types.HTypes
+  module HTerms = High.Types.HTerms
   
   type config_options = String.t HStrings.t
 

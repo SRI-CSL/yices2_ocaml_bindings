@@ -1,3 +1,4 @@
+(** Shared utilities and small monad helpers used across the bindings. *)
 open Containers
    
 module HStrings : CCHashtbl.S with type key = String.t
