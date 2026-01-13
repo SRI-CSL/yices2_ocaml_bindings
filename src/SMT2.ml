@@ -4,7 +4,6 @@ open Sexplib
 open Type
     
 open Ext
-open Types
 
 module Cont : sig
   type ('a, 'r) t
@@ -39,6 +38,7 @@ open Cont
 
 module StringHashtbl = Common.HStrings
 module VarMap = Common.HStrings
+module HTerms = High.Types.HTerms
 
 module type Variables = sig
   type term
@@ -54,6 +54,9 @@ module type API = sig
 
   module Ext : Ext_types.API
   open Ext
+  module StringHashtbl : CCHashtbl.S with type key = string
+  module VarMap : CCHashtbl.S with type key = string
+  module HTerms : CCHashtbl.S with type key = Term.t
 
   module Variables : Variables with type term := Term.t
 
@@ -62,12 +65,13 @@ module type API = sig
     (** Turns the log within context into SMT2 string. *)
     (* val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string *)
 
+    (** Mutable session state for parsing and evaluation. *)
     type t = {
         verbosity : int;
         param     : Param.t;
         infos     : string StringHashtbl.t;
         options   : string StringHashtbl.t;
-        types     : type_t VarMap.t;
+        types     : Type.t VarMap.t;
         variables : Variables.t;
         model     : SModel.t option ref;
         smt2functions : unit HTerms.t;
@@ -119,6 +123,9 @@ let raise_smt2 a =
 module Make(Ext : Ext_types.API) = struct
 
   open Ext
+  module StringHashtbl = StringHashtbl
+  module VarMap = VarMap
+  module HTerms = HTerms
   
   module Variables : Variables with type term := Term.t = struct
 
@@ -150,7 +157,7 @@ module Make(Ext : Ext_types.API) = struct
         param     : Param.t;
         infos     : string StringHashtbl.t;
         options   : string StringHashtbl.t;
-        types     : type_t VarMap.t;
+        types     : Type.t VarMap.t;
         variables : Variables.t;
         model     : SModel.t option ref;
         smt2functions : unit HTerms.t;
@@ -189,7 +196,7 @@ module Make(Ext : Ext_types.API) = struct
 
   module ParseType = struct
 
-    type t = (type_t, type_t) Cont.t
+    type t = (Type.t, Type.t) Cont.t
 
     let atom types s =
       return(
@@ -200,7 +207,7 @@ module Make(Ext : Ext_types.API) = struct
                | "Real"    -> Type.real()
                | _ -> raise(Yices_SMT2_exception("ParseType.atom does not understand: "^s)))
 
-    let rec parse types : Sexp.t -> (type_t,type_t) Cont.t = function
+    let rec parse types : Sexp.t -> (Type.t,Type.t) Cont.t = function
       | Atom s -> atom types s
       | List l as sexp ->
          match l with
@@ -230,7 +237,7 @@ module Make(Ext : Ext_types.API) = struct
 
     open Session
 
-    type t = (term_t, term_t) Cont.t
+    type t = (Term.t, Term.t) Cont.t
 
     let atom env s =
       return
@@ -519,7 +526,7 @@ module Make(Ext : Ext_types.API) = struct
          let ctx = context_of_id (Atom "get-model") in
          Context.get_model ctx ~keep_subst:true
 
-    let display = { width=80; height=80; offset=0 }
+    let display : Types.display = { width=80; height=80; offset=0 }
 
     let iter f n =
       let n = int_of_string n in

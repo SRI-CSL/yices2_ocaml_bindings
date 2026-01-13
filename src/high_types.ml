@@ -1250,7 +1250,7 @@ module type Term = sig
         if t1 or t2 is not an arithmetic term
           code = ARITHTERM_REQUIRED
           term1 = t1 or t2
-          *  for yices_mul, yices_square, and yices_power,
+           for yices_mul, yices_square, and yices_power,
         if the result's degree is too large,
           then the error report is
           code = DEGREE_OVERFLOW
@@ -1437,25 +1437,24 @@ module type Term = sig
       if t is not an arithmetic term
         code = ARITHTERM_REQUIRED
         term1 = t
-        * v}
-
-
-        (** Absolute value, floor, ceiling
-
-        {v
-        abs t
      v}
   *)
   val is_int_atom : t -> t eh
-     
+
+  (** Absolute value, floor, ceiling
+
+   {v
+   abs t
+   v}
+
      t must be an arithmetic term
-     
+
      floor t is the largest integer that's less than or equal to t
      ceiling t is the smallest integer that's greater than or equal to t
      The functions return NULL_TERM if there's an error.
-     
+
      Error report:
-     
+
      {v
       if t is not valid
         code = INVALID_TERM
@@ -1577,6 +1576,7 @@ module type Term = sig
   end
 
   module BV : sig
+
     (** {2 BITVECTOR TERM CONSTRUCTORS} *)
 
     (** BITVECTOR CONSTANTS
@@ -1820,6 +1820,7 @@ module type Term = sig
     val bvshl  : t -> t -> t eh
     val bvlshr : t -> t -> t eh
     val bvashr : t -> t -> t eh
+
     (** Bitvector and/or/xor
      
      {v
@@ -3191,6 +3192,7 @@ module type Model = sig
   type term
  
   type t
+
   (** {2 MODELS} *)
 
   (** Delete model mdl  *)
@@ -4409,13 +4411,13 @@ module type Context = sig
    Error codes:
    
    {v
-       *  if one of the terms ti is not an uninterpreted term
+        if one of the terms ti is not an uninterpreted term
     code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
-       *  If the context does not have the MCSAT solver enabled
+        If the context does not have the MCSAT solver enabled
     code = CTX_OPERATION_NOT_SUPPORTED
-       *  If the resulting status is STATUS_SAT and context does not support multichecks
+        If the resulting status is STATUS_SAT and context does not support multichecks
     code = CTX_OPERATION_NOT_SUPPORTED
-       *     *  Since 2.6.4.
+           *  Since 2.6.4.
    v}
   *)
   val check_with_model : ?param:param -> t -> model -> term list -> smt_status
@@ -4463,15 +4465,15 @@ module type Context = sig
  
  Error codes:
  
- {v
-   *  if one of the terms ti is not an uninterpreted term
+  {v
+    if one of the terms ti is not an uninterpreted term
   code = MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
-   *  If the context does not have the MCSAT solver enabled
+    If the context does not have the MCSAT solver enabled
   code = CTX_OPERATION_NOT_SUPPORTED
-   *  If the resulting status is STATUS_SAT and context does not support multichecks
+    If the resulting status is STATUS_SAT and context does not support multichecks
   code = CTX_OPERATION_NOT_SUPPORTED
-   *   *  Since 2.7.0
-   * v}
+     *  Since 2.7.0
+  v}
   *)
   val check_with_model_and_hint : ?param:param -> t -> hard:term list -> soft:term list -> model -> smt_status
 
@@ -4496,10 +4498,10 @@ module type Context = sig
  
  Error codes:
  
- {v
-   *  If the context does not have the MCSAT solver enabled
+  {v
+    If the context does not have the MCSAT solver enabled
   code = CTX_OPERATION_NOT_SUPPORTED
-   * v}
+  v}
   *)
   val set_fixed_var_order : t -> term list -> smt_status
 
@@ -4523,10 +4525,10 @@ module type Context = sig
  
  Error codes:
  
- {v
-   *  If the context does not have the MCSAT solver enabled
+  {v
+    If the context does not have the MCSAT solver enabled
   code = CTX_OPERATION_NOT_SUPPORTED
-   * v}
+  v}
   *)
   val set_initial_var_order : t -> term list -> smt_status
 
@@ -4788,6 +4790,7 @@ module type BaseAPI = sig
   end
 
   module Error : sig
+
     (** {2 ERROR REPORTING} *)
 
     (** Error codes and the error_report data structure are defined in

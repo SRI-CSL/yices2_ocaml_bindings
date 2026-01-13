@@ -344,6 +344,7 @@ module Types (F : TYPE) = struct
   let term_constructor_t =
     typedef term_constructor#ctype "term_constructor_t"
 
+  [%%if defined yices_ge_2_7]
   let yval_tag =
     let (to_int, of_int) =
       ((function
@@ -374,6 +375,37 @@ module Types (F : TYPE) = struct
       method to_int = to_int
       method of_int = of_int
     end
+  [%%else]
+  let yval_tag =
+    let (to_int, of_int) =
+      ((function
+        | `YVAL_UNKNOWN -> 0L
+        | `YVAL_BOOL -> 1L
+        | `YVAL_RATIONAL -> 2L
+        | `YVAL_ALGEBRAIC -> 3L
+        | `YVAL_FINITEFIELD -> failwith "YVAL_FINITEFIELD unsupported"
+        | `YVAL_BV -> 4L
+        | `YVAL_SCALAR -> 5L
+        | `YVAL_TUPLE -> 6L
+        | `YVAL_FUNCTION -> 7L
+        | `YVAL_MAPPING -> 8L),
+       (function
+        | 0L -> `YVAL_UNKNOWN
+        | 1L -> `YVAL_BOOL
+        | 2L -> `YVAL_RATIONAL
+        | 3L -> `YVAL_ALGEBRAIC
+        | 4L -> `YVAL_BV
+        | 5L -> `YVAL_SCALAR
+        | 6L -> `YVAL_TUPLE
+        | 7L -> `YVAL_FUNCTION
+        | 8L -> `YVAL_MAPPING
+        | _ -> failwith "enum to_int")) in
+    object
+      method ctype = uint
+      method to_int = to_int
+      method of_int = of_int
+    end
+  [%%endif]
   let yval_tag_t = typedef yval_tag#ctype "yval_tag_t"
 
   let yval_s =

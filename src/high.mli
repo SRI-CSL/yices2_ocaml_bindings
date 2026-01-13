@@ -33,21 +33,25 @@ module type ErrorHandling = sig
   val bind : 'a t -> ('a -> 'b t) -> 'b t
 end
 
+(** Error handling that returns values directly and raises on errors. *)
 module NoErrorHandling : sig
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
   include ErrorHandling with type 'a t = 'a
 end
 
+(** Error handling that raises exceptions on errors. *)
 module ExceptionsErrorHandling : sig
   exception YicesException of error_code * error_report
   exception YicesBindingsException of string
   include ErrorHandling with type 'a t = 'a
 end
 
+(** Error handling that returns results as [Ok]/[Error]. *)
 module SumErrorHandling : sig
   type error = Yices of error_code * error_report | Bindings of string
   include ErrorHandling with type 'a t = ('a, error) Stdlib.Result.t
 end
 
+(** Instantiate the high-level API with a custom error-handling strategy. *)
 module Make(EH: ErrorHandling) : API with type 'a eh := 'a EH.t

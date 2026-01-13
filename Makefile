@@ -13,6 +13,7 @@ smt2:
 
 test: build
 	dune build @runtest
+	dune exec src_smt2/yices_smt2.exe -- src_smt2/simple.smt2
 
 install: build
 	dune install

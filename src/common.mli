@@ -1,8 +1,10 @@
 (** Shared utilities and small monad helpers used across the bindings. *)
 open Containers
    
+(** String-keyed hash table helpers. *)
 module HStrings : CCHashtbl.S with type key = String.t
 
+(** List helpers with a stable type alias. *)
 module List : module type of List with type 'a t = 'a list
 
 module type Monad = sig
@@ -11,6 +13,7 @@ module type Monad = sig
   val bind : 'a t -> ('a -> 'b t) -> 'b t
 end
 
+(** Monadic list utilities. *)
 module MList(M : Monad) : sig
   val fold : ('a -> 'b -> 'a M.t) -> 'a M.t -> 'b list -> 'a M.t
   val map : ('a -> 'b M.t) -> 'a list -> 'b list M.t
@@ -21,4 +24,5 @@ module type StateMonad = sig
   include Monad with type 'a t = state -> 'a * state
 end
 
+(** State monad helpers specialized by a state type. *)
 module StateMonad(State : sig type t end) : StateMonad with type state := State.t

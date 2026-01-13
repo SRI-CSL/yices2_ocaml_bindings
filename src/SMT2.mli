@@ -1,11 +1,10 @@
 (** SMT-LIB v2 parser and driver built on top of the Ext API. *)
 open Sexplib
 
-open Ext
-
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string
 
+(** Continuation-style helpers used by the SMT2 parser. *)
 module Cont : sig
   type ('a, 'r) t
   val get      : ('a, 'a) t -> 'a
@@ -20,10 +19,14 @@ end
 
 exception Yices_SMT2_exception of string
 
+(** SMT-LIB v2 front-end API. *)
 module type API = sig
 
   module Ext : Ext_types.API
   open Ext
+  module StringHashtbl : CCHashtbl.S with type key = string
+  module VarMap : CCHashtbl.S with type key = string
+  module HTerms : CCHashtbl.S with type key = Term.t
 
   module Variables : sig
     type t
@@ -36,6 +39,7 @@ module type API = sig
 
   module Session : sig
 
+    (** Mutable session state for parsing and evaluation. *)
     type t = {
         verbosity : int;
         param     : Param.t;
@@ -44,7 +48,7 @@ module type API = sig
         types     : Type.t VarMap.t;
         variables : Variables.t;
         model     : SModel.t option ref;
-        smt2functions : unit Types.HTerms.t;
+        smt2functions : unit HTerms.t;
       }
 
     val set_logic: (?logic:string -> Config.t -> unit)
@@ -85,4 +89,5 @@ module type API = sig
 
 end
 
+(** Instantiate the SMT2 front-end over a specific Ext implementation. *)
 module Make(Ext : Ext_types.API) : API with module Ext := Ext
