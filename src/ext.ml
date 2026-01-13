@@ -77,10 +77,15 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         config  = Config.malloc();
         options = HStrings.create 10;
         logic   = ref None;
-        mcsat   = ref false
+        mcsat   = ref false;
+        is_alive = ref true
       }
 
-    let free (Config{ config; _}) = Config.free config
+    let free (Config{ config; is_alive; _}) =
+      if not !is_alive
+      then EH.raise_bindings_error "Trying to free dead config";
+      Config.free config;
+      is_alive := false
     let set (Config{ config; mcsat; options; _ }) ~name ~value =
       HStrings.replace options name value;
       if String.equal name "solver-type"
@@ -1204,6 +1209,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let assertions ctx     = !(ctx.assertions)
     let options ctx        = HStrings.copy ctx.options
     let config_options ctx = HStrings.copy ctx.config_options
+    let config ctx = ctx.config
     let log ctx      =
       let aux (sofar,context_count) = function
         | ContextAction { context_id ; context_action } ->
@@ -1637,4 +1643,3 @@ module Types = struct
       Type.pp type2
       badval
 end
-

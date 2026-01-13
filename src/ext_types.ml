@@ -22,7 +22,8 @@ module Types = struct
       config : config_ptr;
       options: config_options;
       logic  : string option ref;
-      mcsat  : bool ref
+      mcsat  : bool ref;
+      is_alive : bool ref
     }
 
   (** Boolean structure for composite conditions. *)
@@ -210,6 +211,13 @@ module type Context = sig
       v}
       Return a copy of the context options. *)
   val options        : t -> unit HStrings.t
+
+  (**
+   {v
+      config ctx
+      v}
+      Return the configuration used to build the context, if any. *)
+  val config         : t -> config option
 
   (**
    {v
