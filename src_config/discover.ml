@@ -12,9 +12,13 @@ let () =
   let pkg = ref [] in
   let first = ref "" in
   let optcomp_cookie_file = ref None in
+  let vendor_root = ref "" in
+  let vendor_prefix_arg = ref "" in
   let args =
     Arg.(
     [ ("-system", Set_string sys, "set system");
+      ("-vendor-root", Set_string vendor_root, "path to project root for vendored deps");
+      ("-vendor-prefix", Set_string vendor_prefix_arg, "prefix for vendored deps");
       ("-pkg", Tuple[Set_string first; String(fun s -> pkg := (!first,s)::!pkg)], "package dependency");
       ("-optcomp-cookie", String (fun s -> optcomp_cookie_file := Some s),
        "emit a lines file with ppx_optcomp cookie based on Yices version")
@@ -34,7 +38,100 @@ let () =
       else
         { libs   = []; cflags = ["-fPIC"; "-w"] }
     in
+    let has_mcsat conf =
+      let c_file = Filename.temp_file "yices_mcsat" ".c" in
+      let exe_file = Filename.temp_file "yices_mcsat" ".exe" in
+      let code =
+        "#include <yices.h>\n\
+         int main(void) { return yices_has_mcsat() ? 0 : 1; }\n"
+      in
+      let oc = open_out c_file in
+      output_string oc code;
+      close_out oc;
+      let cc = C.ocaml_config_var_exn c "cc" in
+      let compile =
+        C.Process.run c cc
+          (conf.cflags @ [ c_file ] @ conf.libs @ [ "-o"; exe_file ])
+      in
+      let cleanup () =
+        (try if Sys.file_exists c_file then Sys.remove c_file with _ -> ());
+        (try if Sys.file_exists exe_file then Sys.remove exe_file with _ -> ())
+      in
+      if compile.exit_code <> 0 then (cleanup (); false) else
+        let libpaths =
+          let add_path acc flag =
+            if String.length flag >= 2 && String.sub flag 0 2 = "-L" then
+              let path = String.sub flag 2 (String.length flag - 2) in
+              path :: acc
+            else
+              acc
+          in
+          List.rev (List.fold_left add_path [] conf.libs)
+        in
+        let env =
+          if libpaths = [] then None
+          else
+            let joined = String.concat ":" libpaths in
+            let append name =
+              match Sys.getenv_opt name with
+              | None -> joined
+              | Some v -> joined ^ ":" ^ v
+            in
+            Some
+              [ "LD_LIBRARY_PATH=" ^ append "LD_LIBRARY_PATH";
+                "DYLD_LIBRARY_PATH=" ^ append "DYLD_LIBRARY_PATH" ]
+        in
+        let run =
+          match env with
+          | None -> C.Process.run c exe_file []
+          | Some env -> C.Process.run c ~env exe_file []
+        in
+        let ok = run.exit_code = 0 in
+        cleanup ();
+        ok
+    in
+    let vendor_prefix =
+      let provided = !vendor_prefix_arg in
+      if provided <> "" then
+        Some provided
+      else
+        let opam_prefix =
+          match C.which c "opam" with
+          | None -> None
+          | Some opam ->
+              let res = C.Process.run c opam [ "var"; "prefix" ] in
+              if res.exit_code = 0 then
+                let p = String.trim res.stdout in
+                if p = "" then None else Some p
+              else
+                None
+        in
+        match opam_prefix with
+        | Some p -> Some p
+        | None ->
+            let root = !vendor_root in
+            if root = "" then None else Some (Filename.concat root "vendor/_install")
+    in
+    let vendor_yices_flags sofar =
+      match vendor_prefix with
+      | None -> None
+      | Some prefix ->
+          let libdir = Filename.concat prefix "lib" in
+          let incdir = Filename.concat prefix "include" in
+          let candidates =
+            [ Filename.concat libdir "libyices.a";
+              Filename.concat libdir "libyices.so";
+              Filename.concat libdir "libyices.dylib" ]
+          in
+          let has_yices = List.exists Sys.file_exists candidates in
+          if not has_yices then None
+          else
+            Some
+              { libs = sofar.libs @ [ "-L" ^ libdir; "-lyices"; "-lcudd" ];
+                cflags = sofar.cflags @ [ "-I" ^ incdir ] }
+    in
     let aux sofar (linux_name, macos_name) =
+      let pkg_name = linux_name in
       let package = 
         if is_system "macosx" sys then macos_name else linux_name
       in
@@ -46,10 +143,34 @@ let () =
       | None -> default()
       | Some pc ->
          match C.Pkg_config.query pc ~package with
-         | None -> default()
+         | None ->
+            if pkg_name = "yices" then
+              match vendor_yices_flags sofar with
+              | Some conf -> conf
+              | None ->
+                  C.die "Could not find yices via pkg-config or vendored install under %s"
+                    (match vendor_prefix with
+                     | None -> "<unset>"
+                     | Some p -> p)
+            else
+              default()
          | Some deps ->
-            { libs   = sofar.libs @ deps.libs ;
-              cflags = sofar.cflags @ deps.cflags }
+            let conf =
+              { libs = sofar.libs @ deps.libs;
+                cflags = sofar.cflags @ deps.cflags }
+            in
+            if pkg_name <> "yices" then
+              conf
+            else if has_mcsat conf then
+              conf
+            else
+              match vendor_yices_flags sofar with
+              | Some conf -> conf
+              | None ->
+                  C.die "Yices found but MCSAT is disabled; no vendored build under %s"
+                    (match vendor_prefix with
+                     | None -> "<unset>"
+                     | Some p -> p)
     in
     let conf = List.fold_left aux base !pkg in
 

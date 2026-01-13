@@ -1,4 +1,4 @@
-.PHONY: default build install uninstall reinstall test clean smt2 doc
+.PHONY: default build install uninstall reinstall test clean smt2 doc with-local-yices
 
 default: build
 
@@ -7,6 +7,9 @@ doc:
 
 build:
 	dune build
+
+with-local-yices:
+	OPAM_SWITCH_PREFIX="$$(opam var prefix 2>/dev/null)" YICES2_FORCE_LOCAL=1 dune build
 
 smt2:
 	dune build src_smt2

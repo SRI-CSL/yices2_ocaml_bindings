@@ -45,6 +45,22 @@ and can be installed in findlib by opam (2.0 or higher), for instance
 opam install . --deps-only
 ```
 
+If `pkg-config` cannot find an installed Yices2, the build will try to compile Yices2 and CUDD from vendored submodules under `vendor/` and install into the current opam switch prefix.
+Initialize these submodules before building:
+
+```
+git submodule update --init --recursive
+```
+
+You can pass extra Yices configure flags via `YICES2_CONFIGURE_FLAGS` if needed.
+If you want to force the vendored build even when a system Yices is present, run:
+
+```
+make with-local-yices
+```
+
+When the vendored build runs, it installs Yices2 and CUDD into the current opam switch prefix (`opam var prefix`) to avoid requiring root access and to disambiguate linking.
+
 ### Building using opam (2.0 or higher)
 
 In the directory of this `README.md`, build and install (in findlib) with the following command:

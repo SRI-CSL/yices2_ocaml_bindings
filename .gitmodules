@@ -1,0 +1,6 @@
+[submodule "vendor/yices2"]
+	path = vendor/yices2
+	url = https://github.com/SRI-CSL/yices2.git
+[submodule "vendor/cudd"]
+	path = vendor/cudd
+	url = https://github.com/ivmai/cudd.git

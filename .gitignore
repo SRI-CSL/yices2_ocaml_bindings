@@ -28,5 +28,9 @@ ppx_optcomp_cookie.lines
 # MacOS
 .DS_Store
 
+# vendored deps
+vendor/_build/
+vendor/_install/
+
 # emacs
 *~
