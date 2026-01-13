@@ -18,7 +18,7 @@ depends: [
   "sexplib"
   "sexplib0"
   "ctypes"
-  "ctypes-zarith"
+#  "ctypes-zarith" # commenting out until on opam
   "dmap"
   "odoc"
 #  "libpoly_bindings" # commenting out until on opam

@@ -37,7 +37,8 @@ Building the bindings will also compile an executable `yices_smt2.exe`. That exe
 Outside of the OCaml world, you need Yices2 compiled and installed, with the MCSAT mode enabled, which means you also need the Yices2/MCSAT dependencies [libpoly](https://github.com/SRI-CSL/libpoly) and [CUDD](https://github.com/ivmai/cudd). You also need gmp.
 
 On the OCaml side, you need the [libpoly OCaml bindings](https://github.com/SRI-CSL/yices2_ocaml_bindings) installed in findlib.
-All of the other dependencies are listed in `yices2_bindings.opam`
+You also need `ctypes-zarith` installed from `git@github.com:SRI-CSL/ctypes-zarith.git` (the opam version is not compatible).
+All of the other dependencies are listed in `yices2.opam`
 and can be installed in findlib by opam (2.0 or higher), for instance 
 
 ```
