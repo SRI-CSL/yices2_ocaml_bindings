@@ -207,6 +207,71 @@ mkdir -p "$prefix"
 export CPPFLAGS="-I$prefix/include ${CPPFLAGS:-}"
 export LDFLAGS="-L$prefix/lib ${LDFLAGS:-}"
 
+# If libpoly is installed in the current opam switch, add it to the search path
+# so Yices' configure can find libpoly.a for MCSAT.
+opam_prefix="${OPAM_SWITCH_PREFIX:-}"
+if [[ -z "$opam_prefix" ]]; then
+  if command -v opam >/dev/null 2>&1; then
+    opam_prefix="$(opam var prefix 2>/dev/null || true)"
+  elif [ -f "${HOME:-$project_root}/.opam/config" ]; then
+    opam_switch="$(awk -F'\"' '/^switch:/ {print $2; exit}' "${HOME:-$project_root}/.opam/config")"
+    if [[ -n "$opam_switch" ]]; then
+      opam_root="${OPAMROOT:-${HOME:-$project_root}/.opam}"
+      opam_prefix="$opam_root/$opam_switch"
+    fi
+  fi
+fi
+
+libpoly_shared_glob=""
+case "$platform" in
+  macos) libpoly_shared_glob="libpoly*.dylib" ;;
+  linux) libpoly_shared_glob="libpoly.so*" ;;
+  *) libpoly_shared_glob="libpoly.so* libpoly*.dylib" ;;
+esac
+
+libpoly_prefix_candidates=()
+if [[ -n "$opam_prefix" ]]; then
+  libpoly_prefix_candidates+=("$opam_prefix")
+fi
+if [[ -n "${LIBPOLY_PREFIX:-}" ]]; then
+  libpoly_prefix_candidates+=("${LIBPOLY_PREFIX}")
+fi
+if [[ -n "${LIBPOLY_VENDOR_PREFIX:-}" ]]; then
+  libpoly_prefix_candidates+=("${LIBPOLY_VENDOR_PREFIX}")
+fi
+libpoly_prefix_candidates+=("$project_root/../libpoly_ocaml_bindings/_build/default/vendor_install")
+
+libpoly_lib_dirs=()
+libpoly_prefix=""
+for candidate in "${libpoly_prefix_candidates[@]}"; do
+  if [[ -z "$candidate" ]] || [ ! -d "$candidate" ]; then
+    continue
+  fi
+  if compgen -G "$candidate/lib/$libpoly_shared_glob" > /dev/null; then
+    libpoly_prefix="$candidate"
+    libpoly_lib_dirs+=("$candidate/lib")
+    break
+  fi
+  if compgen -G "$candidate/lib/stublibs/$libpoly_shared_glob" > /dev/null; then
+    libpoly_prefix="$candidate"
+    libpoly_lib_dirs+=("$candidate/lib/stublibs")
+    break
+  fi
+done
+
+if [[ -z "$libpoly_prefix" ]] && [[ -n "$opam_prefix" ]] && [ -f "$opam_prefix/lib/libpoly.a" ]; then
+  echo "Found only static libpoly.a in $opam_prefix/lib; refusing to link it into libyices." >&2
+  echo "Install a shared libpoly (libpoly.dylib/.so) or set LIBPOLY_PREFIX to a shared libpoly prefix." >&2
+  exit 1
+fi
+
+if [ ${#libpoly_lib_dirs[@]} -gt 0 ]; then
+  export CPPFLAGS="-I$libpoly_prefix/include ${CPPFLAGS:-}"
+  for libdir in "${libpoly_lib_dirs[@]}"; do
+    export LDFLAGS="-L$libdir ${LDFLAGS:-}"
+  done
+fi
+
 if [ -x "$cudd_dir/configure" ]; then
   cudd_build="$build_root/cudd"
   mkdir -p "$cudd_build"

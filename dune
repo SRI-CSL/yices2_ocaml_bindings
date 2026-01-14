@@ -5,7 +5,7 @@
  (action
   (setenv VENDOR_BUILD_ROOT vendor_build
    (run %{project_root}/scripts/build_vendor_deps.sh
-        --project-root .
+        --project-root %{project_root}
         --prefix vendor_install))))
 
 (alias
