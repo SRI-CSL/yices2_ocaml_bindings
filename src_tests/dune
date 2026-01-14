@@ -1,6 +1,6 @@
 (test
  (name test)
- (libraries ctypes sexplib containers libpoly_bindings yices2 extensions)
+ (libraries ctypes sexplib containers libpoly yices2 extensions)
  (foreign_stubs (language c) (names funptr_test_stubs))
  (preprocess (pps ppx_deriving.std))
 )

@@ -21,7 +21,7 @@ depends: [
 #  "ctypes-zarith" # commenting out until on opam
   "dmap"
   "odoc"
-#  "libpoly_bindings" # commenting out until on opam
+#  "libpoly" # commenting out until on opam
 ]
 build: [
   make

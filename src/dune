@@ -12,7 +12,7 @@
 (library
  (name yices2)
  (public_name yices2)
- (libraries ctypes sexplib containers libpoly_bindings funptr)
+ (libraries ctypes sexplib containers libpoly funptr)
  (flags (:standard -w -27))
  (modules_without_implementation yices2)
  (preprocess (pps ppx_deriving.std ppx_optcomp -- %{read-lines:ppx_optcomp_cookie.lines}))
