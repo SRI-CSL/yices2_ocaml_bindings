@@ -351,10 +351,17 @@ Libs: -L\${libdir} -lyices -lcudd -lpoly -lgmp -lm
 Cflags: -I\${includedir}
 EOF
 
-if [ -f "$prefix/lib/libyices.2.dylib" ] && [ ! -f "$prefix/lib/libyices.dylib" ]; then
-  ln -sf "libyices.2.dylib" "$prefix/lib/libyices.dylib"
-elif [ -f "$prefix/lib/libyices.dylib" ] && [ ! -f "$prefix/lib/libyices.2.dylib" ]; then
-  ln -sf "libyices.dylib" "$prefix/lib/libyices.2.dylib"
+if [ "$platform" = "macos" ]; then
+  if [ -f "$prefix/lib/libyices.2.dylib" ] && [ ! -f "$prefix/lib/libyices.dylib" ]; then
+    ln -sf "libyices.2.dylib" "$prefix/lib/libyices.dylib"
+  elif [ -f "$prefix/lib/libyices.dylib" ] && [ ! -f "$prefix/lib/libyices.2.dylib" ]; then
+    ln -sf "libyices.dylib" "$prefix/lib/libyices.2.dylib"
+  fi
+elif [ "$platform" = "linux" ]; then
+  if compgen -G "$prefix/lib/libyices.so."* > /dev/null && [ ! -f "$prefix/lib/libyices.so" ]; then
+    so_target="$(ls -1 "$prefix/lib/libyices.so."* | head -n 1)"
+    ln -sf "$(basename "$so_target")" "$prefix/lib/libyices.so"
+  fi
 fi
 
 if [ -n "$stamp" ]; then

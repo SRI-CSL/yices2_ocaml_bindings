@@ -95,8 +95,9 @@ case "$os_name" in
     fi
     ;;
   Linux)
-    if [ -f "$prefix/lib/libyices.so.2" ] && [ ! -f "$prefix/lib/libyices.so" ]; then
-      ln -sf "libyices.so.2" "$prefix/lib/libyices.so"
+    if compgen -G "$prefix/lib/libyices.so."* > /dev/null && [ ! -f "$prefix/lib/libyices.so" ]; then
+      so_target="$(ls -1 "$prefix/lib/libyices.so."* | head -n 1)"
+      ln -sf "$(basename "$so_target")" "$prefix/lib/libyices.so"
     fi
     ;;
 esac
