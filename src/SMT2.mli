@@ -4,7 +4,7 @@ open Sexplib
 module StringHashtbl : CCHashtbl.S with type key = string
 module VarMap : CCHashtbl.S with type key = string
 
-(** Continuation-style helpers used by the SMT2 parser. *)
+(** Continuation-style helpers used by the SMT2 parser module. *)
 module Cont : sig
   type ('a, 'r) t
   val get      : ('a, 'a) t -> 'a

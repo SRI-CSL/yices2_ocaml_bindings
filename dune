@@ -1,0 +1,26 @@
+(rule
+ (targets (dir vendor_install))
+ (deps (source_tree vendor)
+       scripts/build_vendor_deps.sh)
+ (action
+  (setenv VENDOR_BUILD_ROOT vendor_build
+   (run %{project_root}/scripts/build_vendor_deps.sh
+        --project-root .
+        --prefix vendor_install))))
+
+(alias
+ (name vendor_deps)
+ (deps vendor_install))
+
+(alias
+ (name default)
+ (deps (alias vendor_deps)))
+
+(rule
+ (alias install)
+ (deps (alias vendor_deps)
+       scripts/install_vendor_deps.sh)
+ (action
+  (run %{project_root}/scripts/install_vendor_deps.sh
+       --from-prefix vendor_install
+       --prefix %{env:OPAM_SWITCH_PREFIX=})))

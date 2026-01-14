@@ -29,3 +29,6 @@ build: [
 install: [
   make "install"
 ]
+remove: [
+  make "uninstall"
+]

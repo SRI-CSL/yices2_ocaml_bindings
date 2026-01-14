@@ -48,7 +48,7 @@ let () =
       let oc = open_out c_file in
       output_string oc code;
       close_out oc;
-      let cc = C.ocaml_config_var_exn c "cc" in
+      let cc = C.ocaml_config_var_exn c "c_compiler" in
       let compile =
         C.Process.run c cc
           (conf.cflags @ [ c_file ] @ conf.libs @ [ "-o"; exe_file ])
@@ -90,13 +90,11 @@ let () =
         cleanup ();
         ok
     in
-    let vendor_prefix =
-      let provided = !vendor_prefix_arg in
-      if provided <> "" then
-        Some provided
-      else
-        let opam_prefix =
-          match C.which c "opam" with
+    let opam_prefix =
+      match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
+      | Some p when p <> "" -> Some p
+      | _ ->
+          begin match C.which c "opam" with
           | None -> None
           | Some opam ->
               let res = C.Process.run c opam [ "var"; "prefix" ] in
@@ -105,12 +103,39 @@ let () =
                 if p = "" then None else Some p
               else
                 None
-        in
+          end
+    in
+    begin
+      match opam_prefix with
+      | None -> ()
+      | Some p ->
+          let pc_dir = Filename.concat p "lib/pkgconfig" in
+          let new_value =
+            match Sys.getenv_opt "PKG_CONFIG_PATH" with
+            | None | Some "" -> pc_dir
+            | Some v -> pc_dir ^ ":" ^ v
+          in
+          Unix.putenv "PKG_CONFIG_PATH" new_value
+    end;
+    let vendor_prefix =
+      let provided = !vendor_prefix_arg in
+      if provided <> "" then
+        Some provided
+      else
         match opam_prefix with
         | Some p -> Some p
         | None ->
             let root = !vendor_root in
             if root = "" then None else Some (Filename.concat root "vendor/_install")
+    in
+    let vendor_prefix =
+      match vendor_prefix with
+      | None -> None
+      | Some p ->
+          if Filename.is_relative p then
+            Some (Filename.concat (Sys.getcwd ()) p)
+          else
+            Some p
     in
     let vendor_yices_flags sofar =
       match vendor_prefix with

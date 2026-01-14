@@ -31,6 +31,9 @@ ppx_optcomp_cookie.lines
 # vendored deps
 vendor/_build/
 vendor/_install/
+_vendor_build/
+_build/*/vendor_build/
+_build/*/vendor_install/
 
 # emacs
 *~

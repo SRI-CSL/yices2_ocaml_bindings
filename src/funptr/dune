@@ -1,17 +1,10 @@
-(rule
- (targets vendor_deps.stamp)
- (action (run %{project_root}/scripts/build_vendor_deps.sh
-              --project-root %{project_root}
-              --prefix %{env:OPAM_SWITCH_PREFIX=}
-              --stamp %{targets})))
-
-(rule
- (targets c_flags.sexp c_library_flags.sexp c_flags.lines)
- (deps vendor_deps.stamp
-       (:discover ../../src_config/discover.exe))
- (action (run %{discover} -system %{ocaml-config:system}
-               -vendor-root %{project_root}
-               -vendor-prefix %{env:OPAM_SWITCH_PREFIX=}
+ (rule
+  (targets c_flags.sexp c_library_flags.sexp c_flags.lines)
+  (deps (alias ../../vendor_deps)
+        (:discover ../../src_config/discover.exe))
+  (action (run %{discover} -system %{ocaml-config:system}
+               -vendor-root %{workspace_root}
+               -vendor-prefix ../../vendor_install
                -pkg gmp gmp
                -pkg yices yices)))
 
