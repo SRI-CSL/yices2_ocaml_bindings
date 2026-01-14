@@ -33,6 +33,13 @@ fi
 
 project_root="$(cd "$project_root" && pwd)"
 
+os_name="$(uname -s 2>/dev/null || echo unknown)"
+case "$os_name" in
+  Darwin) platform="macos" ;;
+  Linux) platform="linux" ;;
+  *) platform="unknown" ;;
+esac
+
 if [ -z "$prefix" ]; then
   prefix="$project_root/_build/vendor_install"
 fi
@@ -45,7 +52,7 @@ mkdir -p "$prefix"
 prefix="$(cd "$prefix" && pwd)"
 
 check_mcsat() {
-  local cc cflags libs tmp_dir c_file exe_file libpaths flag path rc pkgconfig_path opam_prefix opam_cmd opam_root opam_switch
+  local cc cflags libs tmp_dir c_file exe_file libpaths flag path rc pkgconfig_path opam_prefix opam_cmd opam_root opam_switch pkg_config_cmd
 
   if [[ -z "${HOME:-}" ]]; then
     HOME="$(eval echo ~)"
@@ -87,14 +94,21 @@ EOF
     fi
   fi
 
+  pkg_config_cmd=""
   if command -v pkg-config >/dev/null 2>&1; then
+    pkg_config_cmd="pkg-config"
+  elif command -v pkgconf >/dev/null 2>&1; then
+    pkg_config_cmd="pkgconf"
+  fi
+
+  if [[ -n "$pkg_config_cmd" ]]; then
     pkgconfig_path="${PKG_CONFIG_PATH:-}"
     if [[ -n "$opam_prefix" ]]; then
       pkgconfig_path="${opam_prefix}/lib/pkgconfig${pkgconfig_path:+:${pkgconfig_path}}"
     fi
-    if PKG_CONFIG_PATH="$pkgconfig_path" pkg-config --exists yices; then
-      cflags="$(PKG_CONFIG_PATH="$pkgconfig_path" pkg-config --cflags yices)"
-      libs="$(PKG_CONFIG_PATH="$pkgconfig_path" pkg-config --libs yices)"
+    if PKG_CONFIG_PATH="$pkgconfig_path" "$pkg_config_cmd" --exists yices; then
+      cflags="$(PKG_CONFIG_PATH="$pkgconfig_path" "$pkg_config_cmd" --cflags yices)"
+      libs="$(PKG_CONFIG_PATH="$pkgconfig_path" "$pkg_config_cmd" --libs yices)"
     fi
   fi
 
@@ -124,10 +138,16 @@ EOF
   done
 
   if [ -n "$libpaths" ]; then
-    LD_LIBRARY_PATH="$libpaths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-    DYLD_LIBRARY_PATH="$libpaths${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-    "$exe_file" >/dev/null 2>&1
-    rc=$?
+    if [ "$platform" = "macos" ]; then
+      LD_LIBRARY_PATH="$libpaths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+      DYLD_LIBRARY_PATH="$libpaths${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+      "$exe_file" >/dev/null 2>&1
+      rc=$?
+    else
+      LD_LIBRARY_PATH="$libpaths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+      "$exe_file" >/dev/null 2>&1
+      rc=$?
+    fi
   else
     "$exe_file" >/dev/null 2>&1
     rc=$?

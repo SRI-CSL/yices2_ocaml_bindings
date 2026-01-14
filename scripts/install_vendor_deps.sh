@@ -87,8 +87,18 @@ if [ -f "$from_lib/pkgconfig/yices.pc" ]; then
   rm -f "$tmp_pc"
 fi
 
-if [ -f "$prefix/lib/libyices.2.dylib" ] && [ ! -f "$prefix/lib/libyices.dylib" ]; then
-  ln -sf "libyices.2.dylib" "$prefix/lib/libyices.dylib"
-fi
+os_name="$(uname -s 2>/dev/null || echo unknown)"
+case "$os_name" in
+  Darwin)
+    if [ -f "$prefix/lib/libyices.2.dylib" ] && [ ! -f "$prefix/lib/libyices.dylib" ]; then
+      ln -sf "libyices.2.dylib" "$prefix/lib/libyices.dylib"
+    fi
+    ;;
+  Linux)
+    if [ -f "$prefix/lib/libyices.so.2" ] && [ ! -f "$prefix/lib/libyices.so" ]; then
+      ln -sf "libyices.so.2" "$prefix/lib/libyices.so"
+    fi
+    ;;
+esac
 
 echo "Installed vendored Yices/CUDD from $from_prefix to $prefix"
