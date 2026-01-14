@@ -36,7 +36,7 @@ Building the bindings will also compile an executable `yices_smt2.exe`. That exe
 
 Outside of the OCaml world, you need Yices2 compiled and installed, with the MCSAT mode enabled, which means you also need the Yices2/MCSAT dependencies [libpoly](https://github.com/SRI-CSL/libpoly) and [CUDD](https://github.com/ivmai/cudd). You also need gmp.
 
-On the OCaml side, you need the [libpoly OCaml bindings](https://github.com/SRI-CSL/yices2_ocaml_bindings) installed in findlib.
+On the OCaml side, you need the [libpoly OCaml bindings](https://github.com/SRI-CSL/libpoly_ocaml_bindings) installed in findlib.
 You also need `ctypes-zarith` installed from `git@github.com:SRI-CSL/ctypes-zarith.git` (the opam version is not compatible).
 All of the other dependencies are listed in `yices2.opam`
 and can be installed in findlib by opam (2.0 or higher), for instance 
@@ -45,7 +45,7 @@ and can be installed in findlib by opam (2.0 or higher), for instance
 opam install . --deps-only
 ```
 
-If `pkg-config` cannot find an installed Yices2, the build will try to compile Yices2 and CUDD from vendored submodules under `vendor/` and install into `_build/<context>/vendor_install` for the build.
+If `pkg-config` cannot find an installed Yices2 with MCSAT enabled (checked via `yices_has_mcsat()`), the build will compile Yices2 and CUDD from vendored submodules under `vendor/` and install into `_build/<context>/vendor_install` for the build.
 Initialize these submodules before building:
 
 ```
@@ -59,7 +59,7 @@ If you want to force the vendored build even when a system Yices is present, run
 make with-local-yices
 ```
 
-When the vendored build runs, it installs Yices2 and CUDD into `_build/<context>/vendor_install`. Running `dune install` (or `make install`) copies these into the current opam switch prefix (`opam var prefix`) so the switch stays clean if a build fails.
+When the vendored build runs, it installs Yices2 and CUDD into `_build/<context>/vendor_install`. Builds will reuse that local install on subsequent `make` runs (no rebuild) as long as the directory is present. Running `dune install` (or `make install`) copies these into the current opam switch prefix (`opam var prefix`) so the switch stays clean if a build fails. To remove the opam-installed copies, run `make uninstall`.
 
 ### Building using opam (2.0 or higher)
 
@@ -92,6 +92,20 @@ make install
 ```
 
 You can also use `make reinstall` and `make clean`.
+
+### Make targets
+
+All commands run in the top-level directory of this repository.
+
+- `make` / `make build`: build the OCaml libraries and executables, compiling vendored Yices/CUDD into `_build/<context>/vendor_install` if no suitable system Yices with MCSAT is found.
+- `make with-local-yices`: force a vendored Yices/CUDD build even if a system Yices is present.
+- `make install`: build, then install OCaml artifacts into the current opam switch and copy vendored Yices/CUDD artifacts into the opam prefix.
+- `make uninstall`: uninstall OCaml artifacts and remove vendored Yices/CUDD from the opam prefix.
+- `make reinstall`: uninstall then install.
+- `make clean`: remove build artifacts under `_build`.
+- `make test`: build and run the test suite plus a small SMT2 smoke test (sets `OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1` to avoid signal-stack teardown issues on some platforms).
+- `make smt2`: build the `yices_smt2.exe` SMT2 frontend.
+- `make doc`: build API documentation under `_build/default/_doc/_html/index.html`.
 
 ### Quick Testing
 
