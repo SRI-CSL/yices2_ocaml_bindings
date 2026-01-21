@@ -198,6 +198,21 @@ let () =
                      | Some p -> p)
     in
     let conf = List.fold_left aux base !pkg in
+    let conf =
+      let has_libpoly = List.exists ((=) "-lpoly") conf.libs in
+      let has_libdir libdir =
+        List.exists (fun flag -> flag = "-L" ^ libdir) conf.libs
+      in
+      match opam_prefix with
+      | Some prefix ->
+          let libdir = Filename.concat prefix "lib" in
+          if has_libpoly && not (has_libdir libdir) then
+            (* Yices' pkg-config adds -lpoly but not libpoly's opam libdir. *)
+            { conf with libs = ("-L" ^ libdir) :: conf.libs }
+          else
+            conf
+      | None -> conf
+    in
 
     C.Flags.write_sexp "c_flags.sexp" conf.cflags;
 

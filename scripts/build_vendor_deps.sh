@@ -157,7 +157,60 @@ EOF
   return $rc
 }
 
+fix_system_yices_libpoly() {
+  # macOS: ensure opam's libyices doesn't point at a build-tree libpoly path.
+  [ "$platform" = "macos" ] || return 0
+  command -v otool >/dev/null 2>&1 || return 0
+  command -v install_name_tool >/dev/null 2>&1 || return 0
+
+  local opam_prefix opam_cmd opam_root opam_switch libyices_path libpoly_path old_dep
+  opam_prefix="${OPAM_SWITCH_PREFIX:-}"
+  opam_cmd=""
+  if command -v opam >/dev/null 2>&1; then
+    opam_cmd="$(command -v opam)"
+  else
+    for candidate in /opt/homebrew/bin/opam /usr/local/bin/opam /opt/local/bin/opam; do
+      if [ -x "$candidate" ]; then
+        opam_cmd="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$opam_prefix" ]] && [[ -n "$opam_cmd" ]]; then
+    opam_prefix="$("$opam_cmd" var prefix 2>/dev/null || true)"
+  fi
+  if [[ -z "$opam_prefix" ]] && [ -f "$HOME/.opam/config" ]; then
+    opam_switch="$(awk -F'\"' '/^switch:/ {print $2; exit}' "$HOME/.opam/config")"
+    if [[ -n "$opam_switch" ]]; then
+      opam_root="${OPAMROOT:-$HOME/.opam}"
+      opam_prefix="$opam_root/$opam_switch"
+    fi
+  fi
+
+  if [[ -z "$opam_prefix" ]]; then
+    return 0
+  fi
+
+  libyices_path="$opam_prefix/lib/libyices.2.dylib"
+  libpoly_path="$opam_prefix/lib/libpoly.0.dylib"
+  [ -f "$libyices_path" ] || return 0
+  [ -f "$libpoly_path" ] || return 0
+
+  old_dep="$(otool -L "$libyices_path" | awk 'NR>1 && /libpoly/ {print $1; exit}')"
+  [ -n "$old_dep" ] || return 0
+  case "$old_dep" in
+    "$opam_prefix"/*) return 0 ;;
+    */_build/*/vendor_install/*) ;;
+    *) return 0 ;;
+  esac
+
+  chmod u+w "$libyices_path" 2>/dev/null || true
+  install_name_tool -change "$old_dep" "$libpoly_path" "$libyices_path"
+}
+
 if [ "${YICES2_FORCE_LOCAL:-}" != "1" ] && check_mcsat; then
+  fix_system_yices_libpoly
   echo "Using system Yices via pkg-config (MCSAT enabled); skipping vendored build."
   touch "$prefix/.keep"
   if [ -n "$stamp" ]; then
@@ -236,10 +289,10 @@ fi
 if [[ -n "${LIBPOLY_PREFIX:-}" ]]; then
   libpoly_prefix_candidates+=("${LIBPOLY_PREFIX}")
 fi
+# Keep the search local to opam or explicit prefixes; no implicit sibling repos.
 if [[ -n "${LIBPOLY_VENDOR_PREFIX:-}" ]]; then
   libpoly_prefix_candidates+=("${LIBPOLY_VENDOR_PREFIX}")
 fi
-libpoly_prefix_candidates+=("$project_root/../libpoly_ocaml_bindings/_build/default/vendor_install")
 
 libpoly_lib_dirs=()
 libpoly_prefix=""
