@@ -569,12 +569,14 @@ module Make(Ext : Ext_types.API) = struct
           | `STATUS_UNSAT -> print 0 "unsat@,"
           | status -> print 0 "%a@," Types.pp_smt_status status)
 
-      | "get-value", l ->
+      | "get-value", [List terms] ->
          let smodel = get_model session in
-         let terms = List.map (fun x -> get(ParseTerm.parse session x)) l in
+         let terms = List.map (fun x -> get(ParseTerm.parse session x)) terms in
          print 0 "@[<v>%a@]@," (List.pp Term.pp)
            (Model.terms_value (let SModel{model;_} = smodel in model) terms);
          session.model := Some smodel
+      | "get-value", _ ->
+         raise_smt2 "get-value expects a single list of terms (SMT-LIB standard)"
 
       | "get-assignment", [] ->
          raise_smt2 "Not sure how to treat get-assignment"
