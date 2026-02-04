@@ -121,6 +121,17 @@ EOF
   fi
 
   if [[ -z "${libs:-}" ]]; then
+    local candidate_prefix
+    for candidate_prefix in /opt/homebrew /usr/local /opt/local; do
+      if [ -f "$candidate_prefix/include/yices.h" ] && compgen -G "$candidate_prefix/lib/libyices.*" > /dev/null; then
+        cflags="-I$candidate_prefix/include"
+        libs="-L$candidate_prefix/lib -lyices"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "${libs:-}" ]]; then
     rm -rf "$tmp_dir"
     return 1
   fi
@@ -211,11 +222,11 @@ fix_system_yices_libpoly() {
 
 if [ "${YICES2_FORCE_LOCAL:-}" != "1" ] && check_mcsat; then
   fix_system_yices_libpoly
-  echo "Using system Yices via pkg-config (MCSAT enabled); skipping vendored build."
+  echo "Using system Yices (MCSAT enabled); skipping vendored build."
   touch "$prefix/.keep"
   if [ -n "$stamp" ]; then
     mkdir -p "$(dirname "$stamp")"
-    printf '%s\n' "yices via pkg-config (mcsat enabled)" > "$stamp"
+    printf '%s\n' "yices system (mcsat enabled)" > "$stamp"
   fi
   exit 0
 fi

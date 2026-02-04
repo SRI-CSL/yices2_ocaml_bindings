@@ -27,17 +27,21 @@ let () =
   C.main ~args ~name:"gmp" @@
     fun c ->
     let open C.Pkg_config in
-    let sys = !sys in
-    let base =
-      if is_system "freebsd" sys || is_system "openbsd" sys then
-        { libs   = [ "-L/usr/local/lib";    ];
-          cflags = [ "-I/usr/local/include"; "-fPIC"; "-w" ] }
-      else if is_system "macosx" sys then
-        { libs   = [ "-L/opt/local/lib";     "-L/usr/local/lib";    ];
-          cflags = [ "-I/opt/local/include"; "-I/usr/local/include"; "-w" ] }
-      else
-        { libs   = []; cflags = ["-fPIC"; "-w"] }
-    in
+	    let sys = !sys in
+	    let base =
+	      if is_system "freebsd" sys || is_system "openbsd" sys then
+	        { libs   = [ "-L/usr/local/lib";    ];
+	          cflags = [ "-I/usr/local/include"; "-fPIC"; "-w" ] }
+	      else if is_system "macosx" sys then
+	        (* Common prefixes on macOS:
+	           - /opt/homebrew   (Homebrew on Apple Silicon)
+	           - /usr/local      (Homebrew on Intel, manual installs)
+	           - /opt/local      (MacPorts) *)
+	        { libs   = [ "-L/opt/homebrew/lib";  "-L/opt/local/lib";     "-L/usr/local/lib";    ];
+	          cflags = [ "-I/opt/homebrew/include"; "-I/opt/local/include"; "-I/usr/local/include"; "-w" ] }
+	      else
+	        { libs   = []; cflags = ["-fPIC"; "-w"] }
+	    in
     let has_mcsat conf =
       let c_file = Filename.temp_file "yices_mcsat" ".c" in
       let exe_file = Filename.temp_file "yices_mcsat" ".exe" in
@@ -136,59 +140,77 @@ let () =
             Some (Filename.concat (Sys.getcwd ()) p)
           else
             Some p
-    in
-    let vendor_yices_flags sofar =
-      match vendor_prefix with
-      | None -> None
-      | Some prefix ->
-          let libdir = Filename.concat prefix "lib" in
-          let incdir = Filename.concat prefix "include" in
-          let candidates =
-            [ Filename.concat libdir "libyices.a";
-              Filename.concat libdir "libyices.so";
-              Filename.concat libdir "libyices.dylib" ]
-          in
-          let has_yices = List.exists Sys.file_exists candidates in
-          if not has_yices then None
-          else
-            Some
-              { libs = sofar.libs @ [ "-L" ^ libdir; "-lyices"; "-lcudd" ];
-                cflags = sofar.cflags @ [ "-I" ^ incdir ] }
-    in
-    let aux sofar (linux_name, macos_name) =
-      let pkg_name = linux_name in
-      let package = 
-        if is_system "macosx" sys then macos_name else linux_name
-      in
-      let default () =
-        { libs   = sofar.libs @ ["-l"^package];
-          cflags = sofar.cflags }
-      in
-      match C.Pkg_config.get c with
-      | None -> default()
-      | Some pc ->
-         match C.Pkg_config.query pc ~package with
-         | None ->
-            if pkg_name = "yices" then
-              match vendor_yices_flags sofar with
-              | Some conf -> conf
-              | None ->
-                  C.die "Could not find yices via pkg-config or vendored install under %s"
-                    (match vendor_prefix with
-                     | None -> "<unset>"
-                     | Some p -> p)
-            else
-              default()
-         | Some deps ->
-            let conf =
-              { libs = sofar.libs @ deps.libs;
-                cflags = sofar.cflags @ deps.cflags }
-            in
-            if pkg_name <> "yices" then
-              conf
-            else if has_mcsat conf then
-              conf
-            else
+	    in
+	    let vendor_yices_flags sofar =
+	      match vendor_prefix with
+	      | None -> None
+	      | Some prefix ->
+	          let libdir = Filename.concat prefix "lib" in
+	          let incdir = Filename.concat prefix "include" in
+	          let candidates =
+	            [ Filename.concat libdir "libyices.a";
+	              Filename.concat libdir "libyices.so";
+	              Filename.concat libdir "libyices.dylib" ]
+	          in
+	          let has_yices = List.exists Sys.file_exists candidates in
+	          if not has_yices then None
+	          else
+	            Some
+	              (* Put vendored yices include/lib paths first to avoid accidentally
+	                 picking up an unrelated system yices.h from base include dirs. *)
+	              { libs = ("-L" ^ libdir) :: "-lyices" :: "-lcudd" :: sofar.libs;
+	                cflags = ("-I" ^ incdir) :: sofar.cflags }
+	    in
+	    let aux sofar (linux_name, macos_name) =
+	      let pkg_name = linux_name in
+	      let package = 
+	        if is_system "macosx" sys then macos_name else linux_name
+	      in
+	      let default () =
+	        { libs   = sofar.libs @ ["-l"^package];
+	          cflags = sofar.cflags }
+	      in
+	      let yices_default_or_vendor () =
+	        (* If pkg-config can't find yices (common for manual installs),
+	           try linking with the base search paths. If that doesn't work,
+	           fall back to the vendored build if available. *)
+	        let sys_conf = default () in
+	        if has_mcsat sys_conf then
+	          sys_conf
+	        else
+	          match vendor_yices_flags sofar with
+	          | Some conf -> conf
+	          | None ->
+	              C.die "Could not find yices via pkg-config, system default paths, or vendored install under %s"
+	                (match vendor_prefix with
+	                 | None -> "<unset>"
+	                 | Some p -> p)
+	      in
+	      match C.Pkg_config.get c with
+	      | None ->
+	          if pkg_name = "yices" then yices_default_or_vendor ()
+	          else default()
+	      | Some pc ->
+	         match C.Pkg_config.query pc ~package with
+	         | None ->
+	            if pkg_name = "yices" then yices_default_or_vendor ()
+	            else default()
+	         | Some deps ->
+	            let conf =
+	              (* For yices, put pkg-config include/lib flags first (see comment in
+	                 vendor_yices_flags). *)
+	              if pkg_name = "yices" then
+	                { libs = deps.libs @ sofar.libs;
+	                  cflags = deps.cflags @ sofar.cflags }
+	              else
+	                { libs = sofar.libs @ deps.libs;
+	                  cflags = sofar.cflags @ deps.cflags }
+	            in
+	            if pkg_name <> "yices" then
+	              conf
+	            else if has_mcsat conf then
+	              conf
+	            else
               match vendor_yices_flags sofar with
               | Some conf -> conf
               | None ->
