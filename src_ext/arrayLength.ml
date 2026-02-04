@@ -9,13 +9,12 @@ open Types_ext
 
 module AddLength = struct
 
-  type term   = Term.t 
+  type term   = Term.t
+  type typ    = Type.t
   type config = Config.t
+  type param  = Param.t
+  type smodel = SModel.t
   type model  = Model.t
-
-  let config_set = Config.set
-
-  include Trivial
 
   (* These are the syntactic elements associated with a type of lengthed arrays, say lfun *)
   type lfun =
@@ -169,58 +168,90 @@ module AddLength = struct
   type t = unit HTerms.t
 
   let malloc ?config () = config, Global.hTerms_create 10
-  let free = HTerms.reset
+  let free _ = ()
+  let reset = HTerms.reset
+  let push _ = ()
+  let pop _ = ()
+  let goto _ _ = ()
                    
-  let assert_formula old_assert state f =
+  let translate_assertion state f =
+    let constraints = ref [] in
+    let add t = constraints := t :: !constraints in
 
     let rec scan_struct : 'a. Term.t -> 'a Types.termstruct -> unit =
       fun t (type a) (t_struct : a Types.termstruct) ->
       begin
         match ExtraTerm.reveal t_struct with
-        | Some(Update(lfun, index, value)) ->
-           Term.( (ExtraTerm.as_fun t === update (ExtraTerm.as_fun lfun) index value)
-                  &&& (ExtraTerm.length t === ExtraTerm.length lfun))
-           |> old_assert
-           
-        | Some(Application(lfun, index)) ->
-           Term.(t === application (ExtraTerm.as_fun lfun) index)
-           |> old_assert
-
+        | Some (Update (lfun, index, value)) ->
+           Term.(
+             (ExtraTerm.as_fun t === update (ExtraTerm.as_fun lfun) index value)
+             &&& (ExtraTerm.length t === ExtraTerm.length lfun))
+           |> add
+        | Some (Application (lfun, index)) ->
+           Term.(t === application (ExtraTerm.as_fun lfun) index) |> add
         | _ -> ()
       end;
       match t_struct with
-
-      | Types.A2(`YICES_EQ_TERM, lhs, rhs) when ExtraTerm.is_lfun lhs ->
-         let diff = Diff.AddDiff.ExtraTerm.diff (ExtraTerm.as_fun lhs) (ExtraTerm.as_fun rhs) in
+      | Types.A2 (`YICES_EQ_TERM, lhs, rhs) when ExtraTerm.is_lfun lhs ->
+         let diff =
+           Diff.AddDiff.ExtraTerm.diff (ExtraTerm.as_fun lhs) (ExtraTerm.as_fun rhs)
+         in
          let llhs = ExtraTerm.length lhs in
          let lrhs = ExtraTerm.length rhs in
-         let constr = Term.((llhs === lrhs)
-                            &&& not1(ExtraTerm.admissible ~lfun:lhs llhs diff)) in
-         Term.(constr ==> t) |> old_assert;
-         let constr = Term.((llhs === lrhs) 
-                            &&& (ExtraTerm.as_fun lhs === ExtraTerm.as_fun rhs)) in
-         Term.(constr ==> t) |> old_assert;
-         scan_struct_default t_struct   
-
-      |  t_struct -> scan_struct_default t_struct
-
+         let constr =
+           Term.((llhs === lrhs) &&& not1 (ExtraTerm.admissible ~lfun:lhs llhs diff))
+         in
+         Term.(constr ==> t) |> add;
+         let constr =
+           Term.((llhs === lrhs) &&& (ExtraTerm.as_fun lhs === ExtraTerm.as_fun rhs))
+         in
+         Term.(constr ==> t) |> add;
+         scan_struct_default t_struct
+      | t_struct -> scan_struct_default t_struct
     and scan_struct_default : 'a. 'a Types.termstruct -> unit =
-      fun t_struct -> let _ = Term.map scan_term t_struct in ()
-    and scan_term t = scan t; t
+      fun t_struct ->
+      let _ = Term.map scan_term t_struct in
+      ()
+    and scan_term t =
+      scan t;
+      t
     and scan t =
       if HTerms.mem state t then ()
-      else
-        let () = HTerms.add state t () in
+      else (
+        HTerms.add state t ();
         let Term t_struct = Term.reveal t in
         scan_struct t t_struct
+      )
     in
-
     scan f;
-    old_assert f
+    List.rev !constraints @ [f]
 
-  let check _t old_model = Sat old_model
+  let translate_assumption _state t = t
+
+  let term_of_old _ t = t
+  let typ_of_old _ ty = ty
+  let param_to_old _ p = p
+  let smodel_to_old _ m = m
+  let smodel_of_old _ m = m
+  let smodel_of_model _ ?support model = SModel.make ?support model
+
+  let check _t (SModel{model; _}) = Sat model
     
   let interpolant _t old_interpolant = old_interpolant
+
+  let pp_term = Term.pp
+  let pp_type = Type.pp
+  let term_to_sexp ?smt2arrays t = Term.to_sexp ?smt2arrays t
+  let type_to_sexp ?smt2arrays t = Type.to_sexp ?smt2arrays t
+  let smodel_to_sexp ?smt2arrays smodel =
+    let bindings =
+      SModel.as_map smodel
+      |> List.map (fun (lhs, rhs) ->
+             let lhs = Term.to_sexp ?smt2arrays lhs in
+             let rhs = Term.to_sexp ?smt2arrays rhs in
+             Sexplib.Sexp.List [Sexplib.Sexp.Atom ":="; lhs; rhs])
+    in
+    Sexplib.Sexp.List (Sexplib.Sexp.Atom "model" :: bindings)
 
 end
 

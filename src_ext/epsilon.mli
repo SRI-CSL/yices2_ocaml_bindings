@@ -24,6 +24,8 @@ module Model : Ext_types.Model with type typ   := Type.t
                                 and type term  := Term.t
                                 and type t      = Model.t
 
-module Context : YicesContext with type term = Term.t
+module Context : YicesContext with type typ    = Type.t
+                               and type term   = Term.t
                                and type config = Config.t
-                               and type model  = Model.t
+                               and type param  = Param.t
+                               and type smodel = SModel.t

@@ -3,6 +3,7 @@ open Containers
 open Yices2
 open Ext
 open Ext.WithExceptionsErrorHandling
+open Types
 open Builder
 open Types_ext
    
@@ -19,13 +20,21 @@ end
 
 module Arg = struct
 
-  type term   = Term.t 
+  type term   = Term.t
+  type typ    = Type.t
   type config = Config.t
+  type param  = Param.t
+  type smodel = SModel.t
   type model  = Model.t
 
-  let config_set = Config.set
+  type t = unit
 
-  include Trivial
+  let malloc ?config () = config, ()
+  let free _ = ()
+  let reset _ = ()
+  let push _ = ()
+  let pop _ = ()
+  let goto _ _ = ()
 
   include SyntaxExtensions.DeclareTerms(NewTerms)
 
@@ -41,21 +50,45 @@ module Arg = struct
        end
     | _ -> None
 
-  let assert_formula old_assert () f =
+  let translate_assertion () f =
     let is_epsilon t = match reveal t with Some _ -> true | None -> false in
     let f, l = Purification.Term.purify is_epsilon f [] in
     let generate Purification_types.{ proxy; body } =
       match reveal body with
       | Some(var, _, body) ->
-         Term.subst_term [var, proxy] body |> old_assert
+         Term.subst_term [var, proxy] body
       | None -> failwith "Should be epsilon term"
     in
-    List.iter generate l;
-    old_assert f
+    List.map generate l @ [f]
 
-  let check _ old_model = Sat old_model
+  let translate_assumption () f =
+    let is_epsilon t = match reveal t with Some _ -> true | None -> false in
+    Purification.Term.purify is_epsilon f [] |> fst
+
+  let term_of_old _ t = t
+  let typ_of_old _ ty = ty
+  let param_to_old _ p = p
+  let smodel_to_old _ m = m
+  let smodel_of_old _ m = m
+  let smodel_of_model _ ?support model = SModel.make ?support model
+
+  let check _ (SModel{model; _}) = Sat model
 
   let interpolant _t old_interpolant = old_interpolant
+
+  let pp_term = Term.pp
+  let pp_type = Type.pp
+  let term_to_sexp ?smt2arrays t = Term.to_sexp ?smt2arrays t
+  let type_to_sexp ?smt2arrays t = Type.to_sexp ?smt2arrays t
+  let smodel_to_sexp ?smt2arrays smodel =
+    let bindings =
+      SModel.as_map smodel
+      |> List.map (fun (lhs, rhs) ->
+             let lhs = Term.to_sexp ?smt2arrays lhs in
+             let rhs = Term.to_sexp ?smt2arrays rhs in
+             Sexplib.Sexp.List [Sexplib.Sexp.Atom ":="; lhs; rhs])
+    in
+    Sexplib.Sexp.List (Sexplib.Sexp.Atom "model" :: bindings)
 
 end
 

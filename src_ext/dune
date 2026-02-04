@@ -2,7 +2,6 @@
  (name extensions)
  (public_name yices2.extensions)
  (libraries ctypes sexplib containers libpoly yices2 dmap)
- (modules builder types_ext)
  (preprocess (pps ppx_deriving.std))
  (synopsis "Yices2 extensions")
 )

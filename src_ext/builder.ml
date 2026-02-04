@@ -122,8 +122,6 @@ YicesContext with type term   = C.term
   type action = (term, typ, param, smodel) Log.action
 
   module Assertions = struct
-    type t = assertions
-
     let init = Log.Assertions {
         list = [Some []];
         level = 0;
@@ -158,15 +156,6 @@ YicesContext with type term   = C.term
            "pop on empty assertion stack"
       | _::tail -> Log.Assertions{ list = tail; level = level - 1 }
 
-    let to_sexp ?smt2arrays (Log.Assertions{ list; _ }) =
-      let level_to_sexp = function
-        | None -> Sexp.Atom "BlockingClauseUsage"
-        | Some assertions ->
-           let sexp = C.term_to_sexp ?smt2arrays in
-           Sexp.List (List.map sexp assertions)
-      in
-      Sexp.List (List.map level_to_sexp list)
-
     let pp_level fmt = function
       | None ->
          Format.fprintf fmt "@[<v>??@]"
@@ -178,8 +167,6 @@ YicesContext with type term   = C.term
   end
 
   module Action = struct
-    type t = action
-
     let term_name t = Format.asprintf "%a" C.pp_term t
     let type_name t = Format.asprintf "%a" C.pp_type t
 

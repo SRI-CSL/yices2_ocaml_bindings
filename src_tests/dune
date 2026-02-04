@@ -1,1 +1,8 @@
-; Tests are temporarily disabled while the src_ext interfaces are refactored.
+(test
+ (name test)
+ (libraries ctypes sexplib containers libpoly yices2 extensions)
+ (foreign_stubs (language c) (names funptr_test_stubs))
+ (preprocess (pps ppx_deriving.std))
+)
+
+(env (dev (flags (:standard -warn-error -A))))

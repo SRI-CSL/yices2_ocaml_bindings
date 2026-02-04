@@ -8,13 +8,12 @@ open Types_ext
 
 module AddDiff = struct
 
-  type term   = Term.t 
+  type term   = Term.t
+  type typ    = Type.t
   type config = Config.t
+  type param  = Param.t
+  type smodel = SModel.t
   type model  = Model.t
-
-  let config_set = Config.set
-
-  include Trivial
 
   let diff_table   = Global.hTypes_create 10
   let diff_symbols = Global.hTerms_create 10
@@ -64,7 +63,11 @@ module AddDiff = struct
   type t = unit HTerms.t
 
   let malloc ?config () = config, Global.hTerms_create 10
-  let free = HTerms.reset
+  let free _ = ()
+  let reset = HTerms.reset
+  let push _ = ()
+  let pop _ = ()
+  let goto _ _ = ()
 
   (* Looks at an equality term t of the form a === b,
      and if it is a functional equality, generates axiom
@@ -98,44 +101,67 @@ module AddDiff = struct
         end
 
 
-  let assert_formula old_assert state f =
+  let translate_assertion state f =
+    let constraints = ref [] in
+    let add_constraints l = constraints := List.rev_append l !constraints in
+
     let rec scan_struct : 'a. Term.t -> 'a Types.termstruct -> unit =
       fun t (type a) (t_struct : a Types.termstruct) ->
       match ExtraTerm.reveal t_struct with
-      | Some(lhs, rhs) ->
-         let constraints = generate_constraint state [] Term.(lhs === rhs) lhs rhs in
-         List.iter old_assert constraints;
+      | Some (lhs, rhs) ->
+         add_constraints (generate_constraint state [] Term.(lhs === rhs) lhs rhs);
          scan_struct_default t_struct
       | None ->
          match t_struct with
-         | Types.A2(`YICES_EQ_TERM, lhs, rhs) ->
-            (* print_endline (Format.sprintf "scanning %a" Term.pp t); *)
-            let constraints = generate_constraint state [] t lhs rhs in
-            List.iter old_assert constraints;
-            scan_struct_default t_struct   
-         |  t_struct -> scan_struct_default t_struct
+         | Types.A2 (`YICES_EQ_TERM, lhs, rhs) ->
+            add_constraints (generate_constraint state [] t lhs rhs);
+            scan_struct_default t_struct
+         | t_struct -> scan_struct_default t_struct
     and scan_struct_default : 'a. 'a Types.termstruct -> unit =
-      fun t_struct -> let _ = Term.map scan_term t_struct in ()
-    and scan_term t = scan t; t
-    and scan t = 
+      fun t_struct ->
+      let _ = Term.map scan_term t_struct in
+      ()
+    and scan_term t =
+      scan t;
+      t
+    and scan t =
       if HTerms.mem state t then ()
-      else
+      else (
         let Term t_struct = Term.reveal t in
         scan_struct t t_struct;
         HTerms.add state t ()
-
+      )
     in
-    (* print_endline "---open";
-     * print_endline (Format.sprintf "assert_formula %a" Term.pp f); *)
     scan f;
-    (* print_endline "---close"; *)
-    old_assert f
+    List.rev !constraints @ [f]
 
-  let check _t old_model = Sat old_model
+  let translate_assumption _state t = t
+
+  let term_of_old _ t = t
+  let typ_of_old _ ty = ty
+  let param_to_old _ p = p
+  let smodel_to_old _ m = m
+  let smodel_of_old _ m = m
+  let smodel_of_model _ ?support model = SModel.make ?support model
+
+  let check _t (SModel{model; _}) = Sat model
 
   let interpolant _t old_interpolant = old_interpolant
+
+  let pp_term = Term.pp
+  let pp_type = Type.pp
+  let term_to_sexp ?smt2arrays t = Term.to_sexp ?smt2arrays t
+  let type_to_sexp ?smt2arrays t = Type.to_sexp ?smt2arrays t
+  let smodel_to_sexp ?smt2arrays smodel =
+    let bindings =
+      SModel.as_map smodel
+      |> List.map (fun (lhs, rhs) ->
+             let lhs = Term.to_sexp ?smt2arrays lhs in
+             let rhs = Term.to_sexp ?smt2arrays rhs in
+             Sexplib.Sexp.List [Sexplib.Sexp.Atom ":="; lhs; rhs])
+    in
+    Sexplib.Sexp.List (Sexplib.Sexp.Atom "model" :: bindings)
 
 end
 
 include Make(Context)(AddDiff)
-

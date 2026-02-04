@@ -8,13 +8,18 @@ open Types_ext
    
 module AddArrays = struct
 
-  type term = Term.t             
+  type term   = Term.t
+  type typ    = Type.t
   type config = Config.t
+  type param  = Param.t
+  type smodel = SModel.t
   type model  = Model.t
 
-  let config_set = Config.set
-
-  include Trivial
+  type old_term   = term
+  type old_typ    = typ
+  type old_config = config
+  type old_param  = param
+  type old_smodel = smodel
 
   type array_symb = {
       write : Term.t;
@@ -50,6 +55,12 @@ module AddArrays = struct
       reads  = Global.hTypes_create 100 }
 
   let free _ = ()
+  let reset t =
+    HTerms.reset t.writes;
+    HTypes.reset t.reads
+  let push _ = ()
+  let pop _ = ()
+  let goto _ _ = ()
 
   module ExtraType = struct
 
@@ -174,8 +185,18 @@ module AddArrays = struct
   end
 
 
-  let assert_formula old_assert state f =
-    old_assert (ExtraTerm.new2old state f)
+  let translate_assertion state f =
+    [ExtraTerm.new2old state f]
+
+  let translate_assumption state t =
+    ExtraTerm.new2old state t
+
+  let term_of_old _ t = ExtraTerm.old2new t
+  let typ_of_old _ ty = Purification.Type.get_body ty
+  let param_to_old _ p = p
+  let smodel_to_old _ m = m
+  let smodel_of_old _ m = m
+  let smodel_of_model _ ?support model = SModel.make ?support model
 
   let check old_model updated warray windex read l =
     let form =
@@ -206,7 +227,23 @@ module AddArrays = struct
     | [] -> Sat old_model
     | _ -> Unsat(Term.andN violated)
 
+  let check t (SModel{model; _}) = check t model
+
   let interpolant _t old_interpolant = ExtraTerm.old2new old_interpolant
+
+  let pp_term = Term.pp
+  let pp_type = Type.pp
+  let term_to_sexp ?smt2arrays t = Term.to_sexp ?smt2arrays t
+  let type_to_sexp ?smt2arrays t = Type.to_sexp ?smt2arrays t
+  let smodel_to_sexp ?smt2arrays smodel =
+    let bindings =
+      SModel.as_map smodel
+      |> List.map (fun (lhs, rhs) ->
+             let lhs = Term.to_sexp ?smt2arrays lhs in
+             let rhs = Term.to_sexp ?smt2arrays rhs in
+             Sexplib.Sexp.List [Sexplib.Sexp.Atom ":="; lhs; rhs])
+    in
+    Sexplib.Sexp.List (Sexplib.Sexp.Atom "model" :: bindings)
 
 end
 
