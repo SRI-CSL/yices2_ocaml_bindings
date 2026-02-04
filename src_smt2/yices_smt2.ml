@@ -19,30 +19,39 @@ let rec sexp_has_tuples : Sexplib.Sexp.t -> bool = function
 module MakeTupleBlastExt (Enabled : sig val enabled : bool end) = struct
   include WithExceptionsErrorHandling
 
+  module TB = Extensions.Tuples.AddTupleBlast
+  let _old_config, tb_state = TB.malloc ()
+
+  module Global = struct
+    module Base = WithExceptionsErrorHandling.Global
+    include Base
+
+    let reset () =
+      TB.reset tb_state;
+      Base.reset ()
+  end
+
   module Context = struct
     module Base = WithExceptionsErrorHandling.Context
     include Base
 
     let should_blast ctx = Enabled.enabled && Base.is_mcsat ctx
 
-    let blast_formula f =
-      match Extensions.Tuples.Arg.tuple_blast f with
-      | Extensions.Tuples.Arg.TopTuple.Single f -> f
-      | Extensions.Tuples.Arg.TopTuple.Multiple _ ->
-         failwith "Tuple blasting a Boolean formula must return a single formula"
-
-    let blast_flat t =
-      Extensions.Tuples.Arg.tuple_blast t |> Extensions.Tuples.Arg.TopTuple.flatten
+    let blast_formula f = TB.translate_assumption tb_state f
+    let blast_flat t = Extensions.Tuples.blast_flat tb_state t
 
     let blast_formulas l = List.map blast_formula l
     let blast_terms_flat l = List.concat_map blast_flat l
 
     let assert_formula ctx f =
-      if should_blast ctx then Base.assert_formula ctx (blast_formula f)
+      if should_blast ctx then (
+        TB.translate_assertion tb_state f |> List.iter (Base.assert_formula ctx)
+      )
       else Base.assert_formula ctx f
 
     let assert_formulas ctx l =
-      if should_blast ctx then Base.assert_formulas ctx (blast_formulas l)
+      if should_blast ctx then
+        l |> List.iter (fun f -> TB.translate_assertion tb_state f |> List.iter (Base.assert_formula ctx))
       else Base.assert_formulas ctx l
 
     let check ?param ?assumptions ?smodel ?as_inequalities ?hints ctx =
