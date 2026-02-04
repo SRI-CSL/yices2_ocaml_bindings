@@ -18,19 +18,25 @@ module Context : StandardYicesContext with type t = Context.t
 module Make
          (Context : YicesContext)                      (* The solver you're extending *)
          (C : Ext with type old_term   := Context.term (* The specs of your extension *)
+                   and type old_typ    := Context.typ
                    and type old_config := Context.config
-                   and type old_model  := Context.model) :
-YicesContext with type term = C.term
+                   and type old_param  := Context.param
+                   and type old_smodel := Context.smodel) :
+YicesContext with type term   = C.term
+              and type typ    = C.typ
               and type config = C.config
-              and type model  = C.model
+              and type param  = C.param
+              and type smodel = C.smodel
 
 (* A trivial seed for your extension specs, with no state *)
 module Trivial : sig
   type t = unit
   val malloc : ?config:'a -> t -> 'a option * t
   val free : 'a -> t
+  val reset : 'a -> t
   val push : 'a -> t
   val pop : 'a -> t
+  val goto : 'a -> int -> t
 end
 
 (* In order to easily define syntax extensions.
