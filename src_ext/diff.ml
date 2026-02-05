@@ -10,6 +10,7 @@ module AddDiff = struct
 
   type term   = Term.t
   type typ    = Type.t
+  type old_context = Context.t
   type config = Config.t
   type param  = Param.t
   type smodel = SModel.t
@@ -101,7 +102,7 @@ module AddDiff = struct
         end
 
 
-  let translate_assertion state f =
+  let translate_assertion (_ctx : old_context) state f =
     let constraints = ref [] in
     let add_constraints l = constraints := List.rev_append l !constraints in
 
@@ -135,7 +136,7 @@ module AddDiff = struct
     scan f;
     List.rev !constraints @ [f]
 
-  let translate_assumption _state t = t
+  let translate_assumption (_ctx : old_context) _state t = t
 
   let term_of_old _ t = t
   let typ_of_old _ ty = ty

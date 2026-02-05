@@ -19,7 +19,7 @@ let () =
   print_endline "New context done";
   let param = Param.malloc() in
   print_endline "New param done";
-  Param.default context param;
+  Context.default_param context param;
   print_endline "Set param done";
   let status = Context.check context ~param in
   print_endline(Types.show_smt_status status);
@@ -52,7 +52,7 @@ let _ =
   print_endline "New context done";
   let+ param   = Param.malloc() in
   print_endline "New param done";
-  Param.default context param;
+  Context.default_param context param;
   print_endline "Set param done";
   let status   = Context.check context ~param in
   print_endline(Types.show_smt_status status);

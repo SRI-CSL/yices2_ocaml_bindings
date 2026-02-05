@@ -79,6 +79,7 @@ module Context : StandardYicesContext with type t = BaseContext.t = struct
   let malloc_mcsat   = BaseContext.malloc_mcsat
   let malloc_logic   = BaseContext.malloc_logic
   let free           = BaseContext.free
+  let default_param  = BaseContext.default_param
   let status         = BaseContext.status
   let reset          = BaseContext.reset
   let push           = BaseContext.push
@@ -100,17 +101,20 @@ module Context : StandardYicesContext with type t = BaseContext.t = struct
 end
 
 module Make
-         (Context : YicesContext)
+         (Context : Context)
          (C : Ext with type old_term   := Context.term
                    and type old_typ    := Context.typ
+                   and type old_context := Context.t
                    and type old_config := Context.config
                    and type old_param  := Context.param
                    and type old_smodel := Context.smodel) :
-YicesContext with type term   = C.term
-              and type typ    = C.typ
-              and type config = C.config
-              and type param  = C.param
-              and type smodel = C.smodel
+Context with type term   = C.term
+        and type typ    = C.typ
+        and type config = C.config
+        and type param  = C.param
+        and type smodel = C.smodel
+        and type assertions = C.term Log.assertions
+        and type action = (C.term, C.typ, C.param, C.smodel) Log.action
   = struct
 
   type typ    = C.typ
@@ -362,6 +366,9 @@ YicesContext with type term   = C.term
 
   let status t = !(t.status)
 
+  let default_param t param =
+    Context.default_param t.old_context (C.param_to_old t.state param)
+
   let reset t =
     log_context_action t Reset;
     Context.reset t.old_context;
@@ -402,7 +409,7 @@ YicesContext with type term   = C.term
     t.assertions := Assertions.add_formula !(t.assertions) formula;
     (* translate_assertion may return multiple constraints (e.g., purification).
        These are asserted at the old level but do not appear in the extension log. *)
-    C.translate_assertion t.state formula
+    C.translate_assertion t.old_context t.state formula
     |> List.iter (Context.assert_formula t.old_context)
 
   let assert_formulas t formulas =
@@ -410,7 +417,7 @@ YicesContext with type term   = C.term
     t.assertions := Assertions.add_formulas !(t.assertions) formulas;
     let assert_one formula =
       (* Each input formula can expand to multiple old-level constraints. *)
-      C.translate_assertion t.state formula
+      C.translate_assertion t.old_context t.state formula
       |> List.iter (Context.assert_formula t.old_context)
     in
     List.iter assert_one formulas
@@ -428,8 +435,8 @@ YicesContext with type term   = C.term
     let old_smodel = translate_param (C.smodel_to_old t.state) smodel in
     (* translate_assumption is used for assumptions, hints, and var ordering.
        It should be side-effect free: we do not add extra constraints here. *)
-    let old_assumptions = translate_list (C.translate_assumption t.state) assumptions in
-    let old_hints = translate_list (C.translate_assumption t.state) hints in
+    let old_assumptions = translate_list (C.translate_assumption t.old_context t.state) assumptions in
+    let old_hints = translate_list (C.translate_assumption t.old_context t.state) hints in
     begin match assumptions, smodel, hints with
     | None, None, None ->
        log_context_action t (Check param)
@@ -463,12 +470,12 @@ YicesContext with type term   = C.term
 
   let set_fixed_var_order t vars =
     (* Variable-ordering hints are translated with translate_assumption. *)
-    let vars = List.map (C.translate_assumption t.state) vars in
+    let vars = List.map (C.translate_assumption t.old_context t.state) vars in
     Context.set_fixed_var_order t.old_context vars
 
   let set_initial_var_order t vars =
     (* Variable-ordering hints are translated with translate_assumption. *)
-    let vars = List.map (C.translate_assumption t.state) vars in
+    let vars = List.map (C.translate_assumption t.old_context t.state) vars in
     Context.set_initial_var_order t.old_context vars
 
   let stop t =
@@ -518,7 +525,7 @@ YicesContext with type term   = C.term
        let build ?support () =
          (* support is translated with translate_assumption; no extra constraints
             are introduced in this path. *)
-         let support = Option.map (List.map (C.translate_assumption t1.state)) support in
+         let support = Option.map (List.map (C.translate_assumption t1.old_context t1.state)) support in
          build_smodel ?support () |> C.smodel_of_old t1.state
        in
        `STATUS_SAT build

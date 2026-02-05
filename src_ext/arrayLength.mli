@@ -7,7 +7,18 @@ open Types_ext
 
 module AddLength : sig
 
-  include StandardExt
+  include Ext with type old_term := Term.t
+               and type old_typ := Type.t
+               and type old_context := Diff.t
+               and type old_config := Config.t
+               and type old_param := Param.t
+               and type old_smodel := SModel.t
+               and type term := Term.t
+               and type typ := Type.t
+               and type config := Config.t
+               and type param := Param.t
+               and type smodel := SModel.t
+               and type model := Model.t
 
   module ExtraType : sig
     val lfun :

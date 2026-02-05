@@ -11,6 +11,7 @@ module AddLength = struct
 
   type term   = Term.t
   type typ    = Type.t
+  type old_context = Diff.t
   type config = Config.t
   type param  = Param.t
   type smodel = SModel.t
@@ -174,7 +175,7 @@ module AddLength = struct
   let pop _ = ()
   let goto _ _ = ()
                    
-  let translate_assertion state f =
+  let translate_assertion (_ctx : old_context) state f =
     let constraints = ref [] in
     let add t = constraints := t :: !constraints in
 
@@ -226,7 +227,7 @@ module AddLength = struct
     scan f;
     List.rev !constraints @ [f]
 
-  let translate_assumption _state t = t
+  let translate_assumption (_ctx : old_context) _state t = t
 
   let term_of_old _ t = t
   let typ_of_old _ ty = ty

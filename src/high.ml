@@ -1575,6 +1575,7 @@ module SafeMake
     type t = context_t ptr
     let malloc ?(config=null ctx_config_t) () = config |> yices_new_context |> return_ptr
     let free   = yices_free_context
+    let default_param = yices_default_params_for_context
     let status = yices_context_status <.> Conv.smt_status.read
     let reset  = yices_reset_context
     let push   = yices_push <.> toUnit
@@ -1648,7 +1649,6 @@ module SafeMake
     type t = param_t ptr
     let malloc  = yices_new_param_record <.> return_ptr
     let free    = yices_free_param_record
-    let default = yices_default_params_for_context
     let set p ~name ~value = yices_set_param p ?>name ?>value |> toUnit
   end
 

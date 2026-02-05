@@ -29,14 +29,13 @@ module type Context = sig
   val check_with_interpolation : ?build_model:bool ->
                                  ?param:Param.t ->
                                  t -> t -> (Term.t, Model.t option) Types.smt_status_with_answers
+  val default_param : t -> Param.t -> unit
 
   module Param : sig
-    type context := t
     type t = EH1.Param.t
     val malloc : unit -> t
     val free : t -> unit
     val set : t -> name:string -> value:string -> unit
-    val default : context -> t -> unit
   end
 end
 
@@ -136,7 +135,7 @@ let test_context (type a) (type c)
   (* Testing parameters *)
   let module Param = Context.Param in
   let param = Param.malloc () in
-  Param.default ctx param;
+  Context.default_param ctx param;
   let () = Param.set param ~name:"dyn-ack" ~value:"true" in
   begin
     try Param.set param ~name:"foo" ~value:"bar";
@@ -182,7 +181,7 @@ let test_interpolation (type a) (type c)
   Context.assert_formulas ctxB assertB;
 
   let param = Context.Param.malloc() in
-  Context.Param.default ctxA param;
+  Context.default_param ctxA param;
   let r =
     Context.check_with_interpolation ~build_model:true ~param ctxA ctxB
   in
@@ -364,16 +363,13 @@ let test_ext_context () =
 
 let test_tupleblast () =
   let open Yices2.Ext.WithExceptionsErrorHandling in
-  let open Extensions in
-  let open Tuples in
+  let module TupleCtx = Extensions.Tuples.ContextOnlyMCSAT in
   Global.init();
-  let config = Config.malloc () in
-  Config.set config ~name:"solver-type" ~value:"mcsat";
-  let ctx = Context.malloc ~config () in
+  let ctx = TupleCtx.malloc_mcsat () in
   let v  = Term.new_uninterpreted (Type.(tuple [real(); real()])) in 
   let v' = Term.(tuple [select 2 v; Arith.(select 1 v ++ int 1 )]) in
-  Context.assert_formula ctx (Term.eq v v');
-  let smt_stat = Context.check ctx in
+  TupleCtx.assert_formula ctx (Term.eq v v');
+  let smt_stat = TupleCtx.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_UNSAT);
   
 (* let test_lfun () = *)

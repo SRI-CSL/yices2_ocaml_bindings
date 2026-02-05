@@ -4053,6 +4053,63 @@ module type Model = sig
 
 end
 
+module type Param = sig
+
+  type 'a eh (* Error handling monad *)
+
+  type t
+
+  (** SEARCH PARAMETERS  *)
+
+  (** A parameter record is an opaque object that stores various
+      search parameters and options that control the heuristics used by
+      the solver.
+
+      A parameter structure is created by calling
+      - yices_new_param_record(void)
+      This returns a parameter structure initialized with default
+      settings.
+
+      Then individual parameters can be set using function
+      - yices_set_param(s, name, value) where both name and value are
+      character strings.
+      - an unknown/unsupported parameter name is ignored
+
+      Then the param object can be passed on as argument to yices_check_context.
+
+      When it's no longer needed, the object must be deleted by
+      calling yices_free_param_structure(param).  *)
+
+  (** Return a parameter record initialized with default settings.  *)
+  val malloc : unit -> t eh
+
+  (** Delete the record param  *)
+  val free : t -> unit
+
+  (** Set a parameter in record p
+   
+   {v
+   set t ~name ~value
+   v}
+   
+      - pname = parameter name
+      - value = setting
+
+      The parameters are explained in doc/YICES-LANGUAGE
+      (and at http://yices.csl.sri.com/doc/parameters.html)
+
+      Return -1 if there's an error, 0 otherwise.
+
+      Error codes:
+      
+      {v
+       - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
+       - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter
+      v}
+  *)
+  val set : t -> name:string -> value:string -> unit eh
+
+end
 module type Context = sig
 
   type 'a eh
@@ -4132,6 +4189,9 @@ module type Context = sig
 
   (** Deletion  *)
   val free : t -> unit
+
+  (** Set default search parameters for the given context. *)
+  val default_param : t -> param -> unit
 
   (** Get status: return the context's status flag
       - return one of the codes defined in yices_types.h,
@@ -4674,67 +4734,6 @@ module type Context = sig
 
 end
 
-module type Param = sig
-
-  type 'a eh (* Error handling monad *)
-  type context
-
-  type t
-
-  (** SEARCH PARAMETERS  *)
-
-  (** A parameter record is an opaque object that stores various
-      search parameters and options that control the heuristics used by
-      the solver.
-
-      A parameter structure is created by calling
-      - yices_new_param_record(void)
-      This returns a parameter structure initialized with default
-      settings.
-
-      Then individual parameters can be set using function
-      - yices_set_param(s, name, value) where both name and value are
-      character strings.
-      - an unknown/unsupported parameter name is ignored
-
-      Then the param object can be passed on as argument to yices_check_context.
-
-      When it's no longer needed, the object must be deleted by
-      calling yices_free_param_structure(param).  *)
-
-  (** Return a parameter record initialized with default settings.  *)
-  val malloc : unit -> t eh
-
-  (** Delete the record param  *)
-  val free : t -> unit
-
-  (** Set default search parameters for ctx.  *)
-  val default : context -> t -> unit
-
-  (** Set a parameter in record p
-   
-   {v
-   set t ~name ~value
-   v}
-   
-      - pname = parameter name
-      - value = setting
-
-      The parameters are explained in doc/YICES-LANGUAGE
-      (and at http://yices.csl.sri.com/doc/parameters.html)
-
-      Return -1 if there's an error, 0 otherwise.
-
-      Error codes:
-      
-      {v
-       - CTX_UNKNOWN_PARAMETER if pname is not a known parameter name
-       - CTX_INVALID_PARAMETER_VALUE if value is not valid for the parameter
-      v}
-  *)
-  val set : t -> name:string -> value:string -> unit eh
-
-end
 
 module type BaseAPI = sig
 
@@ -4841,6 +4840,8 @@ module type API = sig
                           and type typ   := Type.t
                           and type term  := Term.t
                           and type t = model_ptr
+  module Param : Param with type 'a eh   := 'a eh
+                        and type t        = param_ptr
   module Context : Context with type 'a eh := 'a eh
                           and type typ     := Type.t
                           and type term    := Term.t
@@ -4848,10 +4849,6 @@ module type API = sig
                           and type config  := Config.t
                           and type param   := param_ptr
                           and type t = context_ptr
-  module Param : Param with type 'a eh   := 'a eh
-                        and type context := Context.t
-                        and type t        = param_ptr
-
   (** {2 CHECK FORMULA(S)} *)
 
     (** Check whether a formula is satisfiable

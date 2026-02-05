@@ -2,134 +2,22 @@ open Containers
 open Sexplib
 
 open Yices2
-open Yices2.Common
-open Ext
 open Ext.WithExceptionsErrorHandling
 
 (** {2 This module is here to help you build extensions to Yices.} *)
 
-(* These are parametric mirrors of the log/trace types in Ext_types.
-   We keep them in a submodule so YicesContext can refer to them without
-   recursive type aliases on the same name. *)
-module Log = struct
-  type 'term assertions =
-    | Assertions of {
-        list  : 'term list option list;
-        level : int;
-      }
+(** Shared parametric log/trace types (defined in the src "Ext_types" layer). *)
+module Log = Ext_types.Log
+module type Context = Ext_types.Context
 
-  type ('term, 'param, 'smodel) context_action =
-    | Status
-    | Reset
-    | Push
-    | Pop
-    | EnableOption of string
-    | DisableOption of string
-    | AssertFormula of 'term
-    | AssertFormulas of 'term list
-    | AssertBlockingClause
-    | Check of 'param option
-    | CheckWithAssumptions of {
-        param : 'param option;
-        assumptions : 'term list;
-      }
-    | Stop
-    | GetModel of { keep_subst : bool }
-    | GetUnsatCore
-    | CheckWithModel of {
-        param : 'param option;
-        smodel : 'smodel;
-      }
-    | GetModelInterpolant
-
-  type ('term, 'typ, 'param, 'smodel) action =
-    | DeclareType of 'typ * int option
-    | DeclareFun of 'term * 'typ
-    | DefineType of string * 'typ
-    | DefineFun of string * 'term * 'typ
-    | CheckWithInterpolation of {
-        param : 'param option;
-        build_model : bool;
-        context1 : int;
-        context2 : int;
-      }
-    | GarbageCollect of Sexp.t list
-    | NewContext of { logic : string option }
-    | ContextAction of {
-        context_id : int;
-        context_action : ('term, 'param, 'smodel) context_action;
-      }
-end
-
-(* An "extended Yices" offers an API similar to the API of a Yices's context.
-   You can use different terms, configs, and models from what Yices uses. *)
-module type YicesContext = sig
-
-  (* Extension-level term/type/model vocabulary *)
-  type typ
-  type term
-  type config
-  type param
-  type smodel
-
-  (* These are the parametric equivalents of Ext_types.Assertions/Action. *)
-  type assertions = term Log.assertions
-  type action = (term, typ, param, smodel) Log.action
-
-  type t (* Type of contexts in the extension of Yices *)
-  val pp_options        : unit HStrings.t Format.printer
-  val pp_config_options : string HStrings.t Format.printer
-
-  val assertions     : t -> assertions
-  val options        : t -> unit HStrings.t
-  val config         : t -> config option
-  val config_options : t -> string HStrings.t
-  val log            : t -> action list
-  val is_alive       : t -> bool
-  val is_mcsat       : t -> bool
-  val id             : t -> int
-  val of_id          : int -> t option
-  val all            : unit -> t Seq.t
-  val to_sexp        : ?smt2arrays:[`Tuple | `Curry ] * (term -> bool) -> t -> Sexp.t list
-
-  val malloc : ?config:config -> unit -> t
-  val malloc_mcsat : ?interpol:bool -> unit -> t
-  val malloc_logic : string -> t
-  val free   : t -> unit
-  val status : t -> Types.smt_status
-  val reset  : t -> unit
-  val push   : t -> unit
-  val pop    : t -> unit
-  val goto   : t -> int -> unit
-  val enable_option   : t -> option:string -> unit
-  val disable_option  : t -> option:string -> unit
-  val assert_formula  : t -> term -> unit
-  val assert_formulas : t -> term list -> unit
-  val assert_blocking_clause : t -> unit
-  val check : ?param:param -> ?assumptions:term list -> ?smodel:smodel
-              -> ?as_inequalities:bool -> ?hints:term list -> t -> Types.smt_status
-  val set_fixed_var_order   : t -> term list -> Types.smt_status
-  val set_initial_var_order : t -> term list -> Types.smt_status
-  val stop                  : t -> unit
-  val get_model             : ?keep_subst:bool -> ?support:term list -> t -> smodel
-  val get_unsat_core        : t -> term list
-  val get_model_interpolant : t -> term
-  val check_with_interpolation :
-    ?build_model:bool -> ?param:param -> t -> t
-    -> (term, ?support:term list -> unit -> smodel) Types.smt_status_with_answers
-
-  val pp_log : t Format.printer
-  val pp : t Format.printer
-end
-
-(* Particular case of the above module type
+(* Particular case of Ext_types.Context
    when your Yices extension uses the same terms, configs, and models as Yices does. *)
 module type StandardYicesContext =
-  YicesContext with type typ    = Type.t
-                and type term   = Term.t
-                and type config = Config.t
-                and type param  = Param.t
-                and type smodel = SModel.t
+  Context with type typ    = Type.t
+          and type term   = Term.t
+          and type config = Config.t
+          and type param  = Param.t
+          and type smodel = SModel.t
 
 (* Generic type of answers for satisfiability queries. *)
 type ('model, 'interpolant) answer =
@@ -142,6 +30,7 @@ module type Ext = sig
   (* What needs to match the types in the solver you are extending. *)
   type old_term
   type old_typ
+  type old_context
   type old_config
   type old_param
   type old_smodel
@@ -168,8 +57,8 @@ module type Ext = sig
        zero or more old-level formulas (e.g., purification constraints).
      - translate_assumption must return a single old-level term suitable
        for assumptions/hints/variable-order. It should avoid side effects. *)
-  val translate_assertion  : t -> term -> old_term list
-  val translate_assumption : t -> term -> old_term
+  val translate_assertion  : old_context -> t -> term -> old_term list
+  val translate_assumption : old_context -> t -> term -> old_term
 
   (* Whenever the solver you're extending produces a supported model,
      if you are happy with it, please convert it to your own notion of model;
@@ -210,6 +99,7 @@ end
 module type StandardExt =
   Ext with type old_term   := Term.t
        and type old_typ    := Type.t
+       and type old_context := Context.t
        and type old_config := Config.t
        and type old_param  := Param.t
        and type old_smodel := SModel.t

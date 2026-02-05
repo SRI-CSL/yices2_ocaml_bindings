@@ -43,7 +43,9 @@ module TopTuple = struct
     List.fold_left (fun sofar ty -> f ty |> flatten_rev sofar) [] x |> List.rev
 end
 
-type state = { htbl : Term.t TopTuple.t HTerms.t }
+type state = {
+  htbl : Term.t TopTuple.t HTerms.t;
+}
 
 let malloc_state () = { htbl = Global.hTerms_create 100 }
 
@@ -76,35 +78,6 @@ let atom_blast f t =
      match Type.reveal ty with
      | Types.Fun _ -> TopTuple.Single (f ty)
      | _ -> TopTuple.Single t
-
-let rec check_no_tuple_select t =
-  let open Types in
-  let Term t = Term.reveal t in
-  match t with
-  | A0 _ -> true
-  | A1 (_, t) -> check_no_tuple_select t
-  | A2 (_, t1, t2) -> check_no_tuple_select t1 && check_no_tuple_select t2
-  | ITE (c, tb, eb) ->
-     check_no_tuple_select c && check_no_tuple_select tb && check_no_tuple_select eb
-  | Astar (_, l) -> List.for_all check_no_tuple_select l
-  | Bindings { body; _ } -> check_no_tuple_select body
-  | App (f, l) -> check_no_tuple_select f && List.for_all check_no_tuple_select l
-  | Update { array; index; value } ->
-     check_no_tuple_select array
-     && List.for_all check_no_tuple_select index
-     && check_no_tuple_select value
-  | Projection (`YICES_BIT_TERM, _, t) -> check_no_tuple_select t
-  | Projection (`YICES_SELECT_TERM, _, _) -> false
-  | BV_Sum l ->
-     let aux (_, x) = Option.for_all check_no_tuple_select x in
-     List.for_all aux l
-  | FF_Sum l ->
-     let aux (_, x) = Option.for_all check_no_tuple_select x in
-     List.for_all aux l
-  | Sum l ->
-     let aux (_, x) = Option.for_all check_no_tuple_select x in
-     List.for_all aux l
-  | Product (_, l) -> List.for_all (fun (t, _) -> check_no_tuple_select t) l
 
 let tuple_blast st t =
   let rec tuple_blast t =
@@ -167,19 +140,43 @@ let blast_formula st f =
 
 let blast_flat st t = tuple_blast st t |> TopTuple.flatten
 
-module AddTupleBlast = struct
+let rec term_has_tuple t =
+  let has_tuple_type t = not (type_check (Term.type_of_term t)) in
+  if has_tuple_type t then true
+  else
+    let Types.Term ts = Term.reveal t in
+    match ts with
+    | Astar (`YICES_TUPLE_TERM, _) -> true
+    | Projection (`YICES_SELECT_TERM, _, _) -> true
+    | A0 _ -> false
+    | A1 (_, a) -> term_has_tuple a
+    | A2 (_, a, b) -> term_has_tuple a || term_has_tuple b
+    | ITE (c, tb, eb) -> term_has_tuple c || term_has_tuple tb || term_has_tuple eb
+    | Astar (_, l) -> List.exists term_has_tuple l
+    | Bindings { vars; body; _ } -> List.exists term_has_tuple vars || term_has_tuple body
+    | App (f, l) -> term_has_tuple f || List.exists term_has_tuple l
+    | Update { array; index; value } ->
+       term_has_tuple array
+       || List.exists term_has_tuple index
+       || term_has_tuple value
+    | Projection (`YICES_BIT_TERM, _, a) -> term_has_tuple a
+    | BV_Sum l ->
+       List.exists (fun (_coeff, t_opt) -> Option.exists term_has_tuple t_opt) l
+    | FF_Sum l ->
+       List.exists (fun (_coeff, t_opt) -> Option.exists term_has_tuple t_opt) l
+    | Sum l ->
+       List.exists (fun (_coeff, t_opt) -> Option.exists term_has_tuple t_opt) l
+    | Product (_is_bv, l) ->
+       List.exists (fun (t, _power) -> term_has_tuple t) l
+
+module ExtAlways = struct
   type term = Term.t
   type typ = Type.t
+  type old_context = Builder.Context.t
   type config = Config.t
   type param = Param.t
   type smodel = SModel.t
   type model = Model.t
-
-  type old_term = Term.t
-  type old_typ = Type.t
-  type old_config = Config.t
-  type old_param = Param.t
-  type old_smodel = SModel.t
 
   type t = state
 
@@ -190,8 +187,8 @@ module AddTupleBlast = struct
   let pop _ = ()
   let goto _ _ = ()
 
-  let translate_assertion st f = [blast_formula st f]
-  let translate_assumption st f = blast_formula st f
+  let translate_assertion (_ctx : old_context) st f = [blast_formula st f]
+  let translate_assumption (_ctx : old_context) st f = blast_formula st f
 
   let check _ (Types.SModel { model; _ }) = Sat model
 
@@ -219,5 +216,26 @@ module AddTupleBlast = struct
     Sexplib.Sexp.List (Sexplib.Sexp.Atom "model" :: bindings)
 end
 
-module Context = Make (Builder.Context) (AddTupleBlast)
-  
+module ExtOnlyMCSAT = struct
+  include ExtAlways
+
+  let translate_assertion (ctx : old_context) st f =
+    if Builder.Context.is_mcsat ctx && term_has_tuple f then [blast_formula st f] else [f]
+
+  let translate_assumption (ctx : old_context) st f =
+    if Builder.Context.is_mcsat ctx && term_has_tuple f then blast_formula st f else f
+end
+
+module ContextAlways = Make (Builder.Context) (ExtAlways)
+
+module ContextOnlyMCSAT = Make (Builder.Context) (ExtOnlyMCSAT)
+
+module Always = struct
+  include WithExceptionsErrorHandling
+  module Context = ContextAlways
+end
+
+module OnlyMCSAT = struct
+  include WithExceptionsErrorHandling
+  module Context = ContextOnlyMCSAT
+end

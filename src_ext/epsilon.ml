@@ -22,6 +22,7 @@ module Arg = struct
 
   type term   = Term.t
   type typ    = Type.t
+  type old_context = Context.t
   type config = Config.t
   type param  = Param.t
   type smodel = SModel.t
@@ -50,7 +51,7 @@ module Arg = struct
        end
     | _ -> None
 
-  let translate_assertion () f =
+  let translate_assertion (_ctx : old_context) () f =
     let is_epsilon t = match reveal t with Some _ -> true | None -> false in
     let f, l = Purification.Term.purify is_epsilon f [] in
     let generate Purification_types.{ proxy; body } =
@@ -61,7 +62,7 @@ module Arg = struct
     in
     List.map generate l @ [f]
 
-  let translate_assumption () f =
+  let translate_assumption (_ctx : old_context) () f =
     let is_epsilon t = match reveal t with Some _ -> true | None -> false in
     Purification.Term.purify is_epsilon f [] |> fst
 

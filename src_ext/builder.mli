@@ -16,17 +16,20 @@ module Context : StandardYicesContext with type t = Context.t
    - the specs of your extension,
    and it produces a new solver. *)
 module Make
-         (Context : YicesContext)                      (* The solver you're extending *)
+         (Context : Context)                           (* The solver you're extending *)
          (C : Ext with type old_term   := Context.term (* The specs of your extension *)
                    and type old_typ    := Context.typ
+                   and type old_context := Context.t
                    and type old_config := Context.config
                    and type old_param  := Context.param
                    and type old_smodel := Context.smodel) :
-YicesContext with type term   = C.term
-              and type typ    = C.typ
-              and type config = C.config
-              and type param  = C.param
-              and type smodel = C.smodel
+Context with type term   = C.term
+        and type typ    = C.typ
+        and type config = C.config
+        and type param  = C.param
+        and type smodel = C.smodel
+        and type assertions = C.term Log.assertions
+        and type action = (C.term, C.typ, C.param, C.smodel) Log.action
 
 (* A trivial seed for your extension specs, with no state *)
 module Trivial : sig

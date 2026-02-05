@@ -15,7 +15,6 @@ module Term : sig
   include Ext_types.Term with type typ     := Type.t
                           and type t        = Term.t
                           and type termset := TermSet.t
-                          and type context := Builder.Context.t
   val epsilon : t -> t -> t
   val epsilon_reveal : t -> (t * Types.type_t * t) option
 end
@@ -24,8 +23,8 @@ module Model : Ext_types.Model with type typ   := Type.t
                                 and type term  := Term.t
                                 and type t      = Model.t
 
-module Context : YicesContext with type typ    = Type.t
-                               and type term   = Term.t
-                               and type config = Config.t
-                               and type param  = Param.t
-                               and type smodel = SModel.t
+module Context : StandardYicesContext with type typ    = Type.t
+                                      and type term   = Term.t
+                                      and type config = Config.t
+                                      and type param  = Param.t
+                                      and type smodel = SModel.t

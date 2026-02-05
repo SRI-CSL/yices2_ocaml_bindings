@@ -6,6 +6,61 @@ open Common
 open High
 open Types
 
+(** Parametric log/trace vocabulary.
+
+    Concrete APIs instantiate this with their term/type/param/supported-model
+    types. This is shared with the extension-builder layer to avoid duplicating
+    (nominally distinct) log type definitions. *)
+module Log = struct
+  type 'term assertions =
+    | Assertions of {
+        list : 'term list option list;
+        level : int;
+      }
+
+  type ('term, 'param, 'smodel) context_action =
+    | Status
+    | Reset
+    | Push
+    | Pop
+    | EnableOption of string
+    | DisableOption of string
+    | AssertFormula of 'term
+    | AssertFormulas of 'term list
+    | AssertBlockingClause
+    | Check of 'param option
+    | CheckWithAssumptions of {
+        param : 'param option;
+        assumptions : 'term list;
+      }
+    | Stop
+    | GetModel of { keep_subst : bool }
+    | GetUnsatCore
+    | CheckWithModel of {
+        param : 'param option;
+        smodel : 'smodel;
+      }
+    | GetModelInterpolant
+
+  type ('term, 'typ, 'param, 'smodel) action =
+    | DeclareType of 'typ * int option
+    | DeclareFun of 'term * 'typ
+    | DefineType of string * 'typ
+    | DefineFun of string * 'term * 'typ
+    | CheckWithInterpolation of {
+        param : 'param option;
+        build_model : bool;
+        context1 : int;
+        context2 : int;
+      }
+    | GarbageCollect of Sexp.t list
+    | NewContext of { logic : string option }
+    | ContextAction of {
+        context_id : int;
+        context_action : ('term, 'param, 'smodel) context_action;
+      }
+end
+
 module Types = struct
 
   type smt_status = High.Types.smt_status
@@ -39,44 +94,51 @@ module Types = struct
                             model   : model_ptr }
 
   (** Assertions organized by context level. *)
-  type assertions = Assertions of {
-        list  : term_t list option list; (* List of assertions at each level. None at some level
-                                            if a blocking clause has been asserted there *)
+  type 'term log_assertions = 'term Log.assertions =
+    | Assertions of {
+        list  : 'term list option list; (* List of assertions at each level. None at some level
+                                           if a blocking clause has been asserted there *)
         level : int (* Always equal to (List.length list - 1), but gives O(1) access *)
       }
 
+  type assertions = term_t log_assertions
+
   (** Actions that can be recorded against a context. *)
-  type context_action =
+  type ('term, 'param, 'smodel) log_context_action = ('term, 'param, 'smodel) Log.context_action =
     | Status
     | Reset
     | Push
     | Pop
     | EnableOption of string
     | DisableOption of string
-    | AssertFormula of term_t
-    | AssertFormulas of term_t list
+    | AssertFormula of 'term
+    | AssertFormulas of 'term list
     | AssertBlockingClause
-    | Check of param_ptr option
-    | CheckWithAssumptions of { param : param_ptr option; assumptions : term_t list }
+    | Check of 'param option
+    | CheckWithAssumptions of { param : 'param option; assumptions : 'term list }
     | Stop
     | GetModel of { keep_subst : bool }
     | GetUnsatCore
-    | CheckWithModel of { param : param_ptr option; smodel : smodel }
+    | CheckWithModel of { param : 'param option; smodel : 'smodel }
     | GetModelInterpolant
 
+  type context_action = (term_t, param_ptr, smodel) log_context_action
+
   (** Global actions recorded in the log. *)
-  type action =
-    | DeclareType of type_t * int option
-    | DeclareFun of term_t * type_t
-    | DefineType of string * type_t
-    | DefineFun of string * term_t * type_t
-    | CheckWithInterpolation of { param : param_ptr option;
+  type ('term, 'typ, 'param, 'smodel) log_action = ('term, 'typ, 'param, 'smodel) Log.action =
+    | DeclareType of 'typ * int option
+    | DeclareFun of 'term * 'typ
+    | DefineType of string * 'typ
+    | DefineFun of string * 'term * 'typ
+    | CheckWithInterpolation of { param : 'param option;
                                   build_model : bool;
                                   context1 : int;
                                   context2 : int }
     | GarbageCollect of Sexp.t list
     | NewContext of { logic : string option }
-    | ContextAction of { context_id : int ; context_action : context_action }
+    | ContextAction of { context_id : int ; context_action : ('term, 'param, 'smodel) log_context_action }
+
+  type action = (term_t, type_t, param_ptr, smodel) log_action
 
   (** Slice descriptor for bitvector extraction. *)
   type slice = Slice of {
@@ -308,6 +370,9 @@ module type Context = sig
   (** Free does not free the config field (which could be shared with other contexts) *)
   val free : t -> unit
 
+  (** Set default search parameters for the given context. *)
+  val default_param : t -> param -> unit
+
   (**
    {v
       status ctx
@@ -435,7 +500,6 @@ end
 
 module type Names = sig
   type t
-  type context
 
   (**
    {v
@@ -491,8 +555,6 @@ module type Type = sig
 
   include High_types.Type with type 'a eh := 'a
 
-  type context
-  
   (** Introduce a notation for pretty-printing a type (Notation computed lazily) *)
   val notation : t -> ('a, Format.formatter, unit) format -> 'a
 
@@ -519,14 +581,12 @@ module type Type = sig
   (** All uninterpreted types; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
 
-  module Names : Names with type context := context
-                        and type t := t
+  module Names : Names with type t := t
 end
 
 module type Term = sig
   include High_types.Term with type 'a eh := 'a
 
-  type context
   type termset
 
   (**
@@ -591,8 +651,7 @@ module type Term = sig
   (** All uninterpreted terms; raises exception after GC pass *)
   val all_uninterpreted  : unit -> t list
 
-  module Names : Names with type context := context
-                        and type t := t
+  module Names : Names with type t := t
 end
 
 module type Value = sig
@@ -765,6 +824,9 @@ module type API = sig
 
   end
 
+  module Param : High_types.Param with type 'a eh := 'a
+                                   and type t = Param.t
+
   module Context : Context with type typ    := Type.t
                             and type term   := Term.t
                             and type assertions := Assertions.t
@@ -773,18 +835,12 @@ module type API = sig
                             and type param  := Param.t
                             and type smodel := SModel.t
 
-  module Param : High_types.Param with type 'a eh   := 'a
-                                   and type t = Param.t
-                                   and type context := Context.t
-
-  module Type : Type with type t        = Type.t
-                      and type context := Context.t
+  module Type : Type with type t = Type.t
 
   module TermSet : module type of Set.Make(Term)
 
   module Term : Term with type t    = Term.t
                       and type typ := Type.t
-                      and type context := Context.t
                       and type termset := TermSet.t
 
   module BoolStruct : sig

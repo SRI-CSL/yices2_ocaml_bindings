@@ -635,7 +635,7 @@ module Make(Ext : Ext_types.API) = struct
               session.options;
             set_logic ~logic config;
             let ctx = Context.malloc ~config () in
-            Param.default ctx session.param;
+            Context.default_param ctx session.param;
             Config.free config
 
          | "new-context",  []            ->
@@ -644,7 +644,7 @@ module Make(Ext : Ext_types.API) = struct
               session.options;
             set_logic config;
             let ctx = Context.malloc ~config () in
-            Param.default ctx session.param;
+            Context.default_param ctx session.param;
             Config.free config
 
          | "set-option", [Atom name; Atom value] ->

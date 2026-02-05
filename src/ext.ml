@@ -1295,6 +1295,8 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       Context.free context;
       is_alive := false
 
+    let default_param {context; _} param = Context.default_param context param
+
     let action a x =
       if not !(x.is_alive)
       then EH.raise_bindings_error "Trying to take action %a on dead context #%i"
@@ -1601,11 +1603,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       global_log := [GarbageCollect sexps];
       garbage_collect term_list type_list keep_named
-  end
-
-  module Param = struct
-    include Param
-    let default {context; _} = default context 
   end
 
 end

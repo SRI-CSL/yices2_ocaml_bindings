@@ -17,6 +17,7 @@ module AddArrays = struct
 
   type old_term   = term
   type old_typ    = typ
+  type old_context = Context.t
   type old_config = config
   type old_param  = param
   type old_smodel = smodel
@@ -185,10 +186,10 @@ module AddArrays = struct
   end
 
 
-  let translate_assertion state f =
+  let translate_assertion (_ctx : old_context) state f =
     [ExtraTerm.new2old state f]
 
-  let translate_assumption state t =
+  let translate_assumption (_ctx : old_context) state t =
     ExtraTerm.new2old state t
 
   let term_of_old _ t = ExtraTerm.old2new t

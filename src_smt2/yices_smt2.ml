@@ -2,75 +2,8 @@ open Containers
 
 open Yices2.Ext
 
-module SMT2_plain = Yices2.SMT2.Make(WithExceptionsErrorHandling)
-
-let rec sexp_has_tuples : Sexplib.Sexp.t -> bool = function
-  | Sexplib.Sexp.Atom _ -> false
-  | Sexplib.Sexp.List (Sexplib.Sexp.Atom "Tuple" :: _tl) -> true
-  | Sexplib.Sexp.List (Sexplib.Sexp.Atom "tuple" :: _tl) -> true
-  | Sexplib.Sexp.List
-      [ Sexplib.Sexp.List
-          [ Sexplib.Sexp.Atom "_"; Sexplib.Sexp.Atom "tuple.select"; _i ];
-        _x
-      ] ->
-     true
-  | Sexplib.Sexp.List l -> List.exists sexp_has_tuples l
-
-module MakeTupleBlastExt (Enabled : sig val enabled : bool end) = struct
-  include WithExceptionsErrorHandling
-
-  module TB = Extensions.Tuples.AddTupleBlast
-  let _old_config, tb_state = TB.malloc ()
-
-  module Global = struct
-    module Base = WithExceptionsErrorHandling.Global
-    include Base
-
-    let reset () =
-      TB.reset tb_state;
-      Base.reset ()
-  end
-
-  module Context = struct
-    module Base = WithExceptionsErrorHandling.Context
-    include Base
-
-    let should_blast ctx = Enabled.enabled && Base.is_mcsat ctx
-
-    let blast_formula f = TB.translate_assumption tb_state f
-    let blast_flat t = Extensions.Tuples.blast_flat tb_state t
-
-    let blast_formulas l = List.map blast_formula l
-    let blast_terms_flat l = List.concat_map blast_flat l
-
-    let assert_formula ctx f =
-      if should_blast ctx then (
-        TB.translate_assertion tb_state f |> List.iter (Base.assert_formula ctx)
-      )
-      else Base.assert_formula ctx f
-
-    let assert_formulas ctx l =
-      if should_blast ctx then
-        l |> List.iter (fun f -> TB.translate_assertion tb_state f |> List.iter (Base.assert_formula ctx))
-      else Base.assert_formulas ctx l
-
-    let check ?param ?assumptions ?smodel ?as_inequalities ?hints ctx =
-      if should_blast ctx then
-        let assumptions = Option.map blast_formulas assumptions in
-        let hints = Option.map blast_terms_flat hints in
-        Base.check ?param ?assumptions ?smodel ?as_inequalities ?hints ctx
-      else
-        Base.check ?param ?assumptions ?smodel ?as_inequalities ?hints ctx
-
-    let set_fixed_var_order ctx l =
-      if should_blast ctx then Base.set_fixed_var_order ctx (blast_terms_flat l)
-      else Base.set_fixed_var_order ctx l
-
-    let set_initial_var_order ctx l =
-      if should_blast ctx then Base.set_initial_var_order ctx (blast_terms_flat l)
-      else Base.set_initial_var_order ctx l
-  end
-end
+module SMT2 = Yices2.SMT2.Make(Extensions.Tuples.OnlyMCSAT)
+open SMT2
 
 let () =
   let args = ref [] in
@@ -79,15 +12,7 @@ let () =
   match !args with
   | [filename] ->
      (try
-        let sexps = SMT2_plain.SMT2.load_file filename in
-        let has_tuples = List.exists sexp_has_tuples sexps in
-        let module Enabled = struct let enabled = has_tuples end in
-        let module Ext = MakeTupleBlastExt (Enabled) in
-        let module SMT2 = Yices2.SMT2.Make (Ext) in
-        let session = SMT2.Session.create 0 in
-        Format.printf "@[<v>";
-        SMT2.SMT2.process_all session sexps;
-        Format.printf "@]@."
+        SMT2.process_file filename
       with
         ExceptionsErrorHandling.YicesException (_, report) as exc ->
         let bt = Printexc.get_backtrace () in
