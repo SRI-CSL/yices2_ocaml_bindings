@@ -46,7 +46,6 @@ module type Ext = sig
   type t (* Your extension can have a mutable state;
             use unit otherwise (see module Trivial below) *)
   val malloc : ?config:config -> unit -> old_config option * t
-  val free : t -> unit
   val reset  : t -> unit
   val push   : t -> unit
   val pop    : t -> unit

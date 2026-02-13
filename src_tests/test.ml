@@ -27,9 +27,6 @@ let () =
   let () = Context.assert_formula context (Term.false0()) in
   let status = Context.check context ~param in
   print_endline(Types.show_smt_status status);
-  Param.free param;
-  Context.free context;
-  Config.free config;
   exit();
   print_endline "Exited gracefully\n"
 
@@ -61,9 +58,6 @@ let _ =
   let+ ()      = Context.assert_formula context formula in
   let status   = Context.check context ~param in
   print_endline(Types.show_smt_status status);
-  Param.free param;
-  Context.free context;
-  Config.free config;
   exit();
   print_endline "Exited gracefully";
   SumErrorHandling.return()

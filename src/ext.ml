@@ -49,7 +49,6 @@ type context = {
     assertions : assertions ref;
     options    : unit HStrings.t;
     id         : int;
-    is_alive   : bool ref;
     config_options : String.t HStrings.t;
     mcsat      : bool;
     last_check_model : unit HTerms.t;
@@ -77,15 +76,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         config  = Config.malloc();
         options = HStrings.create 10;
         logic   = ref None;
-        mcsat   = ref false;
-        is_alive = ref true
+        mcsat   = ref false
       }
 
-    let free (Config{ config; is_alive; _}) =
-      if not !is_alive
-      then EH.raise_bindings_error "Trying to free dead config";
-      Config.free config;
-      is_alive := false
     let set (Config{ config; mcsat; options; _ }) ~name ~value =
       HStrings.replace options name value;
       if String.equal name "solver-type"
@@ -950,8 +943,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       in
       SModel{ support; model }
 
-    let free (SModel{model; _}) = Model.free model
-
     let from_map ?support m =
       let support = Option.get_lazy (fun () -> List.map fst m) support in
       Model.from_map m |> make ~support
@@ -1222,7 +1213,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
         | action -> action::sofar, context_count
       in
       List.(!global_log |> rev |> fold_left aux ([],0) |> fst) 
-    let is_alive ctx = !(ctx.is_alive)
     let is_mcsat ctx = ctx.mcsat
     let id ctx       = ctx.id
 
@@ -1263,7 +1253,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
           assertions = ref Assertions.init;
           options    = HStrings.create 10;
           id         = !next_id;
-          is_alive   = ref true;
           config_options;
           last_check_model = Global.hTerms_create 50;
           blocked    = ref false;
@@ -1279,29 +1268,17 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       Config.set cfg ~name:"solver-type" ~value:"mcsat";
       if interpol then Config.set cfg ~name:"model-interpolation" ~value:"true";
       let ctx = malloc ~config:cfg () in
-      Config.free cfg;
       ctx
 
     let malloc_logic logic =
       let cfg = Config.malloc () in
       Config.default ~logic cfg;
       let ctx = malloc ~config:cfg () in
-      Config.free cfg;
       ctx
-
-    let free {context; is_alive; id; _ } =
-      if not !is_alive
-      then EH.raise_bindings_error "Trying to free dead context #%i" id;
-      Context.free context;
-      is_alive := false
 
     let default_param {context; _} param = Context.default_param context param
 
     let action a x =
-      if not !(x.is_alive)
-      then EH.raise_bindings_error "Trying to take action %a on dead context #%i"
-             pp_sexp (Action.to_sexp_context a)
-             x.id;
       global_log := ContextAction{ context_id = x.id; context_action = a}::!global_log
 
     let status x =
@@ -1487,11 +1464,6 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
       Context.stop x.context
 
     let check_with_interpolation ?(build_model=true) ?param ctx_A ctx_B =
-      let raise =
-        EH.raise_bindings_error "Trying to involve dead context %i in check with interpolation"
-      in
-      if not !(ctx_A.is_alive) then raise ctx_A.id;
-      if not !(ctx_B.is_alive) then raise ctx_B.id;
       unblock ctx_A;
       unblock ctx_B;
       let action =

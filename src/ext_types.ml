@@ -77,8 +77,7 @@ module Types = struct
       config : config_ptr;
       options: config_options;
       logic  : string option ref;
-      mcsat  : bool ref;
-      is_alive : bool ref
+      mcsat  : bool ref
     }
 
   (** Boolean structure for composite conditions. *)
@@ -208,13 +207,6 @@ module type Config = sig
 
   (**
    {v
-      free cfg
-      v}
-      Release a configuration. *)
-  val free : t -> unit
-
-  (**
-   {v
       set cfg ~name ~value
       v}
       Set a configuration option. *)
@@ -297,13 +289,6 @@ module type Context = sig
 
   (**
    {v
-      is_alive ctx
-      v}
-      Whether the raw context has not been freed. *)
-  val is_alive       : t -> bool
-
-  (**
-   {v
       is_mcsat ctx
       v}
       Whether the context uses MCSAT. *)
@@ -366,9 +351,6 @@ module type Context = sig
       v}
       Allocate a context for a specific logic. *)
   val malloc_logic : string -> t
-
-  (** Free does not free the config field (which could be shared with other contexts) *)
-  val free : t -> unit
 
   (** Set default search parameters for the given context. *)
   val default_param : t -> param -> unit
@@ -698,13 +680,6 @@ module type SModel = sig
       v}
       Build a supported model. *)
   val make : ?support:term list -> model -> t
-
-  (**
-   {v
-      free smodel
-      v}
-      Release a supported model. *)
-  val free : t -> unit
 
   val pp :
     ?pp_start:unit Format.printer ->

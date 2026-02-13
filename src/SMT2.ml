@@ -189,7 +189,6 @@ module Make(Ext : Ext_types.API) = struct
       }
 
     let exit session =
-      Param.free session.param;
       Global.exit()
 
   end
@@ -547,13 +546,11 @@ module Make(Ext : Ext_types.API) = struct
       | "assert", [formula] ->
          let formula = ParseTerm.parse session formula |> get in
          Context.assert_formula context formula;
-         Option.iter SModel.free !(session.model);
          session.model := None;
 
       | "assert", formulas ->
          let formulas = Cont.map (ParseTerm.parse session) formulas |> get in
          Context.assert_formulas context formulas;
-         Option.iter SModel.free !(session.model);
          session.model := None;
 
       | "check-sat", []           ->
@@ -635,8 +632,7 @@ module Make(Ext : Ext_types.API) = struct
               session.options;
             set_logic ~logic config;
             let ctx = Context.malloc ~config () in
-            Context.default_param ctx session.param;
-            Config.free config
+            Context.default_param ctx session.param
 
          | "new-context",  []            ->
             let config = Config.malloc () in
@@ -644,8 +640,7 @@ module Make(Ext : Ext_types.API) = struct
               session.options;
             set_logic config;
             let ctx = Context.malloc ~config () in
-            Context.default_param ctx session.param;
-            Config.free config
+            Context.default_param ctx session.param
 
          | "set-option", [Atom name; Atom value] ->
             StringHashtbl.replace session.options name value

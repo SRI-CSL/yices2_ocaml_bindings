@@ -9,7 +9,6 @@ module type Context = sig
   type config
        
   val malloc : ?config:config -> unit -> t
-  val free : t -> unit
   val status : t -> Types.smt_status
   val reset  : t -> unit
   val push   : t -> unit
@@ -34,7 +33,6 @@ module type Context = sig
   module Param : sig
     type t = EH1.Param.t
     val malloc : unit -> t
-    val free : t -> unit
     val set : t -> name:string -> value:string -> unit
   end
 end
@@ -127,7 +125,6 @@ let test_context (type a) (type c)
       assert Q.(equal sq2.a (of_ints (-23) 16));
       assert Q.(equal sq2.b (of_ints (-45) 32));
       assert CCList.(equal Z.equal sq2.coeffs (List.map Z.of_int [-2;0;1]));
-      EH1.Model.free model;
       Context.reset ctx;
     end;
 
@@ -151,7 +148,6 @@ let test_context (type a) (type c)
       let error_string = ErrorPrint.string () in
       assert(String.equal error_string "value not valid for parameter")
   end;
-  Param.free param;
 
   (* Testing blocking clause *)
   if not mcsat
@@ -164,7 +160,7 @@ let test_context (type a) (type c)
       assert(Types.equal_smt_status smt_stat `STATUS_UNSAT);
     end;
 
-  Context.free ctx
+  ()
 
 (* Testing interpolation *)
   
@@ -185,8 +181,6 @@ let test_interpolation (type a) (type c)
   let r =
     Context.check_with_interpolation ~build_model:true ~param ctxA ctxB
   in
-  Context.free ctxA;
-  Context.free ctxB;
   r
 
 let test_interpolation (type a) (type c)
@@ -241,7 +235,6 @@ let test_interpolation (type a) (type c)
 module type Config = sig
   type t   
   val malloc : unit -> t
-  val free : t -> unit
   val set : t -> name:string -> value:string -> unit
   val default : ?logic:string -> t -> unit
 end
@@ -272,7 +265,6 @@ let cfg_makeNtest (type a) (module Config : Config with type t = a) test_cfg =
       assert(String.equal error_string "value not valid for parameter")
   end;
   Config.default cfg ~logic:"QF_UFNIRA";
-  Config.free cfg;
   print_endline "Done with Config tests";
   
   (* Now preparing the call to test_cfg *)
@@ -287,7 +279,6 @@ let cfg_makeNtest (type a) (module Config : Config with type t = a) test_cfg =
   Config.set cfg ~name:"mode" ~value:"push-pop";
   test_cfg true cfg;
 
-  Config.free cfg;
   EH1.Global.exit();
   print_endline "Done with Regular and MCSAT Context tests"
 
@@ -341,7 +332,6 @@ let test_ext_context mcsat cfg =
   Context.goto ctx 0;
   let smt_stat = Context.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
-  Context.free ctx;
 
   let scalar = Type.new_uninterpreted ~name:"scalar_type" ~card:3 () in
   assert(Type.Names.has_name scalar);

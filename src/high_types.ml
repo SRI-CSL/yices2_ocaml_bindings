@@ -3023,9 +3023,6 @@ module type Config = sig
         - the descriptor is set to the default configuration  *)
   val malloc : unit -> t eh
 
-  (** Deletion  *)
-  val free   : t -> unit
-
     (** Set a configuration parameter:
    
    {v
@@ -3194,9 +3191,6 @@ module type Model = sig
   type t
 
   (** {2 MODELS} *)
-
-  (** Delete model mdl  *)
-  val free : t -> unit
 
   (** Build a model from a term-to-term mapping:
    
@@ -4083,9 +4077,6 @@ module type Param = sig
   (** Return a parameter record initialized with default settings.  *)
   val malloc : unit -> t eh
 
-  (** Delete the record param  *)
-  val free : t -> unit
-
   (** Set a parameter in record p
    
    {v
@@ -4186,9 +4177,6 @@ module type Context = sig
       If there's an error (i.e., the configuration is not supported), the
       function returns NULL and set an error code: CTX_INVALID_CONFIG.  *)
   val malloc : ?config:config -> unit -> t eh
-
-  (** Deletion  *)
-  val free : t -> unit
 
   (** Set default search parameters for the given context. *)
   val default_param : t -> param -> unit

@@ -181,7 +181,6 @@ module ExtAlways = struct
   type t = state
 
   let malloc ?config () = config, malloc_state ()
-  let free _ = ()
   let reset st = reset_state st
   let push _ = ()
   let pop _ = ()

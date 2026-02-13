@@ -66,7 +66,6 @@ module Context : StandardYicesContext with type t = BaseContext.t = struct
   let config         = BaseContext.config
   let config_options = BaseContext.config_options
   let log ctx        = BaseContext.log ctx |> List.map map_action
-  let is_alive       = BaseContext.is_alive
   let is_mcsat       = BaseContext.is_mcsat
   let id             = BaseContext.id
   let of_id          = BaseContext.of_id
@@ -78,7 +77,6 @@ module Context : StandardYicesContext with type t = BaseContext.t = struct
   let malloc         = BaseContext.malloc
   let malloc_mcsat   = BaseContext.malloc_mcsat
   let malloc_logic   = BaseContext.malloc_logic
-  let free           = BaseContext.free
   let default_param  = BaseContext.default_param
   let status         = BaseContext.status
   let reset          = BaseContext.reset
@@ -256,7 +254,6 @@ Context with type term   = C.term
       model       : C.model option ref;
       assertions  : assertions ref;
       log         : action list ref;
-      is_alive    : bool ref;
       id          : int;
     }
 
@@ -284,7 +281,6 @@ Context with type term   = C.term
   (* The log is kept newest-first, like Ext.Context.log.
      to_sexp folds over it to restore chronological order. *)
   let log t = !(t.log)
-  let is_alive t = !(t.is_alive)
   let is_mcsat t = Context.is_mcsat t.old_context
   let id t = t.id
   let of_id id = HContext.find_opt all_contexts id
@@ -311,7 +307,6 @@ Context with type term   = C.term
         model  = ref None;
         assertions = ref Assertions.init;
         log = ref [NewContext { logic = None }];
-        is_alive = ref true;
         id;
       }
     in
@@ -330,7 +325,6 @@ Context with type term   = C.term
         model  = ref None;
         assertions = ref Assertions.init;
         log = ref [NewContext { logic = None }];
-        is_alive = ref true;
         id;
       }
     in
@@ -349,20 +343,11 @@ Context with type term   = C.term
         model  = ref None;
         assertions = ref Assertions.init;
         log = ref [NewContext { logic = Some logic }];
-        is_alive = ref true;
         id;
       }
     in
     add_context t;
     t
-
-  let free t =
-    if !(t.is_alive) then (
-      t.is_alive := false;
-      remove_context t;
-      Context.free t.old_context;
-      C.free t.state
-    )
 
   let status t = !(t.status)
 
@@ -501,12 +486,6 @@ Context with type term   = C.term
     Context.get_model_interpolant t.old_context |> C.interpolant t.state
 
   let check_with_interpolation ?(build_model=true) ?param t1 t2 =
-    let raise_dead id =
-      Yices2.High.ExceptionsErrorHandling.raise_bindings_error
-        "Trying to involve dead context %i in check with interpolation" id
-    in
-    if not !(t1.is_alive) then raise_dead t1.id;
-    if not !(t2.is_alive) then raise_dead t2.id;
     let action =
       CheckWithInterpolation{ param; build_model; context1 = t1.id; context2 = t2.id }
     in
@@ -536,7 +515,6 @@ module Trivial = struct
   type t = unit
 
   let malloc ?config () = config, ()
-  let free _ = ()
   let reset _ = ()
   let push _ = ()
   let pop _ = ()

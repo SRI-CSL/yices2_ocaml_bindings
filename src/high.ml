@@ -1320,8 +1320,10 @@ module SafeMake
 
   module Config = struct
     type t = ctx_config_t ptr
-    let malloc = yices_new_config <.> return_ptr
-    let free   = yices_free_config
+    let malloc () =
+      let* ptr = yices_new_config () in
+      Gc.finalise yices_free_config ptr;
+      return ptr
     let set     c ~name ~value = yices_set_config c ?>name ?>value |> toUnit
     let default ?(logic="NONE") c = yices_default_config_for_logic c ?>logic |> toUnit
   end
@@ -1329,14 +1331,19 @@ module SafeMake
   module Model = struct
     type t = model_t ptr
 
-    let free     = yices_free_model
-    let from_map = yices_model_from_map |> ofList2 term_t term_t <.> return_ptr
+    let from_map l =
+      let+ ptr = (yices_model_from_map |> ofList2 term_t term_t <.> return_ptr) l in
+      Gc.finalise yices_free_model ptr;
+      return ptr
     let collect_defined_terms m =
       Alloc.(load (yices_model_collect_defined_terms m)
              |> allocV TermVector.make
              |> nocheck (fun () ((),x) -> TermVector.to_list x))
 
-    let empty = yices_new_model <.> return_ptr
+    let empty () =
+      let* ptr = yices_new_model () in
+      Gc.finalise yices_free_model ptr;
+      return ptr
 
     let set_bool model x = Conv.bool.write <.> yices_model_set_bool model x <.> toUnit
     let set_int32        = yices_model_set_int32 <...> toUnit
@@ -1573,8 +1580,10 @@ module SafeMake
 
   module Context = struct
     type t = context_t ptr
-    let malloc ?(config=null ctx_config_t) () = config |> yices_new_context |> return_ptr
-    let free   = yices_free_context
+    let malloc ?(config=null ctx_config_t) () =
+      let* ptr = yices_new_context config in
+      Gc.finalise yices_free_context ptr;
+      return ptr
     let default_param = yices_default_params_for_context
     let status = yices_context_status <.> Conv.smt_status.read
     let reset  = yices_reset_context
@@ -1622,6 +1631,7 @@ module SafeMake
              let model =
                getf !@interpolation_context (interpolation_context_s#members#model)
              in
+             Gc.finalise yices_free_model model;
              `STATUS_SAT(Some model)
            else
              `STATUS_SAT None
@@ -1640,15 +1650,19 @@ module SafeMake
 
     let stop                     = yices_stop_search
     let get_model ?(keep_subst=true) m =
-      yices_get_model m (Conv.bool.write keep_subst) |> return_ptr
+      let* ptr = yices_get_model m (Conv.bool.write keep_subst) in
+      Gc.finalise yices_free_model ptr;
+      return ptr
     let get_unsat_core context   = yices_get_unsat_core context |> TermVector.toList
     let get_model_interpolant    = yices_get_model_interpolant <.> return_sint
   end
 
   module Param = struct
     type t = param_t ptr
-    let malloc  = yices_new_param_record <.> return_ptr
-    let free    = yices_free_param_record
+    let malloc () =
+      let* ptr = yices_new_param_record () in
+      Gc.finalise yices_free_param_record ptr;
+      return ptr
     let set p ~name ~value = yices_set_param p ?>name ?>value |> toUnit
   end
 

@@ -55,7 +55,6 @@ module AddArrays = struct
     { writes = Global.hTerms_create 100;
       reads  = Global.hTypes_create 100 }
 
-  let free _ = ()
   let reset t =
     HTerms.reset t.writes;
     HTypes.reset t.reads

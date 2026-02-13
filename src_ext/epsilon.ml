@@ -31,7 +31,6 @@ module Arg = struct
   type t = unit
 
   let malloc ?config () = config, ()
-  let free _ = ()
   let reset _ = ()
   let push _ = ()
   let pop _ = ()

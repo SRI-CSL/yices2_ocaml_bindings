@@ -35,7 +35,6 @@ Context with type term   = C.term
 module Trivial : sig
   type t = unit
   val malloc : ?config:'a -> t -> 'a option * t
-  val free : 'a -> t
   val reset : 'a -> t
   val push : 'a -> t
   val pop : 'a -> t

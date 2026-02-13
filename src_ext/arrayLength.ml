@@ -169,7 +169,6 @@ module AddLength = struct
   type t = unit HTerms.t
 
   let malloc ?config () = config, Global.hTerms_create 10
-  let free _ = ()
   let reset = HTerms.reset
   let push _ = ()
   let pop _ = ()
