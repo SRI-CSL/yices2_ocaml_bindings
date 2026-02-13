@@ -931,80 +931,206 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
 
   end
 
+  module ModelValue = struct
+
+    type t = model_value
+
+    let rec valstruct_as_term : t valstruct -> term_t option = function
+      | #atomic_const as c -> (try Some (Term.const_as_term c) with _ -> None)
+      | `Algebraic _ -> None
+      | `Tuple (n, children) ->
+        let terms = List.filter_map (fun mv -> Lazy.force mv.mv_term) children in
+        if List.length terms = n then
+          (try Some (Term.tuple terms) with _ -> None)
+        else None
+      | `Fun _ -> None
+
+    let build vs =
+      { mv_term  = lazy (valstruct_as_term vs);
+        mv_ptr   = None;
+        mv_ocaml = lazy vs }
+
+    let val_as_term mv = Lazy.force mv.mv_term
+    let reveal mv = Lazy.force mv.mv_ocaml
+    let force mv = ignore (val_as_term mv); ignore (reveal mv)
+  end
+
   (* Supported models *)
   module SModel = struct
 
     type t = smodel
 
-    let make ?support model =
+    let find_extra extra t =
+      let rec aux = function
+        | [] -> None
+        | (t', v) :: _ when Term.equal t t' -> Some v
+        | _ :: rest -> aux rest
+      in
+      aux extra
+
+    let rec model_value_of_yval model yval_ptr =
+      let vs = lazy (
+        let yval = Model.reveal model yval_ptr in
+        match yval with
+        | `Bool b -> `Bool b
+        | `Rational q -> `Rational q
+        | `BV (n, bv) -> `BV (n, bv)
+        | `Scalar (s, i) -> `Scalar (s, i)
+        | `Algebraic a -> `Algebraic a
+        | `Tuple (n, components) ->
+          let children = List.map (model_value_of_yval model) components in
+          `Tuple (n, children)
+        | `Fun { mappings; default; typ; arity } ->
+          let map_one { args; value } =
+            { args = List.map (model_value_of_yval model) args;
+              value = model_value_of_yval model value }
+          in
+          `Fun { mappings = List.map map_one mappings;
+                 default = model_value_of_yval model default;
+                 typ; arity }
+      ) in
+      { mv_term  = lazy (try Some (Model.val_as_term model yval_ptr)
+                         with _ -> None);
+        mv_ptr   = Some (model, yval_ptr);
+        mv_ocaml = vs }
+
+    let rec pp_model_value fmt mv =
+      match ModelValue.val_as_term mv with
+      | Some t -> TermSexp.pp fmt t
+      | None -> pp_reveal fmt (ModelValue.reveal mv)
+    and pp_reveal fmt : model_value valstruct -> unit = function
+      | `Bool b -> Format.fprintf fmt "%B" b
+      | `Rational q -> Format.fprintf fmt "%s" (Q.to_string q)
+      | `BV (_, bits) ->
+        Format.fprintf fmt "#b%s"
+          (String.concat "" (List.map (fun b -> if b then "1" else "0") bits))
+      | `Scalar (_, i) -> Format.fprintf fmt "scalar!val!%d" i
+      | `Algebraic a -> Format.fprintf fmt "%s" (Algebraic.to_string a.libpoly)
+      | `Tuple (_, l) ->
+        Format.fprintf fmt "(@[%a@])" (List.pp pp_model_value) l
+      | `Fun { mappings; default; _ } ->
+        Format.fprintf fmt "@[<v>";
+        List.iter (fun { args; value } ->
+          Format.fprintf fmt "@[(%a) -> %a@]@ "
+            (List.pp pp_model_value) args pp_model_value value
+        ) mappings;
+        Format.fprintf fmt "@[else -> %a@]@]" pp_model_value default
+
+    let make ?support ?(extra=[]) model =
       let support = match support with
         | None -> Model.collect_defined_terms model |> List.sort Term.compare
         | Some support -> support
       in
-      SModel{ support; model }
+      SModel{ support; model; extra }
 
     let from_map ?support m =
       let support = Option.get_lazy (fun () -> List.map fst m) support in
       Model.from_map m |> make ~support
 
-    let as_map (SModel{model; support}) =
-      let aux t = (t, Model.get_value_as_term model t) in
-      List.(rev_map aux support |> rev)
+    let as_map (SModel{model; support; extra; _}) =
+      let aux t =
+        match find_extra extra t with
+        | Some mv ->
+          (match ModelValue.val_as_term mv with
+           | Some v -> Some (t, v)
+           | None -> None)
+        | None -> Some (t, Model.get_value_as_term model t)
+      in
+      List.filter_map aux support
 
-    let copy mcsat (SModel{model; support} as smodel) =
+    let copy mcsat (SModel{model; support; extra; _} as smodel) =
       if mcsat
       then
-        let model = Model.empty() in
+        let is_extra t = Option.is_some (find_extra extra t) in
+        let model' = Model.empty() in
         let add var =
-          Model.get_value model var
-          |> Value.reveal model
-          |> Model.set model var
+          if not (is_extra var) then begin
+            Model.get_value model var
+            |> Value.reveal model
+            |> Model.set model' var
+          end
         in
         List.iter add support;
-        make ~support model
+        make ~support ~extra model'
       else
         smodel |> as_map |> from_map
     
     let empty() = make ~support:[] (Model.empty())
     
-    let to_sexp ~smt2arrays (SModel{model; support}) =
+    let rec model_value_to_sexp ~smt2arrays mv =
+      match ModelValue.reveal mv with
+      | `Algebraic a -> Sexp.Atom (Algebraic.to_string a.libpoly)
+      | `Tuple (_, l) ->
+        Sexp.List (Sexp.Atom "tuple" :: List.map (model_value_to_sexp ~smt2arrays) l)
+      | `Fun { mappings; default; _ } ->
+        let sexp_mapping { args; value } =
+          Sexp.List [Sexp.List (List.map (model_value_to_sexp ~smt2arrays) args);
+                     model_value_to_sexp ~smt2arrays value]
+        in
+        Sexp.List (Sexp.Atom "function"
+                   :: List.map sexp_mapping mappings
+                   @ [Sexp.List [Sexp.Atom "default";
+                                 model_value_to_sexp ~smt2arrays default]])
+      | `Bool _ | `Rational _ | `BV _ | `Scalar _ ->
+        (match ModelValue.val_as_term mv with
+         | Some t -> TermSexp.to_sexp ~smt2arrays t
+         | None -> Sexp.Atom "?")
+
+    let to_sexp ~smt2arrays (SModel{model; support; extra; _}) =
       let aux t =
         let ty = TypeSexp.to_sexp ~smt2arrays (Term.type_of_term t) in
         let vars, body =
-          let yval = Model.get_value model t in
-          match Model.reveal model yval with
-          | `Algebraic v ->
-             Sexp.List [], Sexp.Atom (Algebraic.to_string v.libpoly)
-          | _ ->
-             let v = Model.val_as_term model yval in
-             if Term.is_good v
-             then
-               match Term.reveal v with
-               | Term(Bindings { vars; body; _ }) ->
-                  let aux v = List[TermSexp.to_sexp ~smt2arrays v;
-                                   TypeSexp.to_sexp ~smt2arrays (Term.type_of_term v)] in  
-                  Sexp.List(List.map aux vars), TermSexp.to_sexp ~smt2arrays body
-               | _ -> Sexp.List [], TermSexp.to_sexp ~smt2arrays v
-             else
-               Sexp.List [], Sexp.Atom "Can't print"
+          match find_extra extra t with
+          | Some mv ->
+            Sexp.List [], model_value_to_sexp ~smt2arrays mv
+          | None ->
+            let yval = Model.get_value model t in
+            match Model.reveal model yval with
+            | `Algebraic v ->
+               Sexp.List [], Sexp.Atom (Algebraic.to_string v.libpoly)
+            | _ ->
+               let v = Model.val_as_term model yval in
+               if Term.is_good v
+               then
+                 match Term.reveal v with
+                 | Term(Bindings { vars; body; _ }) ->
+                    let aux v = List[TermSexp.to_sexp ~smt2arrays v;
+                                     TypeSexp.to_sexp ~smt2arrays (Term.type_of_term v)] in  
+                    Sexp.List(List.map aux vars), TermSexp.to_sexp ~smt2arrays body
+                 | _ -> Sexp.List [], TermSexp.to_sexp ~smt2arrays v
+               else
+                 Sexp.List [], Sexp.Atom "Can't print"
         in
         sexp "define-fun" [TermSexp.to_sexp ~smt2arrays t; vars; ty; body]
       in
       Sexp.List(support |> List.rev |> List.rev_map aux)
 
 
-    let pp ?pp_start ?pp_stop ?pp_sep () fmt (SModel{support;model}) =
+    let pp ?pp_start ?pp_stop ?pp_sep () fmt (SModel{support;model;extra;_}) =
       let aux fmt u =
-        let v = Model.get_value model u in
-        Format.fprintf fmt "@[<2>%a :=@ @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
+        match find_extra extra u with
+        | Some mv ->
+          Format.fprintf fmt "@[<2>%a :=@ @[%a@]@]" TermSexp.pp u pp_model_value mv
+        | None ->
+          let v = Model.get_value model u in
+          Format.fprintf fmt "@[<2>%a :=@ @[%a@]@]" TermSexp.pp u (Value.pp_val model) v
       in
       match support with
       | [] -> Format.fprintf fmt "[]"
       | support -> Format.fprintf fmt "%a" (List.pp ?pp_start ?pp_stop ?pp_sep aux) support
 
 
-    let as_assumptions ?(as_inequalities=false) (SModel{support;model}) =
+    let as_assumptions ?(as_inequalities=false) (SModel{support;model;extra;_}) =
       let aux sofar t =
+        match find_extra extra t with
+        | Some mv ->
+          (match ModelValue.val_as_term mv with
+           | Some value ->
+             if Term.is_arithmetic t && as_inequalities
+             then Term.Arith.leq t value::Term.Arith.geq t value::sofar
+             else Term.eq t value::sofar
+           | None -> sofar)
+        | None ->
           if Term.is_bool t
           then 
             if Model.get_bool_value model t 
@@ -1030,10 +1156,11 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          in
          if mcsat
          then
-           let SModel{ model; support } = Option.map_lazy empty (copy mcsat) smodel in
+           let SModel{ model; support; extra } =
+             Option.map_lazy empty (copy mcsat) smodel in
            let f pures atom = Model.set_bool model atom true; atom::pures in
            let pures, constraints = List.fold_left (treat f) ([],[]) assumptions in
-           make ~support:(pures @ support) model, pures, constraints
+           make ~support:(pures @ support) ~extra model, pures, constraints
          else
            let map = Option.map_or ~default:[] as_map smodel in
            let f map atom = (atom, Term.true0())::map in
@@ -1386,7 +1513,7 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
          let aux t = HTerms.add x.last_check_model t () in
          if x.mcsat
          then
-           let SModel{model; support} as smodel, pures, constraints =
+           let SModel{model; support; _} as smodel, pures, constraints =
              SModel.from_assumptions ~mcsat:true ?smodel assumptions
            in
            begin

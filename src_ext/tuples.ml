@@ -140,6 +140,135 @@ let blast_formula st f =
 
 let blast_flat st t = tuple_blast st t |> TopTuple.flatten
 
+(* Reveal a single leaf term's value from the model into a model_value. *)
+let reveal_leaf model t =
+  let yval_ptr = Model.get_value model t in
+  SModel.model_value_of_yval model yval_ptr
+
+(* Helper: build a tuple model_value from a list of children. *)
+let mk_tuple children =
+  let n = List.length children in
+  ModelValue.build (`Tuple (n, children))
+
+(* Helper: compare model_value arg vectors by their term representations. *)
+let mv_args_equal args1 args2 =
+  try List.for_all2 (fun a b ->
+    match ModelValue.val_as_term a, ModelValue.val_as_term b with
+    | Some t1, Some t2 -> Term.equal t1 t2
+    | _ -> false
+  ) args1 args2
+  with Invalid_argument _ -> false
+
+(* Helper: look up an arg vector in a mapping list. *)
+let find_in_mappings mappings args =
+  List.find_opt (fun { args = a; _ } -> mv_args_equal a args) mappings
+
+(* Helper: given a codomain TopTuple.t structure and a flat list of leaf values,
+   assemble a nested tuple model_value following the structure.
+   Returns the assembled value and the remaining unused values. *)
+let rec assemble_codom structure values =
+  match structure with
+  | TopTuple.Single _ ->
+    (match values with
+     | v :: rest -> v, rest
+     | [] -> failwith "assemble_codom: not enough values")
+  | TopTuple.Multiple l ->
+    let children, rest = List.fold_left (fun (acc, vs) s ->
+      let child, vs' = assemble_codom s vs in
+      (child :: acc, vs')
+    ) ([], values) l in
+    mk_tuple (List.rev children), rest
+
+(* Collect all unique arg vectors from leaf functions' mapping tables. *)
+let collect_unique_args leaf_fvs =
+  let all_args = List.concat_map
+    (fun fv -> List.map (fun m -> m.args) fv.mappings) leaf_fvs in
+  let rec dedup acc = function
+    | [] -> List.rev acc
+    | args :: rest ->
+      if List.exists (mv_args_equal args) acc then dedup acc rest
+      else dedup (args :: acc) rest
+  in
+  dedup [] all_args
+
+(* Merge leaf function fun_vals into a single fun_val whose codomain is a tuple.
+   codom_structure is the type_blast of the original codomain (a TopTuple.t of types).
+   leaf_fvs are the revealed fun_vals of the component functions. *)
+let merge_fun_vals codom_structure leaf_fvs orig_type =
+  let unique_args = collect_unique_args leaf_fvs in
+  let merged_mappings = List.map (fun args ->
+    let values = List.map (fun fv ->
+      match find_in_mappings fv.mappings args with
+      | Some m -> m.value
+      | None -> fv.default
+    ) leaf_fvs in
+    let value, _ = assemble_codom codom_structure values in
+    { args; value }
+  ) unique_args in
+  let default_values = List.map (fun fv -> fv.default) leaf_fvs in
+  let default, _ = assemble_codom codom_structure default_values in
+  let arity = match leaf_fvs with fv :: _ -> fv.arity | [] -> 0 in
+  { mappings = merged_mappings; default; typ = orig_type; arity }
+
+(* Evaluate blasted leaves in the base model, reassemble as a model_value.
+   orig_type is the type of the original (pre-blast) term.
+   For Single: fully reveal the C value into a self-contained model_value.
+   For Multiple with Tuple type: recursively build children.
+   For Multiple with Fun type: reveal leaf functions and merge mapping tables. *)
+let rec build_model_value model orig_type = function
+  | TopTuple.Single t -> reveal_leaf model t
+  | TopTuple.Multiple l ->
+    let open Types in
+    match Type.reveal orig_type with
+    | Tuple component_types ->
+      let children = List.map2 (build_model_value model) component_types l in
+      mk_tuple children
+    | Fun { codom; _ } ->
+      (* Codomain was split into components; each leaf in l is a function. *)
+      let codom_structure = type_blast codom in
+      (* Flatten the nested Multiple to get all leaf functions *)
+      let leaf_terms = TopTuple.flatten (TopTuple.Multiple l) in
+      let leaf_mvs = List.map (reveal_leaf model) leaf_terms in
+      (* Extract fun_vals from the revealed leaf functions *)
+      let leaf_fvs = List.map (fun mv ->
+        match ModelValue.reveal mv with
+        | `Fun fv -> fv
+        | _ -> failwith "build_model_value: expected function leaf"
+      ) leaf_mvs in
+      (* Merge into a single fun_val with tuple codomain *)
+      let merged_fv = merge_fun_vals codom_structure leaf_fvs orig_type in
+      ModelValue.build (`Fun merged_fv)
+    | _ -> failwith "build_model_value: unexpected Multiple for non-tuple/function type"
+
+(* Build extra bindings for the reconstructed model.
+   For each original term in the support that was blasted, reconstruct its
+   model_value from the blasted leaves.  Terms not in htbl are left to the
+   base Yices model (no extra binding needed). *)
+let build_extra st model support =
+  List.filter_map (fun t ->
+    match HTerms.find_opt st.htbl t with
+    | Some blasted when not (match blasted with TopTuple.Single t' -> Term.equal t t' | _ -> false) ->
+      Some (t, build_model_value model (Term.type_of_term t) blasted)
+    | _ -> None
+  ) support
+
+(* Compute a default support list from the base model's defined terms,
+   reverse-mapping blasted leaves back to their original terms. *)
+let default_support st model =
+  let leaf_to_orig : Term.t HTerms.t = HTerms.create 100 in
+  HTerms.iter (fun orig blasted ->
+    List.iter (fun leaf ->
+      if not (Term.equal leaf orig) then
+        HTerms.replace leaf_to_orig leaf orig
+    ) (TopTuple.flatten blasted)
+  ) st.htbl;
+  let seen : unit HTerms.t = HTerms.create 100 in
+  Model.collect_defined_terms model
+  |> List.filter_map (fun t ->
+    let orig = HTerms.find_opt leaf_to_orig t |> Option.get_or ~default:t in
+    if HTerms.mem seen orig then None
+    else begin HTerms.replace seen orig (); Some orig end)
+
 let rec term_has_tuple t =
   let has_tuple_type t = not (type_check (Term.type_of_term t)) in
   if has_tuple_type t then true
@@ -196,7 +325,13 @@ module ExtAlways = struct
   let param_to_old _ p = p
   let smodel_to_old _ m = m
   let smodel_of_old _ m = m
-  let smodel_of_model _ ?support model = SModel.make ?support model
+  let smodel_of_model st ?support model =
+    let support = match support with
+      | Some s -> s
+      | None   -> default_support st model
+    in
+    let extra = build_extra st model support in
+    SModel.make ~support ~extra model
 
   let interpolant _ old_interpolant = old_interpolant
 

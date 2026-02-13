@@ -88,9 +88,23 @@ module Types = struct
     | Not of 'a bool_struct
                [@@deriving eq, show]
 
-  (** Supported model with optional support list. *)
+  (** Self-contained model value.
+      Construct with {!ModelValue.build}, inspect with {!ModelValue.val_as_term}
+      and {!ModelValue.reveal}.  Both [mv_term] and [mv_ocaml] are lazy.
+      Call {!ModelValue.force} to eagerly materialise both fields. *)
+  type model_value = {
+    mv_term  : term_t option Lazy.t;
+    mv_ptr   : (model_ptr * yval_t Ctypes.ptr) option;
+    mv_ocaml : model_value valstruct Lazy.t;
+  }
+
+  (** Supported model with optional support list.
+      [extra] holds OCaml-side bindings for terms whose values cannot live in
+      the Yices C model (e.g. tuple-typed or algebraic-containing values).
+      Consumers should check [extra] first, falling back to [model]. *)
   type smodel = SModel of { support : term_t list;
-                            model   : model_ptr }
+                            model   : model_ptr;
+                            extra   : (term_t * model_value) list }
 
   (** Assertions organized by context level. *)
   type 'term log_assertions = 'term Log.assertions =
@@ -666,20 +680,47 @@ module type Model = sig
   val pp : t Format.printer
 end
 
+(** Operations on {!Types.model_value}. *)
+module type ModelValue = sig
+
+  type t
+
+  (** Build a model value from its revealed structure.
+      The term representation is lazily computed from the structure. *)
+  val build : t valstruct -> t
+
+  (** Force the lazy term representation. *)
+  val val_as_term : t -> term_t option
+
+  (** Force the lazy revealed structure. *)
+  val reveal : t -> t valstruct
+
+  (** Eagerly force both [val_as_term] and [reveal], so that subsequent
+      accesses never touch the model. *)
+  val force : t -> unit
+end
+
 (* Supported models *)
 module type SModel = sig
 
   type term
   type model
+  type model_value
      
   type t
 
   (**
    {v
-      make ?support mdl
+      make ?support ?extra mdl
       v}
-      Build a supported model. *)
-  val make : ?support:term list -> model -> t
+      Build a supported model.
+      [extra] provides OCaml-side bindings for terms whose values cannot be
+      stored in the Yices C model (tuples, algebraic-containing values, etc.). *)
+  val make : ?support:term list -> ?extra:(term * model_value) list
+         -> model -> t
+
+  (** Recursively reveal a C-level yval into a self-contained [model_value]. *)
+  val model_value_of_yval : model -> yval_t Ctypes.ptr -> model_value
 
   val pp :
     ?pp_start:unit Format.printer ->
@@ -747,9 +788,12 @@ module type API = sig
 
   module Value : Value with type model := Model.t
 
+  module ModelValue : ModelValue
+
   (* Supported models *)
   module SModel : SModel with type term  := Term.t
                           and type model := Model.t
+                          and type model_value := ModelValue.t
                           and type t = smodel
 
   module Assertions : sig

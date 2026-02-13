@@ -233,22 +233,29 @@ module Types = struct
     | `BV       of int * bool list (* bitwidth and list of bits *)
     | `Scalar   of type_t * int (* Type and index of the value in the scalar type *) ]
 
-  type mapping = {
-      args  : yval_t ptr list;
-      value : yval_t ptr;
+  type 'a mapping = {
+      args  : 'a list;
+      value : 'a;
     }
 
-  type fun_val = { mappings : mapping list ;
-                   default  : yval_t ptr;
-                   typ      : type_t;
-                   arity    : int
-                 }
+  type 'a fun_val = { mappings : 'a mapping list ;
+                      default  : 'a;
+                      typ      : type_t;
+                      arity    : int
+                    }
 
-  type yval =
-    [ atomic_const
+  (** Structure of a model value, parametric in the type of sub-values.
+      Analogous to {!termstruct} for terms.  The C-level {!yval} is
+      [yval_t ptr valstruct]; the opaque model value uses
+      [ModelValue.t valstruct]. *)
+  type 'a valstruct = [
+    | atomic_const
     | `Algebraic of algebraic
-    | `Tuple of int * yval_t ptr list (* number of components and list of values *)
-    | `Fun of fun_val ]
+    | `Tuple of int * 'a list
+    | `Fun of 'a fun_val
+  ]
+
+  type yval = yval_t ptr valstruct
 
 end
 
@@ -3764,7 +3771,7 @@ module type Model = sig
    {v
    val_expand_mapping t v
    v} *)
-  val val_expand_mapping : t -> yval_t ptr -> Types.mapping eh
+  val val_expand_mapping : t -> yval_t ptr -> yval_t ptr Types.mapping eh
 
   (** Expand a node m, of any kind, calling the functions above. *)
   val reveal : t -> yval_t ptr -> Types.yval eh
