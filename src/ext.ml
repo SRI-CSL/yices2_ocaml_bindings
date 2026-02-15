@@ -45,7 +45,7 @@ let notation replace hooks t =
 
 type model_value = {
     mv_term  : term_t option Lazy.t;
-    mv_ptr   : (model_ptr * yval_t Ctypes.ptr) option;
+    mv_ptr   : yval_ref option;
     mv_ocaml : (model_value Lazy.t) valstruct Lazy.t;
   }
 
@@ -933,9 +933,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let val_as_term mv = Lazy.force mv.mv_term
     let reveal mv = Lazy.force mv.mv_ocaml
 
-    let rec of_yval model yval_ptr =
+    let rec of_yval model (yval_handle : yval_ref) =
       let vs = lazy (
-        let yval = Model.reveal model yval_ptr in
+        let yval = Model.reveal model yval_handle in
         match yval with
         | `Bool b -> `Bool b
         | `Rational q -> `Rational q
@@ -956,9 +956,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                  default = lazy (of_yval model default);
                  typ; arity }
       ) in
-      { mv_term  = lazy (try Some (Model.val_as_term model yval_ptr)
+      { mv_term  = lazy (try Some (Model.val_as_term model yval_handle)
                          with _ -> None);
-        mv_ptr   = Some (model, yval_ptr);
+        mv_ptr   = Some yval_handle;
         mv_ocaml = vs }
 
     let rec pp fmt (mv : t) =

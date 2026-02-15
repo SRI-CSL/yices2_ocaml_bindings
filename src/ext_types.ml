@@ -645,7 +645,7 @@ module type ModelValue = sig
 
   (** Construct a model value from a C model's yval pointer,
       lazily revealing the value tree. *)
-  val of_yval : model_ptr -> yval_t Ctypes.ptr -> t
+  val of_yval : model_ptr -> yval_ref -> t
 
   (** Force the lazy term representation. *)
   val val_as_term : t -> term_t option

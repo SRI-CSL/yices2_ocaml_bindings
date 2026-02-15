@@ -1330,6 +1330,9 @@ module SafeMake
 
   module Model = struct
     type t = model_t ptr
+    let yref m ptr = { yval_model = m; yval_ptr = ptr }
+    let yptr {yval_ptr; _} = yval_ptr
+    let on_yptr f m t = f m (yptr t)
 
     let from_map l =
       let+ ptr = (yices_model_from_map |> ofList2 term_t term_t <.> return_ptr) l in
@@ -1427,69 +1430,71 @@ module SafeMake
     let get_scalar_value = yices_get_scalar_value <..> alloc1 sint
     let get_value m t    = Alloc.(load (yices_get_value m t)
                                   |> alloc yval_t
-                                  |> check1 (fun x -> x))
+                                  |> check1 (fun x -> yref m x))
 
-    let val_is_int32       = yices_val_is_int32      <..> toBool
-    let val_is_int64       = yices_val_is_int64      <..> toBool
-    let val_is_rational32  = yices_val_is_rational32 <..> toBool
-    let val_is_rational64  = yices_val_is_rational64 <..> toBool
-    let val_is_integer     = yices_val_is_integer    <..> toBool
+    let val_is_int32       = on_yptr (yices_val_is_int32      <..> toBool)
+    let val_is_int64       = on_yptr (yices_val_is_int64      <..> toBool)
+    let val_is_rational32  = on_yptr (yices_val_is_rational32 <..> toBool)
+    let val_is_rational64  = on_yptr (yices_val_is_rational64 <..> toBool)
+    let val_is_integer     = on_yptr (yices_val_is_integer    <..> toBool)
 
-    let val_bitsize        = yices_val_bitsize        <..> toIntu
-    let val_tuple_arity    = yices_val_tuple_arity    <..> toIntu
-    let val_mapping_arity  = yices_val_mapping_arity  <..> toIntu
-    let val_function_arity = yices_val_function_arity <..> toIntu
-    let val_function_type  = yices_val_function_type  <..> return_sint
+    let val_bitsize        = on_yptr (yices_val_bitsize        <..> toIntu)
+    let val_tuple_arity    = on_yptr (yices_val_tuple_arity    <..> toIntu)
+    let val_mapping_arity  = on_yptr (yices_val_mapping_arity  <..> toIntu)
+    let val_function_arity = on_yptr (yices_val_function_arity <..> toIntu)
+    let val_function_type  = on_yptr (yices_val_function_type  <..> return_sint)
 
-    let val_get_bool       = yices_val_get_bool
+    let val_get_bool       = on_yptr (yices_val_get_bool
                              <..> alloc1 bool_t
-                             <++> (Conv.bool.read <.> return)
-    let val_get_int32      = yices_val_get_int32 <..> alloc1 sint
-    let val_get_int64      = yices_val_get_int64 <..> alloc1 long
-    let val_get_int        = val_get_int64 <++> (Long.to_int <.> return)
-    let val_get_rational32 = yices_val_get_rational32 <..> alloc2 sint uint
-    let val_get_rational64 = yices_val_get_rational64 <..> alloc2 long ulong
-    let val_get_double     = yices_val_get_double <..> alloc1 float
-    let val_get_mpz        = yices_val_get_mpz    <..> toZ1
-    let val_get_mpq        = yices_val_get_mpq    <..> toQ1
+                             <++> (Conv.bool.read <.> return))
+    let val_get_int32      = on_yptr (yices_val_get_int32 <..> alloc1 sint)
+    let val_get_int64      = on_yptr (yices_val_get_int64 <..> alloc1 long)
+    let val_get_int        = on_yptr (yices_val_get_int64 <..> alloc1 long <++> (Long.to_int <.> return))
+    let val_get_rational32 = on_yptr (yices_val_get_rational32 <..> alloc2 sint uint)
+    let val_get_rational64 = on_yptr (yices_val_get_rational64 <..> alloc2 long ulong)
+    let val_get_double     = on_yptr (yices_val_get_double <..> alloc1 float)
+    let val_get_mpz        = on_yptr (yices_val_get_mpz    <..> toZ1)
+    let val_get_mpq        = on_yptr (yices_val_get_mpq    <..> toQ1)
 
     let val_get_algebraic_number_value model x =
-      Alloc.(load (yices_val_get_algebraic_number model x)
+      Alloc.(load (yices_val_get_algebraic_number model (yptr x))
              |> alloc Algebraic.t
              |> check1 algebraic_treat)
 
     let val_get_bv m t =
       let+ n = val_bitsize m t in
-      t |> yices_val_get_bv m |> allocL ~n bool_t |+> (List.map Conv.bool.read <.> return)
+      (yptr t) |> yices_val_get_bv m |> allocL ~n bool_t |+> (List.map Conv.bool.read <.> return)
 
     let val_get_scalar m t =
-      let+ s, typ = yices_val_get_scalar m t |> alloc2 sint type_t in
+      let+ s, typ = yices_val_get_scalar m (yptr t) |> alloc2 sint type_t in
       return(SInt.to_int s, typ)
                   
     let val_expand_tuple m t =
       let+ arity = val_tuple_arity m t in
-      Alloc.(load (Array.start <.> yices_val_expand_tuple m t)
+      Alloc.(load (Array.start <.> yices_val_expand_tuple m (yptr t))
              |> allocN arity yval_t
-             |> check1 (Array.to_list <.> List.map addr))
+             |> check1 (Array.to_list <.> List.map (fun x -> yref m (addr x))))
       
     let val_expand_function m t =
-      let cont default modifs = default, modifs |> YValVector.to_list |> List.map addr in
-      Alloc.(load (yices_val_expand_function m t)
+      let cont default modifs =
+        yref m default, modifs |> YValVector.to_list |> List.map (fun x -> yref m (addr x))
+      in
+      Alloc.(load (yices_val_expand_function m (yptr t))
              |> alloc yval_t
              |> allocV YValVector.make
              |> check2 cont)
 
     let val_expand_mapping m t =
       let+ arity = val_mapping_arity m t in
-      Alloc.(load (Array.start <.> yices_val_expand_mapping m t)
+      Alloc.(load (Array.start <.> yices_val_expand_mapping m (yptr t))
              |> allocN arity yval_t
              |> alloc yval_t
-             |> check2 (fun x1 x2 -> { args  = x1 |> Array.to_list |> List.map addr;
-                                       value = x2 }))
+             |> check2 (fun x1 x2 -> { args  = x1 |> Array.to_list |> List.map (fun x -> yref m (addr x));
+                                       value = yref m x2 }))
     let val_get_tag t = getf !@t (yval_s#members#node_tag) |> Conv.yval_tag.read
 
     let reveal m t : yval EH.t =
-      match val_get_tag t with
+      match val_get_tag (yptr t) with
       | `YVAL_FINITEFIELD -> raise KN_UNIMPLEMENTED
         | `YVAL_BOOL -> let+ b  = val_get_bool m t in return(`Bool b)
         | `YVAL_RATIONAL -> let+ q = val_get_mpq m t in return(`Rational q)

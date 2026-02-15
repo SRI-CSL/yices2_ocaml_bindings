@@ -255,7 +255,16 @@ module Types = struct
     | `Fun of 'a fun_val
   ]
 
-  type yval = yval_t ptr valstruct
+  (** A yval handle that also keeps the model alive for the GC.
+      The [yval_model] field creates a GC edge from the handle to the
+      model pointer, preventing [Gc.finalise] from freeing the model
+      while any yval derived from it is still reachable. *)
+  type yval_ref = {
+    yval_model : model_t ptr;
+    yval_ptr   : yval_t ptr;
+  }
+
+  type yval = yval_ref valstruct
 
 end
 
@@ -2635,8 +2644,8 @@ module type Term = sig
   (** Converse function from atomic_const to terms *)
   val const_as_term : atomic_const -> t eh
 
-  (** Generalizing to all yval, given a conversion from yval_t ptr to terms *)
-  val yval_as_term : (yval_t ptr -> t eh) -> yval -> t eh
+  (** Generalizing to all yval, given a conversion from yval_ref to terms *)
+  val yval_as_term : (Types.yval_ref -> t eh) -> Types.yval -> t eh
 
                                         
   (** Components of a sum t
@@ -3603,7 +3612,7 @@ module type Model = sig
       code = EVAL_LAMBDA
       If the evaluation fails for other reasons:
       code = EVAL_FAILED  *)
-  val get_value : t -> term -> yval_t ptr eh
+  val get_value : t -> term -> Types.yval_ref eh
 
   (** Queries on the value of a rational node:
    
@@ -3627,11 +3636,11 @@ module type Model = sig
 
       yices_val_is_integer: check whether v's value is an integer  *)
 
-  val val_is_int32      : t -> yval_t ptr -> bool eh
-  val val_is_int64      : t -> yval_t ptr -> bool eh
-  val val_is_rational32 : t -> yval_t ptr -> bool eh
-  val val_is_rational64 : t -> yval_t ptr -> bool eh
-  val val_is_integer    : t -> yval_t ptr -> bool eh
+  val val_is_int32      : t -> Types.yval_ref -> bool eh
+  val val_is_int64      : t -> Types.yval_ref -> bool eh
+  val val_is_rational32 : t -> Types.yval_ref -> bool eh
+  val val_is_rational64 : t -> Types.yval_ref -> bool eh
+  val val_is_integer    : t -> Types.yval_ref -> bool eh
 
 
   (** Get the number of bits in a bv constant, the number of components in a tuple,
@@ -3643,9 +3652,9 @@ module type Model = sig
       or the arity of a mapping. These function return 0 if v has the wrong tag (i.e.,
       not a bitvector constant, or not a tuple, or not a mapping).  *)
 
-  val val_bitsize       : t -> yval_t ptr -> int eh
-  val val_tuple_arity   : t -> yval_t ptr -> int eh
-  val val_mapping_arity : t -> yval_t ptr -> int eh
+  val val_bitsize       : t -> Types.yval_ref -> int eh
+  val val_tuple_arity   : t -> Types.yval_ref -> int eh
+  val val_mapping_arity : t -> Types.yval_ref -> int eh
 
   (** Arity of a function node. This function returns 0 if v has tag
    
@@ -3655,7 +3664,7 @@ module type Model = sig
    
       other than YVAL_FUNCTION, otherwise it returns the function's
       arity (i.e., the number of parameters that the function takes).  *)
-  val val_function_arity : t -> yval_t ptr -> int eh
+  val val_function_arity : t -> Types.yval_ref -> int eh
 
   (** Type of a function node. This function returns -1 if v has tag
    
@@ -3666,7 +3675,7 @@ module type Model = sig
       other than YVAL_FUNCTION. Otherwise, it returns the type of the
       object v.
       Since 2.6.2.  *)
-  val val_function_type : t -> yval_t ptr -> typ eh
+  val val_function_type : t -> Types.yval_ref -> typ eh
 
   (** Get the value of a Boolean node v.
    
@@ -3678,7 +3687,7 @@ module type Model = sig
       val is either 0 (for false) or 1 (for true).
       - returns -1 if v does not have tag YVAL_BOOL and sets the error code
       to YVAL_INVALID_OP.  *)
-  val val_get_bool : t -> yval_t ptr -> bool eh
+  val val_get_bool : t -> Types.yval_ref -> bool eh
 
   (** Get the value of a rational node v
    
@@ -3693,20 +3702,20 @@ module type Model = sig
       The error code is set to YVAL_INVALID_OP if v's tag is not YVAL_RATIONAL.
       The error code is set to YVAL_OVERFLOW if v's value does not fit in
       ( *val ) or in ( *num )/( *den ).  *)
-  val val_get_int32      : t -> yval_t ptr -> sint eh
-  val val_get_int64      : t -> yval_t ptr -> long eh
-  val val_get_int        : t -> yval_t ptr -> int eh
-  val val_get_rational32 : t -> yval_t ptr -> (sint*uint) eh
-  val val_get_rational64 : t -> yval_t ptr -> (long*ulong) eh
+  val val_get_int32      : t -> Types.yval_ref -> sint eh
+  val val_get_int64      : t -> Types.yval_ref -> long eh
+  val val_get_int        : t -> Types.yval_ref -> int eh
+  val val_get_rational32 : t -> Types.yval_ref -> (sint*uint) eh
+  val val_get_rational64 : t -> Types.yval_ref -> (long*ulong) eh
 
   (** Value converted to a floating point number  *)
-  val val_get_double : t -> yval_t ptr -> float eh
+  val val_get_double : t -> Types.yval_ref -> float eh
 
                                           
   (** GMP values *)
 
-  val val_get_mpz : model_t ptr -> yval_t ptr -> Z.t eh
-  val val_get_mpq : model_t ptr -> yval_t ptr -> Q.t eh
+  val val_get_mpz : model_t ptr -> Types.yval_ref -> Z.t eh
+  val val_get_mpq : model_t ptr -> Types.yval_ref -> Q.t eh
                                                  
   (**  * Export an algebraic number
    
@@ -3726,7 +3735,7 @@ module type Model = sig
     code = YVAL_NOT_SUPPORTED
    v}
   *)
-  val val_get_algebraic_number_value : t -> yval_t ptr -> Types.algebraic eh
+  val val_get_algebraic_number_value : t -> Types.yval_ref -> Types.algebraic eh
 
   (** Get the value of a bitvector node:
    
@@ -3739,7 +3748,7 @@ module type Model = sig
       every vali is either 0 or 1.
       - the function returns 0 if v has tag YVAL_BV
       - it returns -1 if v has another tag and sets the error code to YVAL_INVALID_OP.  *)
-  val val_get_bv : t -> yval_t ptr -> bool list eh
+  val val_get_bv : t -> Types.yval_ref -> bool list eh
 
   (** Get the value of a scalar node:
    
@@ -3750,31 +3759,31 @@ module type Model = sig
       - the function returns 0 if v's tag is YVAL_SCALAR
       the index and type of the scalar/uninterpreted constant are stored in *val and *tau, respectively.
       - the function returns -1 if v's tag is not YVAL_SCALAR and sets the error code to YVAL_INVALID_OP.  *)
-  val val_get_scalar : t -> yval_t ptr -> (int*typ) eh
+  val val_get_scalar : t -> Types.yval_ref -> (int*typ) eh
 
   (** Expand a tuple node:
    
    {v
    val_expand_tuple t v
    v} *)
-  val val_expand_tuple : t -> yval_t ptr -> yval_t ptr list eh
+  val val_expand_tuple : t -> Types.yval_ref -> Types.yval_ref list eh
 
   (** Expand a function node f
    
    {v
    val_expand_function t v
    v} *)
-  val val_expand_function : t -> yval_t ptr -> ((yval_t ptr) * (yval_t ptr list)) eh
+  val val_expand_function : t -> Types.yval_ref -> (Types.yval_ref * Types.yval_ref list) eh
 
   (** Expand a mapping node m
    
    {v
    val_expand_mapping t v
    v} *)
-  val val_expand_mapping : t -> yval_t ptr -> yval_t ptr Types.mapping eh
+  val val_expand_mapping : t -> Types.yval_ref -> Types.yval_ref Types.mapping eh
 
   (** Expand a node m, of any kind, calling the functions above. *)
-  val reveal : t -> yval_t ptr -> Types.yval eh
+  val reveal : t -> Types.yval_ref -> Types.yval eh
 
   (** CHECK THE VALUE OF BOOLEAN FORMULAS  *)
 
@@ -3825,7 +3834,7 @@ module type Model = sig
 
   (** Model value (from C yval pointer) converted to constant term.
       calls reveal and then the above function *)
-  val val_as_term  : t -> yval_t ptr -> term eh
+  val val_as_term  : t -> Types.yval_ref -> term eh
 
   (** Value of term t in model converted to a constant term.
    
