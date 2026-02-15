@@ -251,7 +251,7 @@ Context with type term   = C.term
       config      : config option;
       state       : C.t;
       status      : Types.smt_status ref;
-      model       : C.model option ref;
+      model       : Context.smodel option ref;
       assertions  : assertions ref;
       log         : action list ref;
       id          : int;
@@ -272,7 +272,7 @@ Context with type term   = C.term
     t.log := ContextAction { context_id = 0; context_action } :: !(t.log)
 
   let add_context t = HContext.replace all_contexts t.id t
-  let remove_context t = HContext.remove all_contexts t.id
+  let _remove_context t = HContext.remove all_contexts t.id
 
   let assertions t = !(t.assertions)
   let options t = Context.options t.old_context
@@ -438,8 +438,8 @@ Context with type term   = C.term
     | `STATUS_SAT ->
        begin
          match Context.get_model t.old_context |> C.check t.state with
-         | Sat model ->
-            t.model  := Some model;
+         | Sat smodel ->
+            t.model  := Some smodel;
             t.status := `STATUS_SAT;
             `STATUS_SAT
          | Unsat interpolant ->
@@ -472,7 +472,8 @@ Context with type term   = C.term
     (* keep_subst is recorded for log parity, but the extension model is
        derived at check time from the old model. *)
     match !(t.model) with
-    | Some model -> C.smodel_of_model t.state ?support model
+    | Some base_smodel ->
+       C.enrich_smodel t.state ?support base_smodel
     | None ->
        Yices2.High.ExceptionsErrorHandling.raise_bindings_error
          "No model: last status was %a" Types.pp_smt_status !(t.status)

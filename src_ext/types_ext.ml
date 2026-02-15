@@ -41,7 +41,6 @@ module type Ext = sig
   type config
   type param
   type smodel
-  type model
 
   type t (* Your extension can have a mutable state;
             use unit otherwise (see module Trivial below) *)
@@ -63,7 +62,7 @@ module type Ext = sig
      if you are happy with it, please convert it to your own notion of model;
      if you are unhappy with it,
      please explain why by giving the solver you're extending a model interpolant. *)
-  val check : t -> old_smodel -> (model, old_term) answer
+  val check : t -> old_smodel -> (old_smodel, old_term) answer
 
   (* Convert old-level terms back to extension-level terms. *)
   val term_of_old : t -> old_term -> term
@@ -77,8 +76,9 @@ module type Ext = sig
   val smodel_to_old : t -> smodel -> old_smodel
   val smodel_of_old : t -> old_smodel -> smodel
 
-  (* Build a supported model from the extension's model representation. *)
-  val smodel_of_model : t -> ?support:term list -> model -> smodel
+  (* Enrich a base supported model for this extension layer.
+     If [?support] is given, it overrides the model's current support. *)
+  val enrich_smodel : t -> ?support:term list -> old_smodel -> smodel
 
   (* Whenever the solver you're extending returns UNSAT, with old_term interpolant,
      you should convert that interpolant into a term interpolant. *)
@@ -107,7 +107,6 @@ module type StandardExt =
        and type config := Config.t
        and type param  := Param.t
        and type smodel := SModel.t
-       and type model  := Model.t
 
 (* Module types for syntax extensions *)
 

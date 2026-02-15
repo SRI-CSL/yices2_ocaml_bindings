@@ -3357,8 +3357,7 @@ module type Model = sig
   val set_bv_int   : t -> term -> int -> unit eh
   val set_bv_uint32 : t -> term -> uint -> unit eh
   val set_bv_uint64 : t -> term -> ulong -> unit eh
-
-                                                val set_bv_mpz : t -> term -> Z.t -> unit eh
+  val set_bv_mpz : t -> term -> Z.t -> unit eh
                                          
 
   (**
@@ -3386,6 +3385,7 @@ module type Model = sig
   *)
   val set_bv_from_list : t -> term -> bool list -> unit eh
 
+  val set : t -> term -> Types.yval -> unit eh
 
   (** {2 VALUES IN A MODEL} *)
 

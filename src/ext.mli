@@ -35,8 +35,15 @@ end
 
 (** Instantiate the Ext API with a custom error-handling strategy. *)
 module Make(_: ErrorHandling) : Ext_types.API with type Context.t = context
+                                               and type ModelValue.t = model_value
+                                               and type SModel.t = smodel
 
 (** Ext API using exception-based error handling. *)
 module WithExceptionsErrorHandling : Ext_types.API with type Context.t = context
+                                                    and type ModelValue.t = model_value
+                                                    and type SModel.t = smodel
+
 (** Ext API using direct-return error handling. *)
 module WithNoErrorHandling         : Ext_types.API with type Context.t = context
+                                                    and type ModelValue.t = model_value
+                                                    and type SModel.t = smodel

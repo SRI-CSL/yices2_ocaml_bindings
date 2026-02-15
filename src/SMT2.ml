@@ -569,8 +569,12 @@ module Make(Ext : Ext_types.API) = struct
       | "get-value", [List terms] ->
          let smodel = get_model session in
          let terms = List.map (fun x -> get(ParseTerm.parse session x)) terms in
-         print 0 "@[<v>%a@]@," (List.pp Term.pp)
-           (Model.terms_value (let SModel{model;_} = smodel in model) terms);
+         let pp_pair fmt t =
+           match SModel.get_value_as_term smodel t with
+           | Some v -> Format.fprintf fmt "(%a %a)" Term.pp t Term.pp v
+           | None   -> Format.fprintf fmt "(%a %a)" Term.pp t ModelValue.pp (SModel.get_value smodel t)
+         in
+         print 0 "(@[<v>%a@])@," (List.pp ~pp_sep:Format.pp_print_cut pp_pair) terms;
          session.model := Some smodel
       | "get-value", _ ->
          raise_smt2 "get-value expects a single list of terms (SMT-LIB standard)"
@@ -580,7 +584,8 @@ module Make(Ext : Ext_types.API) = struct
 
       | "get-model", [] -> 
          let model = get_model session in
-         print 0 "%a@," (SModel.pp()) model;
+         let s = SModel.to_sexp ~smt2arrays:None model in
+         print 0 "%a@," pp_sexp s;
          session.model := Some model
 
       | "get-unsat-assumptions", [] ->
@@ -600,9 +605,9 @@ module Make(Ext : Ext_types.API) = struct
            (a,b)::map , a::tlist
          in
          let map,support = List.fold_left2 f ([],[]) vars vals in
-         let model = Model.from_map map in
+         let smodel = SModel.from_map ~support map in
          let status =
-           Context.check ~param:session.param ~smodel:(SModel.make ~support model) context
+           Context.check ~param:session.param ~smodel context
          in
          (match status with
           | `STATUS_SAT   -> print 0 "sat@,"

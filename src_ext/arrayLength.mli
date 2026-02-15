@@ -18,7 +18,6 @@ module AddLength : sig
                and type config := Config.t
                and type param := Param.t
                and type smodel := SModel.t
-               and type model := Model.t
 
   module ExtraType : sig
     val lfun :

@@ -7,6 +7,7 @@ module type Context = sig
   open EH1
   type t
   type config
+  type model
        
   val malloc : ?config:config -> unit -> t
   val status : t -> Types.smt_status
@@ -21,14 +22,16 @@ module type Context = sig
   val check : ?param:Param.t -> t -> Types.smt_status
   val check_with_assumptions : ?param:Param.t -> t -> Term.t list -> Types.smt_status
   val stop      : t -> unit
-  val get_model : ?keep_subst:bool -> t -> Model.t
+  val get_model : ?keep_subst:bool -> t -> model
   val get_unsat_core   : t -> Term.t list
-  val check_with_model : ?param:Param.t -> t -> Model.t -> Term.t list -> Types.smt_status
+  val check_with_model : ?param:Param.t -> t -> model -> Term.t list -> Types.smt_status
   val get_model_interpolant : t -> Term.t
   val check_with_interpolation : ?build_model:bool ->
                                  ?param:Param.t ->
-                                 t -> t -> (Term.t, Model.t option) Types.smt_status_with_answers
+                                 t -> t -> (Term.t, model option) Types.smt_status_with_answers
   val default_param : t -> Param.t -> unit
+  val get_algebraic_number_value : model -> Term.t -> Types.algebraic
+  val get_rational64_value : model -> Term.t -> Signed.Long.t * Unsigned.ULong.t
 
   module Param : sig
     type t = EH1.Param.t
@@ -38,8 +41,8 @@ module type Context = sig
 end
 
 
-let test_context (type a) (type c)
-      (module Context : Context with type t = a and type config = c)
+let test_context (type a) (type c) (type m)
+      (module Context : Context with type t = a and type config = c and type model = m)
       (mcsat : bool)
       (cfg : c)
   =
@@ -118,7 +121,7 @@ let test_context (type a) (type c)
       let status = Context.check ctx in
       assert(Types.equal_smt_status status `STATUS_SAT);
       let model = Context.get_model ctx in
-      let sq2 = EH1.Model.get_algebraic_number_value model x in
+      let sq2 = Context.get_algebraic_number_value model x in
       (* The following line does not work without an extension for epsilon-terms *)
       (* let _sq2_term = EH1.Model.get_value_as_term model x in *)
       (* print_endline(EH1.PP.term_string sq2_term); *)
@@ -164,8 +167,8 @@ let test_context (type a) (type c)
 
 (* Testing interpolation *)
   
-let test_interpolation (type a) (type c)
-      (module Context : Context with type t = a and type config = c)
+let test_interpolation (type a) (type c) (type m)
+      (module Context : Context with type t = a and type config = c and type model = m)
       (cfg : c)
       assertA
       assertB
@@ -183,8 +186,8 @@ let test_interpolation (type a) (type c)
   in
   r
 
-let test_interpolation (type a) (type c)
-      (module Context : Context with type t = a and type config = c)
+let test_interpolation (type a) (type c) (type m)
+      (module Context : Context with type t = a and type config = c and type model = m)
       (mcsat : bool)
       (cfg : c)
   =
@@ -204,10 +207,10 @@ let test_interpolation (type a) (type c)
     match test_interpolation (module Context) cfg [fmla1; fmla2; fmla3] [] with
       
     | `STATUS_SAT(Some model) ->
-       let v1 = EH1.Model.get_rational64_value model r1 in
+       let v1 = Context.get_rational64_value model r1 in
        assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v1
                 (Signed.Long.of_int 7, Unsigned.ULong.of_int 2));
-       let v2 = EH1.Model.get_rational64_value model r2 in
+       let v2 = Context.get_rational64_value model r2 in
        assert(CCEqual.pair Signed.Long.equal Unsigned.ULong.equal v2
                 (Signed.Long.of_int 5, Unsigned.ULong.of_int 1))
        
@@ -288,7 +291,10 @@ let cfg_makeNtest (type a) (module Config : Config with type t = a) test_cfg =
 module NativeContext = struct
   open EH1
   include Context
+  type model = Model.t
   type config = Config.t
+  let get_algebraic_number_value = Model.get_algebraic_number_value
+  let get_rational64_value = Model.get_rational64_value
   module Param = Param
 end
 
@@ -297,21 +303,32 @@ end
 module ExtContext = struct
   open Yices2.Ext.WithExceptionsErrorHandling
   include Context
+  type model = SModel.t
   let check_with_assumptions ?param context assumptions = check ?param ~assumptions context
-  let check_with_model ?param context model support =
-    check ?param ~smodel:(SModel.make ~support model) context
+  let check_with_model ?param context smodel support =
+    check ?param ~smodel:(SModel.with_support support smodel) context
   let check ?param context = check ?param context
-  let get_model ?keep_subst context =
-    let SModel{model;_} = get_model ?keep_subst context in
-    model
+  let get_model ?keep_subst context = get_model ?keep_subst context
 
   let check_with_interpolation ?build_model ?param ctxa ctxb =
     match build_model, check_with_interpolation ?build_model ?param ctxa ctxb with
     | None, `STATUS_SAT _
       | Some false, `STATUS_SAT _ -> `STATUS_SAT None
-    | Some true, `STATUS_SAT f -> let SModel{ model; _} = f () in `STATUS_SAT(Some model)
+    | Some true, `STATUS_SAT f -> `STATUS_SAT(Some (f ()))
     | _, `STATUS_UNSAT t -> `STATUS_UNSAT t
     | _, (#Yices2.Low.Types.smt_inconclusive_status as s) -> s
+
+  let get_algebraic_number_value smodel x =
+    match ModelValue.reveal (SModel.get_value smodel x) with
+    | `Algebraic a -> a
+    | _ -> failwith "expected algebraic number"
+
+  let get_rational64_value smodel x =
+    match ModelValue.reveal (SModel.get_value smodel x) with
+    | `Rational q ->
+      (Signed.Long.of_int (Z.to_int (Q.num q)),
+       Unsigned.ULong.of_int (Z.to_int (Q.den q)))
+    | _ -> failwith "expected rational"
 
   type config = Config.t
   module Param = Param
@@ -414,64 +431,3 @@ let test_tupleblast () =
 (*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
 (*      raise exc *)
 
-(* let test_mcsat_arrays () = *)
-(*   let open Yices2.Ext in *)
-(*   let open Extensions.MCSATarrays in *)
-(*   Global.init(); *)
-(*   let real  = Type.(real()) in *)
-(*   let typ   = Type.func [ real ] real in *)
-(*   let a     = Term.new_uninterpreted ~name:"a" typ in *)
-(*   let b     = Term.new_uninterpreted ~name:"b" typ in *)
-(*   let index = [ Term.Arith.int 1 ] in *)
-(*   let a_mod = Term.update a index (Term.Arith.int 2) in *)
-(*   let i     = Term.new_uninterpreted ~name:"i" real in *)
-(*   let index2 = [i] in *)
-(*   try *)
-
-(*     let () = (\* Read over write: same index *\) *)
-(*       let ctx = Arrays.malloc_mcsat () in *)
-(*       Arrays.assert_formula ctx Term.(b === a_mod); *)
-(*       Arrays.assert_formula ctx Term.(application b index2 =/= Term.Arith.int 2); *)
-(*       let smodel = Model.from_map [i , Term.Arith.int 1] |> SModel.make ~support:[i] in  *)
-(*       match Arrays.check_with_smodel ctx smodel with *)
-(*       | `STATUS_UNSAT -> *)
-(*          (\* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *\) *)
-(*          print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
-(*          print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx)); *)
-(*          Arrays.free ctx *)
-(*       | `STATUS_SAT -> *)
-(*          CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx); *)
-(*          CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx; *)
-(*          assert false *)
-(*       | _ -> assert false *)
-(*     in *)
-
-(*     let () = (\* Read over write: different index *\) *)
-(*       let ctx = Arrays.malloc () in *)
-(*       Arrays.assert_formula ctx Term.(b === a_mod); *)
-(*       Arrays.assert_formula ctx Term.(application b index2 =/= application a index2); *)
-(*       let smodel = Model.from_map [i , Term.Arith.int 0] |> SModel.make ~support:[i] in *)
-(*       match Arrays.check_with_smodel ctx smodel with *)
-(*       | `STATUS_UNSAT -> *)
-(*          (\* print_endline (CCFormat.sprintf "@[Log is:@,@[<v>%a@]@]" ArrayLength.pp_log ctx); *\)        *)
-(*          print_endline (CCFormat.sprintf "@[UNSAT@]"); *)
-(*          print_endline (CCFormat.sprintf "@[Interpolant: %a@]" Term.pp (Arrays.get_model_interpolant ctx)); *)
-(*          Arrays.free ctx *)
-(*       | `STATUS_SAT -> *)
-(*          CCFormat.(fprintf stdout) "@[Model is:@,@[%a@]@]" Model.pp (Arrays.get_model ctx); *)
-(*          CCFormat.(fprintf stdout) "@[Log is:@,@[<v>%a@]@]" Arrays.pp_log ctx; *)
-(*          assert false *)
-(*       | _ -> assert false *)
-(*     in *)
-
-(*     print_endline "Done with Extension \"Arrays in MCSAT\"" *)
-
-(*   with *)
-(*   | ExceptionsErrorHandling.YicesException(_,report) as exc -> *)
-(*      let bcktrace = Printexc.get_backtrace() in *)
-(*      CCFormat.(fprintf stdout) "@[Yices error: @[%s@]@]@," (ErrorPrint.string()); *)
-(*      CCFormat.(fprintf stdout) "@[Error report:@,@[<v2>  %a@]@," *)
-(*        Types.pp_error_report report;
-*)
-(*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
-(*      raise exc *)

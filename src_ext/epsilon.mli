@@ -19,10 +19,6 @@ module Term : sig
   val epsilon_reveal : t -> (t * Types.type_t * t) option
 end
 
-module Model : Ext_types.Model with type typ   := Type.t
-                                and type term  := Term.t
-                                and type t      = Model.t
-
 module Context : StandardYicesContext with type typ    = Type.t
                                       and type term   = Term.t
                                       and type config = Config.t

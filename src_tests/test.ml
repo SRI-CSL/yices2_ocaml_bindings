@@ -105,3 +105,6 @@ let () =
 
 let () = print_endline ""
 let () = Experiments.test()
+
+let () = print_endline ""
+let () = Smodel_test.test()

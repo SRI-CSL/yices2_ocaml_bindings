@@ -1369,6 +1369,17 @@ module SafeMake
       <.> ofList1 bool_t (yices_model_set_bv_from_array model x)
       <.> toUnit
 
+    let set output var = function
+      | `Bool b      -> set_bool output var b
+      | `Rational r  -> set_mpq output var r
+      | `BV(_,l)     -> set_bv_from_list output var l
+      | `Algebraic a -> set_algebraic_number output var a.libpoly
+      | `Scalar _    -> EH.raise_bindings_error
+                          "MCSAT approach to building model does not support scalar values"
+      | `Fun _       -> EH.raise_bindings_error
+                          "MCSAT approach to building model does not support function values"
+      | `Tuple _       -> EH.raise_bindings_error
+                            "MCSAT approach to building model does not support tuple values"
 
     let get_bool_value  = yices_get_bool_value
                           <..> alloc1 bool_t
@@ -1537,6 +1548,7 @@ module SafeMake
       ((yices_generalize_model_array m |> ofList1 term_t) l1
        |> ofList1 term_t) l2 (Conv.yices_gen_mode.write gen)
       |> TermVector.toList
+
 
   end
 

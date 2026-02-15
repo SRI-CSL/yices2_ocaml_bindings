@@ -88,24 +88,6 @@ module Types = struct
     | Not of 'a bool_struct
                [@@deriving eq, show]
 
-  (** Self-contained model value.
-      Construct with {!ModelValue.build}, inspect with {!ModelValue.val_as_term}
-      and {!ModelValue.reveal}.  Both [mv_term] and [mv_ocaml] are lazy.
-      Call {!ModelValue.force} to eagerly materialise both fields. *)
-  type model_value = {
-    mv_term  : term_t option Lazy.t;
-    mv_ptr   : (model_ptr * yval_t Ctypes.ptr) option;
-    mv_ocaml : model_value valstruct Lazy.t;
-  }
-
-  (** Supported model with optional support list.
-      [extra] holds OCaml-side bindings for terms whose values cannot live in
-      the Yices C model (e.g. tuple-typed or algebraic-containing values).
-      Consumers should check [extra] first, falling back to [model]. *)
-  type smodel = SModel of { support : term_t list;
-                            model   : model_ptr;
-                            extra   : (term_t * model_value) list }
-
   (** Assertions organized by context level. *)
   type 'term log_assertions = 'term Log.assertions =
     | Assertions of {
@@ -135,7 +117,6 @@ module Types = struct
     | CheckWithModel of { param : 'param option; smodel : 'smodel }
     | GetModelInterpolant
 
-  type context_action = (term_t, param_ptr, smodel) log_context_action
 
   (** Global actions recorded in the log. *)
   type ('term, 'typ, 'param, 'smodel) log_action = ('term, 'typ, 'param, 'smodel) Log.action =
@@ -150,8 +131,6 @@ module Types = struct
     | GarbageCollect of Sexp.t list
     | NewContext of { logic : string option }
     | ContextAction of { context_id : int ; context_action : ('term, 'param, 'smodel) log_context_action }
-
-  type action = (term_t, type_t, param_ptr, smodel) log_action
 
   (** Slice descriptor for bitvector extraction. *)
   type slice = Slice of {
@@ -180,6 +159,7 @@ end
 
 module type Global = sig
   type term
+  type action
   include High_types.Global with type 'a eh := 'a
 
   (**
@@ -187,7 +167,7 @@ module type Global = sig
       log ()
       v}
       Return the global action log. *)
-  val log : unit -> Types.action list
+  val log : unit -> action list
 
   (**
    {v
@@ -650,36 +630,6 @@ module type Term = sig
   module Names : Names with type t := t
 end
 
-module type Value = sig
-
-  type model
-
-  (**
-   {v
-      pp model
-      v}
-      Pretty-print a value from a model. *)
-  val pp     : model -> yval Format.printer
-
-  (**
-   {v
-      pp_val model
-      v}
-      Pretty-print a low-level value. *)
-  val pp_val : model -> yval_t Ctypes.ptr Format.printer
-
-end
-
-module type Model = sig
-  include High_types.Model with type 'a eh := 'a
-
-  (** Print with specific height *)
-  val pph : int -> t Format.printer
-
-  (** Print with height 1000 *)
-  val pp : t Format.printer
-end
-
 (** Operations on {!Types.model_value}. *)
 module type ModelValue = sig
 
@@ -689,71 +639,132 @@ module type ModelValue = sig
       The term representation is lazily computed from the structure. *)
   val build : t valstruct -> t
 
+  (** Build a model value from a revealed structure whose children are lazy.
+      This enables shallow revelation without forcing sub-structures. *)
+  val build_lazy : (t Lazy.t) valstruct -> t
+
+  (** Construct a model value from a C model's yval pointer,
+      lazily revealing the value tree. *)
+  val of_yval : model_ptr -> yval_t Ctypes.ptr -> t
+
   (** Force the lazy term representation. *)
   val val_as_term : t -> term_t option
 
-  (** Force the lazy revealed structure. *)
-  val reveal : t -> t valstruct
+  (** Force the lazy revealed structure (children remain lazy). *)
+  val reveal : t -> (t Lazy.t) valstruct
 
-  (** Eagerly force both [val_as_term] and [reveal], so that subsequent
-      accesses never touch the model. *)
-  val force : t -> unit
+  (**
+   {v
+      pp model
+      v}
+      Pretty-print a value from a model. *)
+  val pp : t Format.printer
+
+  (** Convert a model value to an S-expression. *)
+  val to_sexp : smt2arrays:([ `Curry | `Tuple ] * (term_t -> bool)) option -> t -> Sexplib.Sexp.t
 end
 
 (* Supported models *)
 module type SModel = sig
 
   type term
-  type model
   type model_value
      
   type t
 
-  (**
-   {v
-      make ?support ?extra mdl
-      v}
-      Build a supported model.
-      [extra] provides OCaml-side bindings for terms whose values cannot be
-      stored in the Yices C model (tuples, algebraic-containing values, etc.). *)
-  val make : ?support:term list -> ?extra:(term * model_value) list
-         -> model -> t
+  (** {2 Construction} *)
 
-  (** Recursively reveal a C-level yval into a self-contained [model_value]. *)
-  val model_value_of_yval : model -> yval_t Ctypes.ptr -> model_value
+  (** Extend [smodel] (or the empty model if absent) with the given
+      [term * model_value] bindings.  Accepts A values (Bool, Rational,
+      BV, Algebraic) via [Model.set] and D values (Scalar, Tuple with
+      term representation) via [Model.from_map].  Function values are
+      rejected. *)
+  val make : ?support:term list -> ?smodel:t -> (term * model_value) list -> t
+
+  (** Build a supported model from term-to-term assignments. *)
+  val from_map  : ?support:term list -> (term * term) list -> t
+
+  (** The empty supported model (no bindings). *)
+  val empty : unit -> t
+
+  (** {2 Queries} *)
+
+  (** The support: list of terms that have a value in this model. *)
+  val support : t -> term list
+
+  (** Look up the value of [t] in the model.
+      The model's transform function is applied to the base C-model
+      query; by default this is the identity. *)
+  val get_value : t -> term -> model_value
+
+  (** Like {!get_value} but returns the value as a term if possible. *)
+  val get_value_as_term : t -> term -> term option
+
+  (** Check whether a formula holds in the model (delegates to C). *)
+  val formula_true_in_model : t -> term -> bool
+
+  (** Check whether all formulas hold in the model (delegates to C). *)
+  val formulas_true_in_model : t -> term list -> bool
+
+  (** {2 Support, implicants, and generalization} *)
+
+  (** Compute the support of [t] in the model: the set of uninterpreted
+      terms whose values are sufficient to fix the value of [t]. *)
+  val model_term_support : t -> term -> term list
+
+  (** Like {!model_term_support} but for several terms at once. *)
+  val model_terms_support : t -> term list -> term list
+
+  (** Compute an implicant for formula [f] (which must be true in the
+      model): a conjunction of literals that implies [f]. *)
+  val implicant_for_formula : t -> term -> term list
+
+  (** Like {!implicant_for_formula} but for a conjunction of formulas. *)
+  val implicant_for_formulas : t -> term list -> term list
+
+  (** Model-guided generalization: eliminate [elims] from [f].
+      Returns a formula [G] such that the model satisfies [G]
+      and [G] implies [exists elims. f]. *)
+  val generalize_model : t -> term -> term list -> yices_gen_mode -> term list
+
+  (** Like {!generalize_model} but for a conjunction of formulas. *)
+  val generalize_model_list : t -> term list -> term list -> yices_gen_mode -> term list
+
+  (** Return all bindings as term-to-term pairs, silently skipping
+      any support term whose value cannot be expressed as a term. *)
+  val as_map  : t -> (term * term) list
+
+  (** [true] iff every support term's value can be expressed as a term,
+      i.e. {!as_map} would not skip anything. *)
+  val is_representable : t -> bool
+
+  (** Convert every assignment [x |-> v] into [x === v]
+      (or [x] / [not x] for Booleans).
+      Raises if a value cannot be expressed as a term. *)
+  val as_assumptions : ?as_inequalities:bool -> t -> term list
+
+  (** Build a supported model from assumptions by purification.
+      Returns [(smodel, pures, constraints)]. *)
+  val from_assumptions : mcsat:bool -> ?smodel:t -> term list -> t * term list * term list 
+
+  (** Replace the support list of a model, keeping all bindings. *)
+  val with_support : term list -> t -> t
+
+  (** Replace the get_value transform of a model.
+      The transform wraps the base C-model query:
+      [transform base_get_value term -> model_value].
+      Default is [Fun.id] (identity). *)
+  val with_transform : ((term -> model_value) -> (term -> model_value)) -> t -> t
+
+  (** {2 S-expression and pretty-printing} *)
+
+  (** Convert the model to an S-expression (list of [define-fun] forms). *)
+  val to_sexp : smt2arrays:([ `Curry | `Tuple ] * (term -> bool)) option -> t -> Sexplib.Sexp.t
 
   val pp :
     ?pp_start:unit Format.printer ->
     ?pp_stop:unit Format.printer ->
     ?pp_sep:unit Format.printer -> unit -> t Format.printer
-
-  (**
-   {v
-      from_map ?support xs
-      v}
-      Build a supported model from assignments. *)
-  val from_map  : ?support:term list -> (term * term) list -> t
-
-  (**
-   {v
-      as_map smodel
-      v}
-      Return assignments as a map. *)
-  val as_map  : t -> (term * term) list
-
-  (* turns every assignment (x |-> v) into (x === v);
-     unless x is Boolean in which case it produces x or (not x) depending on v;
-     crashes if v cannot be expressed as a term, like algebraic numbers or functional values *)
-  val as_assumptions : ?as_inequalities:bool -> t -> term list
-
-  (* converts assumptions into supported model,
-     turning every assumption f into a Boolean assignment (x |-> true),
-     for a Boolean uninterpreted term x purifying f, i.e. with constraint (x <==> f).
-     It returns a triple (smodel, pures, constraints) where
-     smodel is the constructed supported model,
-     pures are the list of purification variables
-     constraints are their definition constraints *)
-  val from_assumptions : mcsat:bool -> ?smodel:t -> term list -> t * term list * term list 
 end
 
 module type BaseAPI = sig
@@ -767,6 +778,8 @@ module type BaseAPI = sig
     include module type of HighTypes
     include module type of ExtTypes
     type context
+    type model_value
+    type smodel
 
     (** Pretty-print the current error report. *)
     val pp_error_report : error_report Format.printer
@@ -780,21 +793,19 @@ module type API = sig
 
   include High.API with type 'a eh := 'a
 
-  module Global : Global with type term := Term.t
   module Config : Config with type t = config
-  module Model  : Model with type t     = Model.t
-                         and type typ   := Type.t
-                         and type term  := Term.t
-
-  module Value : Value with type model := Model.t
 
   module ModelValue : ModelValue
 
   (* Supported models *)
   module SModel : SModel with type term  := Term.t
-                          and type model := Model.t
                           and type model_value := ModelValue.t
-                          and type t = smodel
+
+  type context_action = (term_t, param_ptr, SModel.t) log_context_action
+  type action = (term_t, type_t, param_ptr, SModel.t) log_action
+
+  module Global : Global with type term := Term.t
+                          and type action := action
 
   module Assertions : sig
 

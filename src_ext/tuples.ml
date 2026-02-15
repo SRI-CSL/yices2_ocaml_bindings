@@ -140,10 +140,8 @@ let blast_formula st f =
 
 let blast_flat st t = tuple_blast st t |> TopTuple.flatten
 
-(* Reveal a single leaf term's value from the model into a model_value. *)
-let reveal_leaf model t =
-  let yval_ptr = Model.get_value model t in
-  SModel.model_value_of_yval model yval_ptr
+(* Reveal a single leaf term's value using the given query function. *)
+let reveal_leaf query t = query t
 
 (* Helper: build a tuple model_value from a list of children. *)
 let mk_tuple children =
@@ -211,28 +209,38 @@ let merge_fun_vals codom_structure leaf_fvs orig_type =
   { mappings = merged_mappings; default; typ = orig_type; arity }
 
 (* Evaluate blasted leaves in the base model, reassemble as a model_value.
+   query is a (term -> model_value) function for evaluating leaf terms.
    orig_type is the type of the original (pre-blast) term.
-   For Single: fully reveal the C value into a self-contained model_value.
+   For Single: query the leaf directly.
    For Multiple with Tuple type: recursively build children.
    For Multiple with Fun type: reveal leaf functions and merge mapping tables. *)
-let rec build_model_value model orig_type = function
-  | TopTuple.Single t -> reveal_leaf model t
+let rec build_model_value query orig_type = function
+  | TopTuple.Single t -> reveal_leaf query t
   | TopTuple.Multiple l ->
     let open Types in
     match Type.reveal orig_type with
     | Tuple component_types ->
-      let children = List.map2 (build_model_value model) component_types l in
+      let children = List.map2 (build_model_value query) component_types l in
       mk_tuple children
     | Fun { codom; _ } ->
       (* Codomain was split into components; each leaf in l is a function. *)
       let codom_structure = type_blast codom in
       (* Flatten the nested Multiple to get all leaf functions *)
       let leaf_terms = TopTuple.flatten (TopTuple.Multiple l) in
-      let leaf_mvs = List.map (reveal_leaf model) leaf_terms in
+      let leaf_mvs = List.map (reveal_leaf query) leaf_terms in
+      let force_mapping { args; value } =
+        { args = List.map Lazy.force args;
+          value = Lazy.force value }
+      in
+      let force_fun_val { mappings; default; typ; arity } =
+        { mappings = List.map force_mapping mappings;
+          default = Lazy.force default;
+          typ; arity }
+      in
       (* Extract fun_vals from the revealed leaf functions *)
       let leaf_fvs = List.map (fun mv ->
         match ModelValue.reveal mv with
-        | `Fun fv -> fv
+        | `Fun fv -> force_fun_val fv
         | _ -> failwith "build_model_value: expected function leaf"
       ) leaf_mvs in
       (* Merge into a single fun_val with tuple codomain *)
@@ -240,21 +248,20 @@ let rec build_model_value model orig_type = function
       ModelValue.build (`Fun merged_fv)
     | _ -> failwith "build_model_value: unexpected Multiple for non-tuple/function type"
 
-(* Build extra bindings for the reconstructed model.
-   For each original term in the support that was blasted, reconstruct its
-   model_value from the blasted leaves.  Terms not in htbl are left to the
-   base Yices model (no extra binding needed). *)
-let build_extra st model support =
-  List.filter_map (fun t ->
-    match HTerms.find_opt st.htbl t with
-    | Some blasted when not (match blasted with TopTuple.Single t' -> Term.equal t t' | _ -> false) ->
-      Some (t, build_model_value model (Term.type_of_term t) blasted)
-    | _ -> None
-  ) support
+(* Build a get_value transformer that tuple-blasts terms before querying
+   the C model, then reassembles tuple/function values from the leaves. *)
+let make_transform st =
+  fun (base : Term.t -> ModelValue.t) ->
+    let rec transformed t =
+      match tuple_blast st t with
+      | TopTuple.Single t' -> base t'
+      | blasted -> build_model_value transformed (Term.type_of_term t) blasted
+    in
+    transformed
 
 (* Compute a default support list from the base model's defined terms,
    reverse-mapping blasted leaves back to their original terms. *)
-let default_support st model =
+let default_support st smodel =
   let leaf_to_orig : Term.t HTerms.t = HTerms.create 100 in
   HTerms.iter (fun orig blasted ->
     List.iter (fun leaf ->
@@ -263,7 +270,7 @@ let default_support st model =
     ) (TopTuple.flatten blasted)
   ) st.htbl;
   let seen : unit HTerms.t = HTerms.create 100 in
-  Model.collect_defined_terms model
+  SModel.support smodel
   |> List.filter_map (fun t ->
     let orig = HTerms.find_opt leaf_to_orig t |> Option.get_or ~default:t in
     if HTerms.mem seen orig then None
@@ -305,7 +312,6 @@ module ExtAlways = struct
   type config = Config.t
   type param = Param.t
   type smodel = SModel.t
-  type model = Model.t
 
   type t = state
 
@@ -318,20 +324,20 @@ module ExtAlways = struct
   let translate_assertion (_ctx : old_context) st f = [blast_formula st f]
   let translate_assumption (_ctx : old_context) st f = blast_formula st f
 
-  let check _ (Types.SModel { model; _ }) = Sat model
+  let check _ smodel = Sat smodel
 
   let term_of_old _ t = t
   let typ_of_old _ ty = ty
   let param_to_old _ p = p
   let smodel_to_old _ m = m
   let smodel_of_old _ m = m
-  let smodel_of_model st ?support model =
+  let enrich_smodel st ?support smodel =
     let support = match support with
       | Some s -> s
-      | None   -> default_support st model
+      | None -> default_support st smodel
     in
-    let extra = build_extra st model support in
-    SModel.make ~support ~extra model
+    let transform = make_transform st in
+    SModel.with_transform transform (SModel.with_support support smodel)
 
   let interpolant _ old_interpolant = old_interpolant
 

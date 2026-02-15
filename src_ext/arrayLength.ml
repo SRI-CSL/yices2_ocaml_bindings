@@ -15,7 +15,7 @@ module AddLength = struct
   type config = Config.t
   type param  = Param.t
   type smodel = SModel.t
-  type model  = Model.t
+  type _model  = Model.t
 
   (* These are the syntactic elements associated with a type of lengthed arrays, say lfun *)
   type lfun =
@@ -233,9 +233,12 @@ module AddLength = struct
   let param_to_old _ p = p
   let smodel_to_old _ m = m
   let smodel_of_old _ m = m
-  let smodel_of_model _ ?support model = SModel.make ?support model
+  let enrich_smodel _ ?support smodel =
+    match support with
+    | None -> smodel
+    | Some s -> SModel.with_support s smodel
 
-  let check _t (SModel{model; _}) = Sat model
+  let check _t smodel = Sat smodel
     
   let interpolant _t old_interpolant = old_interpolant
 
