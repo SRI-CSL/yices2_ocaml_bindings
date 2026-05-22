@@ -249,6 +249,28 @@ if command -v gmake >/dev/null 2>&1; then
   make_cmd="gmake"
 fi
 
+refresh_cudd_autotools_timestamps() {
+  local src="$1"
+  local file
+  local generated=(
+    "$src/aclocal.m4"
+    "$src/configure"
+    "$src/config.h.in"
+    "$src/Makefile.in"
+  )
+  local existing=()
+
+  for file in "${generated[@]}"; do
+    if [ -e "$file" ]; then
+      existing+=("$file")
+    fi
+  done
+
+  if [ ${#existing[@]} -gt 0 ]; then
+    touch "${existing[@]}"
+  fi
+}
+
 if [ ! -d "$yices_dir" ] || [ ! -d "$cudd_dir" ]; then
   echo "Missing submodules in vendor/. Run: git submodule update --init --recursive" >&2
   exit 1
@@ -340,15 +362,20 @@ if [ -x "$cudd_dir/configure" ]; then
   cudd_build="$build_root/cudd"
   mkdir -p "$cudd_build"
   cudd_cflags="${CFLAGS:-} -Wno-unused-but-set-variable -Wno-unused-variable"
-  (cd "$cudd_build" && DOXYGEN=true CFLAGS="$cudd_cflags" lt_cv_sys_max_cmd_len=262144 \
+  cudd_maintainer_vars=(ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=:)
+  # CUDD ships generated Autotools files.  Keep Automake's maintainer
+  # rebuild rules dormant even when a checkout/copy gives inputs newer mtimes.
+  refresh_cudd_autotools_timestamps "$cudd_dir"
+  (cd "$cudd_build" && env DOXYGEN=true CFLAGS="$cudd_cflags" lt_cv_sys_max_cmd_len=262144 \
+     "${cudd_maintainer_vars[@]}" \
      "$cudd_dir/configure" --prefix="$prefix" --enable-static --disable-shared)
 else
   echo "CUDD configure script not found at $cudd_dir/configure" >&2
   exit 1
 fi
 
-$make_cmd -C "$cudd_build" all-am
-$make_cmd -C "$cudd_build" install
+$make_cmd -C "$cudd_build" all-am "${cudd_maintainer_vars[@]}"
+$make_cmd -C "$cudd_build" install "${cudd_maintainer_vars[@]}"
 
   yices_src="$build_root/yices2-src"
   if [ ! -d "$yices_src" ]; then
