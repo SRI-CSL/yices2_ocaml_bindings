@@ -361,7 +361,11 @@ fi
 if [ -x "$cudd_dir/configure" ]; then
   cudd_build="$build_root/cudd"
   mkdir -p "$cudd_build"
-  cudd_cflags="${CFLAGS:-} -Wno-unused-but-set-variable -Wno-unused-variable"
+  cudd_pic_cflags=""
+  case "$platform" in
+    linux) cudd_pic_cflags="-fPIC" ;;
+  esac
+  cudd_cflags="${CFLAGS:-} $cudd_pic_cflags -Wno-unused-but-set-variable -Wno-unused-variable"
   cudd_maintainer_vars=(ACLOCAL=: AUTOCONF=: AUTOMAKE=: AUTOHEADER=:)
   # CUDD ships generated Autotools files.  Keep Automake's maintainer
   # rebuild rules dormant even when a checkout/copy gives inputs newer mtimes.
@@ -369,6 +373,9 @@ if [ -x "$cudd_dir/configure" ]; then
   (cd "$cudd_build" && env DOXYGEN=true CFLAGS="$cudd_cflags" lt_cv_sys_max_cmd_len=262144 \
      "${cudd_maintainer_vars[@]}" \
      "$cudd_dir/configure" --prefix="$prefix" --enable-static --disable-shared)
+  # CFLAGS changes are not dependency-tracked, so rebuild any stale non-PIC
+  # objects left by a previous failed vendored build.
+  $make_cmd -C "$cudd_build" clean "${cudd_maintainer_vars[@]}"
 else
   echo "CUDD configure script not found at $cudd_dir/configure" >&2
   exit 1
