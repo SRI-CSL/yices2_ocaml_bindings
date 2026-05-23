@@ -51,6 +51,38 @@ fi
 mkdir -p "$prefix"
 prefix="$(cd "$prefix" && pwd)"
 
+ensure_linux_yices_links() {
+  local libdir="$1"
+  local candidate target soname inferred
+
+  target=""
+  for candidate in "$libdir"/libyices.so.*; do
+    [ -e "$candidate" ] || continue
+    [ -f "$candidate" ] || continue
+    target="$candidate"
+    break
+  done
+  [ -n "$target" ] || return 0
+
+  soname=""
+  if command -v readelf >/dev/null 2>&1; then
+    soname="$(readelf -d "$target" 2>/dev/null | sed -n 's/.*Library soname: \[\(.*\)\].*/\1/p' | head -n 1 || true)"
+  fi
+  if [ -z "$soname" ]; then
+    inferred="$(basename "$target" | sed -E 's/^(libyices\.so\.[0-9]+\.[0-9]+)(\..*)?$/\1/')"
+    if [ "$inferred" != "$(basename "$target")" ]; then
+      soname="$inferred"
+    fi
+  fi
+
+  if [ -n "$soname" ] && [ ! -e "$libdir/$soname" ]; then
+    ln -sf "$(basename "$target")" "$libdir/$soname"
+  fi
+  if [ ! -e "$libdir/libyices.so" ]; then
+    ln -sf "$(basename "$target")" "$libdir/libyices.so"
+  fi
+}
+
 check_mcsat() {
   local cc cflags libs tmp_dir c_file exe_file libpaths flag path rc pkgconfig_path opam_prefix opam_cmd opam_root opam_switch pkg_config_cmd
 
@@ -456,10 +488,7 @@ if [ "$platform" = "macos" ]; then
     ln -sf "libyices.dylib" "$prefix/lib/libyices.2.dylib"
   fi
 elif [ "$platform" = "linux" ]; then
-  if compgen -G "$prefix/lib/libyices.so."* > /dev/null && [ ! -f "$prefix/lib/libyices.so" ]; then
-    so_target="$(ls -1 "$prefix/lib/libyices.so."* | head -n 1)"
-    ln -sf "$(basename "$so_target")" "$prefix/lib/libyices.so"
-  fi
+  ensure_linux_yices_links "$prefix/lib"
 fi
 
 if [ -n "$stamp" ]; then
