@@ -167,7 +167,11 @@ let () =
 	        if is_system "macosx" sys then macos_name else linux_name
 	      in
 	      let default () =
-	        { libs   = sofar.libs @ ["-l"^package];
+	        { libs =
+	            if pkg_name = "yices" then
+	              ("-l" ^ package) :: sofar.libs
+	            else
+	              sofar.libs @ [ "-l" ^ package ];
 	          cflags = sofar.cflags }
 	      in
 	      let yices_default_or_vendor () =
@@ -219,18 +223,29 @@ let () =
                      | None -> "<unset>"
                      | Some p -> p)
     in
-    let conf = List.fold_left aux base !pkg in
+    let conf = List.fold_left aux base (List.rev !pkg) in
     let conf =
       let has_libpoly = List.exists ((=) "-lpoly") conf.libs in
       let has_libdir libdir =
         List.exists (fun flag -> flag = "-L" ^ libdir) conf.libs
       in
+      let has_incdir incdir =
+        List.exists (fun flag -> flag = "-I" ^ incdir) conf.cflags
+      in
       match opam_prefix with
       | Some prefix ->
           let libdir = Filename.concat prefix "lib" in
-          if has_libpoly && not (has_libdir libdir) then
-            (* Yices' pkg-config adds -lpoly but not libpoly's opam libdir. *)
-            { conf with libs = ("-L" ^ libdir) :: conf.libs }
+          let incdir = Filename.concat prefix "include" in
+          let conf =
+            if has_libpoly && not (has_libdir libdir) then
+              (* Yices' pkg-config adds -lpoly but not libpoly's opam libdir. *)
+              { conf with libs = ("-L" ^ libdir) :: conf.libs }
+            else
+              conf
+          in
+          if Sys.file_exists (Filename.concat incdir "poly/poly.h")
+             && not (has_incdir incdir) then
+            { conf with cflags = ("-I" ^ incdir) :: conf.cflags }
           else
             conf
       | None -> conf

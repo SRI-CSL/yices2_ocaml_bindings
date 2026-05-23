@@ -6,6 +6,7 @@
                -vendor-root %{workspace_root}
                -vendor-prefix ../vendor_install
                -pkg gmp gmp
+               -pkg poly poly.0
                -pkg yices yices
                -optcomp-cookie ppx_optcomp_cookie.lines)))
 
