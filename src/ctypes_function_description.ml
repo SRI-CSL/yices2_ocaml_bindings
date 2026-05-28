@@ -99,6 +99,9 @@ module Functions (F : Ctypes.FOREIGN) = struct
   let yices_bv_type =
     foreign "yices_bv_type"
       ((@->) uint (returning type_t))
+  let yices_ff_type =
+    foreign "yices_ff_type"
+      ((@->) MPZ.t_ptr (returning type_t))
   let yices_new_scalar_type =
     foreign "yices_new_scalar_type"
       ((@->) uint (returning type_t))
@@ -424,6 +427,49 @@ module Functions (F : Ctypes.FOREIGN) = struct
       ((@->) term_t (returning term_t))
   let yices_ceil =
     foreign "yices_ceil"
+      ((@->) term_t (returning term_t))
+  let yices_ff_const =
+    foreign "yices_ff_const"
+      ((@->) MPZ.t_ptr
+         ((@->) MPZ.t_ptr (returning term_t)))
+  let yices_ff_add =
+    foreign "yices_ff_add"
+      ((@->) term_t ((@->) term_t (returning term_t)))
+  let yices_ff_sub =
+    foreign "yices_ff_sub"
+      ((@->) term_t ((@->) term_t (returning term_t)))
+  let yices_ff_neg =
+    foreign "yices_ff_neg"
+      ((@->) term_t (returning term_t))
+  let yices_ff_mul =
+    foreign "yices_ff_mul"
+      ((@->) term_t ((@->) term_t (returning term_t)))
+  let yices_ff_square =
+    foreign "yices_ff_square"
+      ((@->) term_t (returning term_t))
+  let yices_ff_power =
+    foreign "yices_ff_power"
+      ((@->) term_t
+         ((@->) uint (returning term_t)))
+  let yices_ff_sum =
+    foreign "yices_ff_sum"
+      ((@->) uint
+         ((@->) (ptr term_t) (returning term_t)))
+  let yices_ff_product =
+    foreign "yices_ff_product"
+      ((@->) uint
+         ((@->) (ptr term_t) (returning term_t)))
+  let yices_ff_eq_atom =
+    foreign "yices_ff_eq_atom"
+      ((@->) term_t ((@->) term_t (returning term_t)))
+  let yices_ff_neq_atom =
+    foreign "yices_ff_neq_atom"
+      ((@->) term_t ((@->) term_t (returning term_t)))
+  let yices_ff_eq0_atom =
+    foreign "yices_ff_eq0_atom"
+      ((@->) term_t (returning term_t))
+  let yices_ff_neq0_atom =
+    foreign "yices_ff_neq0_atom"
       ((@->) term_t (returning term_t))
   let yices_poly_int32 =
     foreign "yices_poly_int32"
@@ -867,11 +913,21 @@ module Functions (F : Ctypes.FOREIGN) = struct
     foreign "yices_rational_const_value"
       ((@->) term_t
          ((@->) MPQ.t_ptr (returning sint)))
+  let yices_ff_const_value =
+    foreign "yices_ff_const_value"
+      ((@->) term_t
+         ((@->) MPZ.t_ptr (returning sint)))
   let yices_sum_component =
     foreign "yices_sum_component"
       ((@->) term_t
          ((@->) sint
             ((@->) MPQ.t_ptr
+               ((@->) (ptr term_t) (returning sint)))))
+  let yices_ffsum_component =
+    foreign "yices_ffsum_component"
+      ((@->) term_t
+         ((@->) sint
+            ((@->) MPZ.t_ptr
                ((@->) (ptr term_t) (returning sint)))))
   let yices_bvsum_component =
     foreign "yices_bvsum_component"
@@ -1112,6 +1168,12 @@ module Functions (F : Ctypes.FOREIGN) = struct
          ((@->) term_t
             ((@->) MPQ.t_ptr
                (returning sint))))
+  let yices_model_set_ff_mpz =
+    foreign "yices_model_set_ff_mpz"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) MPZ.t_ptr
+               (returning sint))))
   let yices_model_set_algebraic_number =
     foreign "yices_model_set_algebraic_number"
       ((@->) (ptr model_t)
@@ -1156,6 +1218,24 @@ module Functions (F : Ctypes.FOREIGN) = struct
             ((@->) uint
                ((@->) (ptr sint)
                   (returning sint)))))
+  let yices_model_set_scalar =
+    foreign "yices_model_set_scalar"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) sint
+               (returning sint))))
+  let yices_model_set_double =
+    foreign "yices_model_set_double"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) double
+               (returning sint))))
+  let yices_model_set_float =
+    foreign "yices_model_set_float"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) float
+               (returning sint))))
 
   let yices_model_collect_defined_terms =
     foreign "yices_model_collect_defined_terms"
@@ -1243,6 +1323,13 @@ module Functions (F : Ctypes.FOREIGN) = struct
          ((@->) term_t
             ((@->) MPQ.t_ptr
                (returning sint))))
+  let yices_get_ff_value =
+    foreign "yices_get_ff_value"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) MPZ.t_ptr
+               ((@->) MPZ.t_ptr
+                  (returning sint)))))
   let yices_get_algebraic_number_value =
     foreign "yices_get_algebraic_number_value"
       ((@->) (ptr model_t)
@@ -1363,6 +1450,13 @@ module Functions (F : Ctypes.FOREIGN) = struct
          ((@->) (ptr yval_t)
             ((@->) MPQ.t_ptr
                (returning sint))))
+  let yices_val_get_ff =
+    foreign "yices_val_get_ff"
+      ((@->) (ptr model_t)
+         ((@->) (ptr yval_t)
+            ((@->) MPZ.t_ptr
+               ((@->) MPZ.t_ptr
+                  (returning sint)))))
   let yices_val_get_algebraic_number =
     foreign "yices_val_get_algebraic_number"
       ((@->) (ptr model_t)
@@ -1584,5 +1678,56 @@ module Functions (F : Ctypes.FOREIGN) = struct
             ((@->) uint
                ((@->) uint
                   (returning (ptr char))))))
+  let yices_model_set_term =
+    foreign "yices_model_set_term"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) term_t
+               (returning sint))))
+  let yices_model_set_yval =
+    foreign "yices_model_set_yval"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) (ptr yval_t)
+               (returning sint))))
+  let yices_model_make_tuple =
+    foreign "yices_model_make_tuple"
+      ((@->) (ptr model_t)
+         ((@->) uint
+            ((@->) (ptr yval_t)
+               ((@->) (ptr yval_t)
+                  (returning sint)))))
+  let yices_model_set_tuple =
+    foreign "yices_model_set_tuple"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) uint
+               ((@->) (ptr yval_t)
+                  (returning sint)))))
+  let yices_model_make_mapping =
+    foreign "yices_model_make_mapping"
+      ((@->) (ptr model_t)
+         ((@->) uint
+            ((@->) (ptr yval_t)
+               ((@->) (ptr yval_t)
+                  ((@->) (ptr yval_t)
+                     (returning sint))))))
+  let yices_model_make_function =
+    foreign "yices_model_make_function"
+      ((@->) (ptr model_t)
+         ((@->) type_t
+            ((@->) uint
+               ((@->) (ptr yval_t)
+                  ((@->) (ptr yval_t)
+                     ((@->) (ptr yval_t)
+                        (returning sint)))))))
+  let yices_model_set_function =
+    foreign "yices_model_set_function"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) uint
+               ((@->) (ptr yval_t)
+                  ((@->) (ptr yval_t)
+                     (returning sint))))))
 
 end

@@ -137,6 +137,7 @@ module Types = struct
     | A0 : [< `YICES_BOOL_CONSTANT
            | `YICES_ARITH_CONSTANT
            | `YICES_ARITH_FF_CONSTANT
+           | `YICES_FF_CONSTANT
            | `YICES_BV_CONSTANT
            | `YICES_SCALAR_CONSTANT
            | `YICES_VARIABLE

@@ -96,6 +96,27 @@ let () =
         cleanup ();
         ok
     in
+    let yices_header_ge_2_7 cflags =
+      let open C.C_define in
+      try
+        let defs =
+          import c ~c_flags:cflags ~includes:["yices.h"]
+            [ ("__YICES_VERSION", Int);
+              ("__YICES_VERSION_MAJOR", Int) ]
+        in
+        let find_int name =
+          match List.assoc_opt name defs with
+          | Some (Value.Int v) -> v
+          | _ -> raise Not_found
+        in
+        let v_major = find_int "__YICES_VERSION" in
+        let v_minor = find_int "__YICES_VERSION_MAJOR" in
+        v_major > 2 || (v_major = 2 && v_minor >= 7)
+      with _ -> false
+    in
+    let suitable_yices conf =
+      has_mcsat conf && yices_header_ge_2_7 conf.cflags
+    in
     let opam_prefix =
       match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
       | Some p when p <> "" -> Some p
@@ -185,10 +206,10 @@ let () =
 	      let forced_vendor_yices () =
 	        match vendor_yices_flags sofar with
 	        | Some conf ->
-	            if has_mcsat conf then
+	            if suitable_yices conf then
 	              conf
 	            else
-	              C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices under %s, but it does not link or MCSAT is disabled"
+	              C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices under %s, but it does not link, MCSAT is disabled, or the header is older than 2.7"
 	                (match vendor_prefix with
 	                 | None -> "<unset>"
 	                 | Some p -> p)
@@ -203,11 +224,18 @@ let () =
 	           try linking with the base search paths. If that doesn't work,
 	           fall back to the vendored build if available. *)
 	        let sys_conf = default () in
-	        if has_mcsat sys_conf then
+	        if suitable_yices sys_conf then
 	          sys_conf
 	        else
 	          match vendor_yices_flags sofar with
-	          | Some conf -> conf
+	          | Some conf ->
+	              if suitable_yices conf then
+	                conf
+	              else
+	                C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
+	                  (match vendor_prefix with
+	                   | None -> "<unset>"
+	                   | Some p -> p)
 	          | None ->
 	              C.die "Could not find yices via pkg-config, system default paths, or vendored install under %s"
 	                (match vendor_prefix with
@@ -239,13 +267,20 @@ let () =
 	            in
 	            if pkg_name <> "yices" then
 	              conf
-	            else if has_mcsat conf then
+	            else if suitable_yices conf then
 	              conf
 	            else
               match vendor_yices_flags sofar with
-              | Some conf -> conf
+              | Some conf ->
+                  if suitable_yices conf then
+                    conf
+                  else
+                    C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
+                      (match vendor_prefix with
+                       | None -> "<unset>"
+                       | Some p -> p)
               | None ->
-                  C.die "Yices found but MCSAT is disabled; no vendored build under %s"
+                  C.die "Yices found but MCSAT is disabled or the header is older than 2.7; no vendored build under %s"
                     (match vendor_prefix with
                      | None -> "<unset>"
                      | Some p -> p)

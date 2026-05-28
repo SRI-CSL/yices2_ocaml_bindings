@@ -1017,7 +1017,8 @@ module SafeMake
       | `YICES_BV_SUM        -> let+ x = bvsum_components t in return(Term(BV_Sum x))
       | `YICES_ARITH_SUM     -> let+ x = sum_components t in
                                 return(Term(Sum x))
-      | `YICES_ARITH_FF_CONSTANT | `YICES_ARITH_FF_SUM  -> raise KN_UNIMPLEMENTED
+      | `YICES_ARITH_FF_CONSTANT | `YICES_FF_CONSTANT
+      | `YICES_ARITH_FF_SUM | `YICES_FF_SUM -> raise KN_UNIMPLEMENTED
 
       | `YICES_POWER_PRODUCT ->
         let+ x = product_components t in
@@ -1203,7 +1204,7 @@ module SafeMake
          return(`Scalar(typ, c))
       | `YICES_VARIABLE
         | `YICES_UNINTERPRETED_TERM -> return `SYMBOLIC
-      | `YICES_ARITH_FF_CONSTANT -> raise KN_UNIMPLEMENTED
+      | `YICES_ARITH_FF_CONSTANT | `YICES_FF_CONSTANT -> raise KN_UNIMPLEMENTED
 
     let const_as_term : atomic_const -> t EH.t = function
       | `Bool true  -> true0()

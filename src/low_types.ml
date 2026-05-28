@@ -65,6 +65,8 @@ module BaseTypes = struct
     | `YICES_DISTINCT_TERM
     | `YICES_DIVIDES_ATOM
     | `YICES_EQ_TERM
+    | `YICES_FF_CONSTANT
+    | `YICES_FF_SUM
     | `YICES_FLOOR
     | `YICES_FORALL_TERM
     | `YICES_IDIV
@@ -189,6 +191,7 @@ module BaseTypes = struct
     | `MAX_BVSIZE_EXCEEDED
     | `MCSAT_ERROR_UNSUPPORTED_THEORY
     | `MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
+    | `MCSAT_ERROR_ASSUMPTION_TYPE_NOT_SUPPORTED
     | `MDL_CONSTANT_REQUIRED
     | `MDL_CONSTRUCTION_FAILED
     | `MDL_DUPLICATE_VAR
@@ -661,6 +664,9 @@ v}
      code = MAX_BVSIZE_EXCEEDED
      badval = size *)
   val yices_bv_type : uint -> type_t checkable
+
+  (* Finite field type of given order. The order must be positive and prime. *)
+  val yices_ff_type : MPZ.t abstract ptr -> type_t checkable
 
   (* New scalar type of given cardinality.
    
@@ -1731,6 +1737,21 @@ v}
   val yices_abs : term_t -> term_t checkable
   val yices_floor : term_t -> term_t checkable
   val yices_ceil : term_t -> term_t checkable
+
+  (* Finite-field constants, operations, and atoms. *)
+  val yices_ff_const : MPZ.t abstract ptr -> MPZ.t abstract ptr -> term_t checkable
+  val yices_ff_add : term_t -> term_t -> term_t checkable
+  val yices_ff_sub : term_t -> term_t -> term_t checkable
+  val yices_ff_neg : term_t -> term_t checkable
+  val yices_ff_mul : term_t -> term_t -> term_t checkable
+  val yices_ff_square : term_t -> term_t checkable
+  val yices_ff_power : term_t -> uint -> term_t checkable
+  val yices_ff_sum : uint -> term_t ptr -> term_t checkable
+  val yices_ff_product : uint -> term_t ptr -> term_t checkable
+  val yices_ff_eq_atom : term_t -> term_t -> term_t checkable
+  val yices_ff_neq_atom : term_t -> term_t -> term_t checkable
+  val yices_ff_eq0_atom : term_t -> term_t checkable
+  val yices_ff_neq0_atom : term_t -> term_t checkable
 
   (* POLYNOMIALS *)
 
@@ -3128,6 +3149,7 @@ v}
   val yices_bv_const_value     : term_t -> bool_t ptr -> unit_t checkable
   val yices_scalar_const_value : term_t -> sint ptr -> unit_t checkable
   val yices_rational_const_value : term_t -> MPQ.t abstract ptr -> unit_t checkable
+  val yices_ff_const_value : term_t -> MPZ.t abstract ptr -> unit_t checkable
 
   (* Components of a sum t
    
@@ -3154,6 +3176,7 @@ v}
       code = INVALID_TERM_OP
   *)
   val yices_sum_component : term_t -> sint -> MPQ.t abstract ptr -> term_t ptr -> unit_t checkable
+  val yices_ffsum_component : term_t -> sint -> MPZ.t abstract ptr -> term_t ptr -> unit_t checkable
   val yices_bvsum_component : term_t -> sint -> bool_t ptr -> term_t ptr -> unit_t checkable
 
   (* Component of power product t
@@ -4402,6 +4425,7 @@ v}
 
   val yices_model_set_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
   val yices_model_set_mpq : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
+  val yices_model_set_ff_mpz : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
 
   val yices_model_set_algebraic_number :
     model_t ptr -> term_t -> lp_algebraic_number_t ptr -> unit_t checkable
@@ -4465,6 +4489,10 @@ v}
    Since 2.6.4.
   *)
   val yices_model_set_bv_from_array : model_t ptr -> term_t -> uint -> bool_t ptr -> unit_t checkable
+
+  val yices_model_set_scalar : model_t ptr -> term_t -> sint -> unit_t checkable
+  val yices_model_set_double : model_t ptr -> term_t -> float -> unit_t checkable
+  val yices_model_set_float : model_t ptr -> term_t -> float -> unit_t checkable
   
   (* Collect all the uninterpreted terms that have a value in model mdl.
    
@@ -4747,6 +4775,8 @@ v}
 
   val yices_get_mpz_value : model_t ptr -> term_t -> MPZ.t abstract ptr -> unit_t checkable
   val yices_get_mpq_value : model_t ptr -> term_t -> MPQ.t abstract ptr -> unit_t checkable
+  val yices_get_ff_value :
+    model_t ptr -> term_t -> MPZ.t abstract ptr -> MPZ.t abstract ptr -> unit_t checkable
 
   (*  * Conversion to an algebraic number.
    
@@ -5040,6 +5070,8 @@ v}
   *)
   val yices_val_get_mpz : model_t ptr -> yval_t ptr -> MPZ.t abstract ptr -> unit_t checkable
   val yices_val_get_mpq : model_t ptr -> yval_t ptr -> MPQ.t abstract ptr -> unit_t checkable
+  val yices_val_get_ff :
+    model_t ptr -> yval_t ptr -> MPZ.t abstract ptr -> MPZ.t abstract ptr -> unit_t checkable
   
   (*  * Export an algebraic number
    
@@ -5745,5 +5777,16 @@ v}
    Returns a '\0'-terminated string otherwise. This string must be deleted
    when no longer needed by calling yices_free_string. *)
   val yices_model_to_string : model_t ptr -> uint -> uint -> uint -> char ptr checkable
+
+  val yices_model_set_term : model_t ptr -> term_t -> term_t -> unit_t checkable
+  val yices_model_set_yval : model_t ptr -> term_t -> yval_t ptr -> unit_t checkable
+  val yices_model_make_tuple : model_t ptr -> uint -> yval_t ptr -> yval_t ptr -> unit_t checkable
+  val yices_model_set_tuple : model_t ptr -> term_t -> uint -> yval_t ptr -> unit_t checkable
+  val yices_model_make_mapping :
+    model_t ptr -> uint -> yval_t ptr -> yval_t ptr -> yval_t ptr -> unit_t checkable
+  val yices_model_make_function :
+    model_t ptr -> type_t -> uint -> yval_t ptr -> yval_t ptr -> yval_t ptr -> unit_t checkable
+  val yices_model_set_function :
+    model_t ptr -> term_t -> uint -> yval_t ptr -> yval_t ptr -> unit_t checkable
 
 end

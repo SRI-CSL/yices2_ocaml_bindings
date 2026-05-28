@@ -291,7 +291,9 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
                 | _ -> s
             in
             Atom s
-         | `YICES_ARITH_CONSTANT | `YICES_ARITH_FF_CONSTANT -> sexp_gmpq t
+         | `YICES_ARITH_CONSTANT
+         | `YICES_ARITH_FF_CONSTANT
+         | `YICES_FF_CONSTANT -> sexp_gmpq t
             (* (try *)
             (*    sexp_gmpq t *)
             (*  with ExceptionsErrorHandling.YicesBindingsException _ -> Atom(s())) *)

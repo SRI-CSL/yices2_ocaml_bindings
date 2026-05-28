@@ -97,6 +97,9 @@ check_mcsat() {
 
   cat > "$c_file" <<'EOF'
 #include <yices.h>
+#if __YICES_VERSION < 2 || (__YICES_VERSION == 2 && __YICES_VERSION_MAJOR < 7)
+#error "Yices 2.7 or newer required"
+#endif
 int main(void) {
   return yices_has_mcsat() ? 0 : 1;
 }
@@ -254,11 +257,11 @@ fix_system_yices_libpoly() {
 
 if [ "${YICES2_FORCE_LOCAL:-}" != "1" ] && check_mcsat; then
   fix_system_yices_libpoly
-  echo "Using system Yices (MCSAT enabled); skipping vendored build."
+  echo "Using system Yices (2.7+, MCSAT enabled); skipping vendored build."
   touch "$prefix/.keep"
   if [ -n "$stamp" ]; then
     mkdir -p "$(dirname "$stamp")"
-    printf '%s\n' "yices system (mcsat enabled)" > "$stamp"
+    printf '%s\n' "yices system (2.7+, mcsat enabled)" > "$stamp"
   fi
   exit 0
 fi

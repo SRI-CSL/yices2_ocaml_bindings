@@ -140,6 +140,7 @@ module Types (F : TYPE) = struct
           | `YICES_CONSTRUCTOR_ERROR -> (-1L)
           | `YICES_BOOL_CONSTANT -> 0L
           | `YICES_ARITH_CONSTANT -> 1L
+          | `YICES_FF_CONSTANT -> 2L
           | `YICES_ARITH_FF_CONSTANT -> 2L
           | `YICES_BV_CONSTANT -> 3L
           | `YICES_SCALAR_CONSTANT -> 4L
@@ -181,13 +182,14 @@ module Types (F : TYPE) = struct
           | `YICES_BIT_TERM -> 40L
           | `YICES_BV_SUM -> 41L
           | `YICES_ARITH_SUM -> 42L
+          | `YICES_FF_SUM -> 43L
           | `YICES_ARITH_FF_SUM -> 43L
           | `YICES_POWER_PRODUCT -> 44L),
          (function
           | (-1L) -> `YICES_CONSTRUCTOR_ERROR
           | 0L -> `YICES_BOOL_CONSTANT
           | 1L -> `YICES_ARITH_CONSTANT
-          | 2L -> `YICES_ARITH_FF_CONSTANT
+          | 2L -> `YICES_FF_CONSTANT
           | 3L -> `YICES_BV_CONSTANT
           | 4L -> `YICES_SCALAR_CONSTANT
           | 5L -> `YICES_VARIABLE
@@ -228,7 +230,7 @@ module Types (F : TYPE) = struct
           | 40L -> `YICES_BIT_TERM
           | 41L -> `YICES_BV_SUM
           | 42L -> `YICES_ARITH_SUM
-          | 43L -> `YICES_ARITH_FF_SUM
+          | 43L -> `YICES_FF_SUM
           | 44L -> `YICES_POWER_PRODUCT
           | _ -> failwith "enum to_int"))
     in
@@ -243,7 +245,9 @@ module Types (F : TYPE) = struct
     let (to_int, of_int) =
       ((function
           | `YICES_CONSTRUCTOR_ERROR -> (-1L)
+          | `YICES_FF_CONSTANT -> (-2L)
           | `YICES_ARITH_FF_CONSTANT -> (-2L)
+          | `YICES_FF_SUM -> (-3L)
           | `YICES_ARITH_FF_SUM -> (-3L)
           | `YICES_BOOL_CONSTANT -> 0L
           | `YICES_ARITH_CONSTANT -> 1L
@@ -500,6 +504,8 @@ module Types (F : TYPE) = struct
         | `BAD_TYPE_DECREF -> 40L
         | `INVALID_TYPE_OP -> 41L
         | `INVALID_TERM_OP -> 42L
+        | `INVALID_FFSIZE -> 43L
+        | `INCOMPATIBLE_FFSIZES -> 44L
         | `INVALID_TOKEN -> 100L
         | `SYNTAX_ERROR -> 101L
         | `UNDEFINED_TYPE_NAME -> 102L
@@ -519,6 +525,7 @@ module Types (F : TYPE) = struct
         | `TYPE_MISMATCH_IN_DEF -> 116L
         | `ARITH_ERROR -> 117L
         | `BVARITH_ERROR -> 118L
+        | `INVALID_FFCONSTANT -> 119L
         | `CTX_FREE_VAR_IN_FORMULA -> 300L
         | `CTX_LOGIC_NOT_SUPPORTED -> 301L
         | `CTX_UF_NOT_SUPPORTED -> 302L
@@ -577,9 +584,7 @@ module Types (F : TYPE) = struct
         | `MDL_GEN_UNSUPPORTED_TERM -> 903L
         | `MCSAT_ERROR_UNSUPPORTED_THEORY -> 1000L
         | `MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED -> 1001L
-        | `INVALID_FFCONSTANT -> 1002L
-        | `INVALID_FFSIZE -> 1003L
-        | `INCOMPATIBLE_FFSIZES -> 1004L
+        | `MCSAT_ERROR_ASSUMPTION_TYPE_NOT_SUPPORTED -> 1002L
         | `OUTPUT_ERROR -> 9000L
         | `INTERNAL_EXCEPTION -> 9999L),
        (function
@@ -626,6 +631,8 @@ module Types (F : TYPE) = struct
         | 40L -> `BAD_TYPE_DECREF
         | 41L -> `INVALID_TYPE_OP
         | 42L -> `INVALID_TERM_OP
+        | 43L -> `INVALID_FFSIZE
+        | 44L -> `INCOMPATIBLE_FFSIZES
         | 100L -> `INVALID_TOKEN
         | 101L -> `SYNTAX_ERROR
         | 102L -> `UNDEFINED_TYPE_NAME
@@ -645,6 +652,7 @@ module Types (F : TYPE) = struct
         | 116L -> `TYPE_MISMATCH_IN_DEF
         | 117L -> `ARITH_ERROR
         | 118L -> `BVARITH_ERROR
+        | 119L -> `INVALID_FFCONSTANT
         | 300L -> `CTX_FREE_VAR_IN_FORMULA
         | 301L -> `CTX_LOGIC_NOT_SUPPORTED
         | 302L -> `CTX_UF_NOT_SUPPORTED
@@ -703,9 +711,7 @@ module Types (F : TYPE) = struct
         | 903L -> `MDL_GEN_UNSUPPORTED_TERM
         | 1000L -> `MCSAT_ERROR_UNSUPPORTED_THEORY
         | 1001L -> `MCSAT_ERROR_ASSUMPTION_TERM_NOT_SUPPORTED
-        | 1002L -> `INVALID_FFCONSTANT
-        | 1003L -> `INVALID_FFSIZE
-        | 1004L -> `INCOMPATIBLE_FFSIZES
+        | 1002L -> `MCSAT_ERROR_ASSUMPTION_TYPE_NOT_SUPPORTED
         | 9000L -> `OUTPUT_ERROR
         | 9999L -> `INTERNAL_EXCEPTION
         | _ -> failwith "enum to_int")) in
