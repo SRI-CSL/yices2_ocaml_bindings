@@ -5,6 +5,7 @@
  (action (run %{discover} -system %{ocaml-config:system}
                -vendor-root %{workspace_root}
                -vendor-prefix ../vendor_install
+               -force-local-yices %{env:YICES2_FORCE_LOCAL=0}
                -pkg gmp gmp
                -pkg poly poly.0
                -pkg yices yices

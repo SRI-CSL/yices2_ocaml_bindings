@@ -14,11 +14,13 @@ let () =
   let optcomp_cookie_file = ref None in
   let vendor_root = ref "" in
   let vendor_prefix_arg = ref "" in
+  let force_local_yices_arg = ref "" in
   let args =
     Arg.(
     [ ("-system", Set_string sys, "set system");
       ("-vendor-root", Set_string vendor_root, "path to project root for vendored deps");
       ("-vendor-prefix", Set_string vendor_prefix_arg, "prefix for vendored deps");
+      ("-force-local-yices", Set_string force_local_yices_arg, "force vendored Yices when set to 1");
       ("-pkg", Tuple[Set_string first; String(fun s -> pkg := (!first,s)::!pkg)], "package dependency");
       ("-optcomp-cookie", String (fun s -> optcomp_cookie_file := Some s),
        "emit a lines file with ppx_optcomp cookie based on Yices version")
@@ -141,6 +143,12 @@ let () =
           else
             Some p
 	    in
+    let force_local_yices =
+      match !force_local_yices_arg, Sys.getenv_opt "YICES2_FORCE_LOCAL" with
+      | "1", _ -> true
+      | _, Some "1" -> true
+      | _ -> false
+    in
 	    let vendor_yices_flags sofar =
 	      match vendor_prefix with
 	      | None -> None
@@ -174,6 +182,22 @@ let () =
 	              sofar.libs @ [ "-l" ^ package ];
 	          cflags = sofar.cflags }
 	      in
+	      let forced_vendor_yices () =
+	        match vendor_yices_flags sofar with
+	        | Some conf ->
+	            if has_mcsat conf then
+	              conf
+	            else
+	              C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices under %s, but it does not link or MCSAT is disabled"
+	                (match vendor_prefix with
+	                 | None -> "<unset>"
+	                 | Some p -> p)
+	        | None ->
+	            C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices, but no vendored libyices was found under %s"
+	              (match vendor_prefix with
+	               | None -> "<unset>"
+	               | Some p -> p)
+	      in
 	      let yices_default_or_vendor () =
 	        (* If pkg-config can't find yices (common for manual installs),
 	           try linking with the base search paths. If that doesn't work,
@@ -190,6 +214,9 @@ let () =
 	                 | None -> "<unset>"
 	                 | Some p -> p)
 	      in
+	      if pkg_name = "yices" && force_local_yices then
+	        forced_vendor_yices ()
+	      else
 	      match C.Pkg_config.get c with
 	      | None ->
 	          if pkg_name = "yices" then yices_default_or_vendor ()
@@ -232,20 +259,47 @@ let () =
       let has_incdir incdir =
         List.exists (fun flag -> flag = "-I" ^ incdir) conf.cflags
       in
+      let add_libdir_before libdir lib conf =
+        let dir_flag = "-L" ^ libdir in
+        let rec aux acc = function
+          | [] -> List.rev (dir_flag :: acc)
+          | flag :: rest when flag = lib ->
+              List.rev_append acc (dir_flag :: flag :: rest)
+          | flag :: rest -> aux (flag :: acc) rest
+        in
+        { conf with libs = aux [] conf.libs }
+      in
+      let uses_vendor_yices_lib =
+        match vendor_prefix with
+        | None -> false
+        | Some prefix -> has_libdir (Filename.concat prefix "lib")
+      in
+      let uses_vendor_yices_include =
+        match vendor_prefix with
+        | None -> false
+        | Some prefix -> has_incdir (Filename.concat prefix "include")
+      in
       match opam_prefix with
       | Some prefix ->
           let libdir = Filename.concat prefix "lib" in
           let incdir = Filename.concat prefix "include" in
           let conf =
             if has_libpoly && not (has_libdir libdir) then
-              (* Yices' pkg-config adds -lpoly but not libpoly's opam libdir. *)
-              { conf with libs = ("-L" ^ libdir) :: conf.libs }
+              (* Keep vendored Yices first; libpoly's opam libdir only needs to
+                 be visible by the time -lpoly is resolved. *)
+              if uses_vendor_yices_lib then
+                add_libdir_before libdir "-lpoly" conf
+              else
+                { conf with libs = ("-L" ^ libdir) :: conf.libs }
             else
               conf
           in
           if Sys.file_exists (Filename.concat incdir "poly/poly.h")
              && not (has_incdir incdir) then
-            { conf with cflags = ("-I" ^ incdir) :: conf.cflags }
+            if uses_vendor_yices_include then
+              { conf with cflags = conf.cflags @ [ "-I" ^ incdir ] }
+            else
+              { conf with cflags = ("-I" ^ incdir) :: conf.cflags }
           else
             conf
       | None -> conf

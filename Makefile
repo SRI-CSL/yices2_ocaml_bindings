@@ -12,7 +12,7 @@ build:
 	dune build
 
 with-local-yices:
-	YICES2_FORCE_LOCAL=1 dune build
+	YICES2_FORCE_LOCAL=1 dune build src_smt2/yices_smt2.exe
 
 smt2:
 	dune build src_smt2
