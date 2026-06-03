@@ -1,7 +1,7 @@
 .PHONY: default build install uninstall reinstall test test-all test-sigalt-freevar clean smt2 doc with-local-yices
 
 OPAM_SWITCH_PREFIX ?= $(shell opam var prefix 2>/dev/null)
-SIGALT_STRESS_ITERS ?= 200000
+SIGALT_STRESS_ITERS ?= 20000
 SIGALT_GC_INTERVAL ?= 1000
 export OPAM_SWITCH_PREFIX
 

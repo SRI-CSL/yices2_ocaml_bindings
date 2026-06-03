@@ -284,6 +284,34 @@ if command -v gmake >/dev/null 2>&1; then
   make_cmd="gmake"
 fi
 
+detect_build_jobs() {
+  local jobs
+
+  jobs="${YICES2_BUILD_JOBS:-${OPAMJOBS:-}}"
+  if [[ -n "$jobs" ]]; then
+    echo "$jobs"
+    return 0
+  fi
+
+  case "$platform" in
+    macos)
+      if command -v sysctl >/dev/null 2>&1; then
+        sysctl -n hw.ncpu 2>/dev/null && return 0
+      fi
+      ;;
+    linux)
+      if command -v getconf >/dev/null 2>&1; then
+        getconf _NPROCESSORS_ONLN 2>/dev/null && return 0
+      fi
+      ;;
+  esac
+
+  echo 2
+}
+
+build_jobs="$(detect_build_jobs)"
+make_parallel_args=(-j "$build_jobs")
+
 refresh_cudd_autotools_timestamps() {
   local src="$1"
   local file
@@ -416,7 +444,7 @@ else
   exit 1
 fi
 
-$make_cmd -C "$cudd_build" all-am "${cudd_maintainer_vars[@]}"
+$make_cmd -C "$cudd_build" "${make_parallel_args[@]}" all-am "${cudd_maintainer_vars[@]}"
 $make_cmd -C "$cudd_build" install "${cudd_maintainer_vars[@]}"
 
   yices_src="$build_root/yices2-src"
@@ -434,7 +462,7 @@ $make_cmd -C "$cudd_build" install "${cudd_maintainer_vars[@]}"
 
 yices_mode="release"
 tmp_yices_log="$(mktemp)"
-if ! $make_cmd -C "$yices_src" lib 2> "$tmp_yices_log"; then
+if ! $make_cmd -C "$yices_src" "${make_parallel_args[@]}" lib 2> "$tmp_yices_log"; then
   cat "$tmp_yices_log" >&2
   rm -f "$tmp_yices_log"
   exit 1

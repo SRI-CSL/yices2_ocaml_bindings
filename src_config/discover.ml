@@ -195,6 +195,11 @@ let () =
 	      let package = 
 	        if is_system "macosx" sys then macos_name else linux_name
 	      in
+	      let packages =
+	        if linux_name = macos_name then [ package ]
+	        else if is_system "macosx" sys then [ macos_name; linux_name ]
+	        else [ linux_name; macos_name ]
+	      in
 	      let default () =
 	        { libs =
 	            if pkg_name = "yices" then
@@ -250,40 +255,45 @@ let () =
 	          if pkg_name = "yices" then yices_default_or_vendor ()
 	          else default()
 	      | Some pc ->
-	         match C.Pkg_config.query pc ~package with
-	         | None ->
-	            if pkg_name = "yices" then yices_default_or_vendor ()
-	            else default()
-	         | Some deps ->
-	            let conf =
-	              (* For yices, put pkg-config include/lib flags first (see comment in
-	                 vendor_yices_flags). *)
-	              if pkg_name = "yices" then
-	                { libs = deps.libs @ sofar.libs;
-	                  cflags = deps.cflags @ sofar.cflags }
-	              else
-	                { libs = sofar.libs @ deps.libs;
-	                  cflags = sofar.cflags @ deps.cflags }
-	            in
-	            if pkg_name <> "yices" then
-	              conf
-	            else if suitable_yices conf then
-	              conf
-	            else
-              match vendor_yices_flags sofar with
-              | Some conf ->
-                  if suitable_yices conf then
-                    conf
-                  else
-                    C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
-                      (match vendor_prefix with
-                       | None -> "<unset>"
-                       | Some p -> p)
-              | None ->
-                  C.die "Yices found but MCSAT is disabled or the header is older than 2.7; no vendored build under %s"
-                    (match vendor_prefix with
-                     | None -> "<unset>"
-                     | Some p -> p)
+	          let rec query = function
+	            | [] ->
+	                if pkg_name = "yices" then yices_default_or_vendor ()
+	                else default()
+	            | package :: rest ->
+	                match C.Pkg_config.query pc ~package with
+	                | None -> query rest
+	                | Some deps ->
+	                    let conf =
+	                      (* For yices, put pkg-config include/lib flags first (see comment in
+	                         vendor_yices_flags). *)
+	                      if pkg_name = "yices" then
+	                        { libs = deps.libs @ sofar.libs;
+	                          cflags = deps.cflags @ sofar.cflags }
+	                      else
+	                        { libs = sofar.libs @ deps.libs;
+	                          cflags = sofar.cflags @ deps.cflags }
+	                    in
+	                    if pkg_name <> "yices" then
+	                      conf
+	                    else if suitable_yices conf then
+	                      conf
+	                    else
+	                      match vendor_yices_flags sofar with
+	                      | Some conf ->
+	                          if suitable_yices conf then
+	                            conf
+	                          else
+	                            C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
+	                              (match vendor_prefix with
+	                               | None -> "<unset>"
+	                               | Some p -> p)
+	                      | None ->
+	                          C.die "Yices found but MCSAT is disabled or the header is older than 2.7; no vendored build under %s"
+	                            (match vendor_prefix with
+	                             | None -> "<unset>"
+	                             | Some p -> p)
+	          in
+	          query packages
     in
     let conf = List.fold_left aux base (List.rev !pkg) in
     let conf =
