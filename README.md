@@ -45,7 +45,7 @@ and can be installed in findlib by opam (2.0 or higher), for instance
 opam install . --deps-only
 ```
 
-If `pkg-config` cannot find an installed Yices2 with MCSAT enabled (checked via `yices_has_mcsat()`), the build will compile Yices2 and CUDD from vendored submodules under `vendor/` and install into `_build/<context>/vendor_install` for the build.
+If `pkg-config` cannot find an installed Yices2 with MCSAT enabled (checked via `yices_has_mcsat()`), the build will compile Yices2, CUDD, and the delegate SAT solvers from vendored submodules under `vendor/` and install into `_build/<context>/vendor_install` for the build.
 Initialize these submodules before building:
 
 ```
@@ -53,13 +53,20 @@ git submodule update --init --recursive
 ```
 
 You can pass extra Yices configure flags via `YICES2_CONFIGURE_FLAGS` if needed.
-If you want to force the vendored build even when a system Yices is present, run:
+Build options are configured with `./configure`, which writes an ignored `config.mk` consumed by the Makefile. By default the build searches for a suitable system Yices first, requires MCSAT support, and enables all vendored delegates when a local Yices build is needed.
+
+Examples:
 
 ```
-make with-local-yices
+./configure --local-yices
+./configure --local-yices --no-mcsat
+./configure --local-yices --without-delegate cadical --without-delegate kissat
+./configure --local-yices --without-delegates=cadical,kissat
 ```
 
-When the vendored build runs, it installs Yices2 and CUDD into `_build/<context>/vendor_install`. Builds will reuse that local install on subsequent `make` runs (no rebuild) as long as the directory is present. Running `dune install` (or `make install`) copies these into the current opam switch prefix (`opam var prefix`) so the switch stays clean if a build fails. To remove the opam-installed copies, run `make uninstall`.
+Then use `make`, `make install`, `make test`, and the other Make targets normally. To return to the default search behavior, run `./configure` without `--local-yices`.
+
+When the vendored build runs, it installs Yices2, CUDD, and the delegate SAT solvers into `_build/<context>/vendor_install`. Builds will reuse that local install on subsequent `make` runs (no rebuild) as long as the directory is present. Running `dune install` (or `make install`) copies these into the current opam switch prefix (`opam var prefix`) so the switch stays clean if a build fails. To remove the opam-installed copies, run `make uninstall`.
 
 ### Building using opam (2.0 or higher)
 
@@ -97,10 +104,9 @@ You can also use `make reinstall` and `make clean`.
 
 All commands run in the top-level directory of this repository.
 
-- `make` / `make build`: build the OCaml libraries and executables, compiling vendored Yices/CUDD into `_build/<context>/vendor_install` if no suitable system Yices with MCSAT is found.
-- `make with-local-yices`: force a vendored Yices/CUDD build even if a system Yices is present.
-- `make install`: build, then install OCaml artifacts into the current opam switch and copy vendored Yices/CUDD artifacts into the opam prefix.
-- `make uninstall`: uninstall OCaml artifacts and remove vendored Yices/CUDD from the opam prefix.
+- `make` / `make build`: build the OCaml libraries and executables, compiling vendored Yices/CUDD/delegates into `_build/<context>/vendor_install` if no suitable system Yices with MCSAT is found.
+- `make install`: build, then install OCaml artifacts into the current opam switch and copy vendored Yices/CUDD/delegate artifacts into the opam prefix.
+- `make uninstall`: uninstall OCaml artifacts and remove vendored Yices/CUDD/delegates from the opam prefix.
 - `make reinstall`: uninstall then install.
 - `make clean`: remove build artifacts under `_build`.
 - `make test`: build and run the test suite plus a small SMT2 smoke test (sets `OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1` to avoid signal-stack teardown issues on some platforms).

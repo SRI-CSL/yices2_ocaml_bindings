@@ -99,14 +99,23 @@ ensure_linux_yices_links() {
 if [ "$skip_copy" -eq 0 ]; then
   copy_lib "$from_lib/libyices.*" || true
   copy_lib "$from_lib/libcudd.*" || true
+  copy_lib "$from_lib/libcadical.*" || true
+  copy_lib "$from_lib/libcryptominisat5.*" || true
+  copy_lib "$from_lib/libkissat.*" || true
 
-  for hdr in "$from_inc"/yices*.h "$from_inc"/cudd.h; do
+  for hdr in "$from_inc"/yices*.h "$from_inc"/cudd.h "$from_inc"/ccadical.h "$from_inc"/kissat.h; do
     if [ -f "$hdr" ]; then
       rm -f "$prefix/include/$(basename "$hdr")"
       cp "$hdr" "$prefix/include/"
       chmod u+w "$prefix/include/$(basename "$hdr")"
     fi
   done
+
+  if [ -d "$from_inc/cryptominisat5" ]; then
+    rm -rf "$prefix/include/cryptominisat5"
+    cp -R "$from_inc/cryptominisat5" "$prefix/include/"
+    chmod -R u+w "$prefix/include/cryptominisat5"
+  fi
 
   if [ -f "$from_lib/pkgconfig/yices.pc" ]; then
     tmp_pc="$(mktemp)"
@@ -163,7 +172,7 @@ case "$os_name" in
         }
 
         ocaml_libdir="$(ocamlc -where 2>/dev/null || true)"
-        fixup_dirs=("$prefix/lib/stublibs" "$prefix/lib/yices2")
+        fixup_dirs=("$prefix/lib" "$prefix/lib/stublibs" "$prefix/lib/yices2")
         if [ -n "$ocaml_libdir" ]; then
           fixup_dirs+=("$ocaml_libdir/stublibs" "$ocaml_libdir/yices2")
         fi
@@ -177,6 +186,12 @@ case "$os_name" in
 
       fix_install_name "$prefix/lib/libyices.2.dylib"
       fix_install_name "$prefix/lib/libyices.dylib"
+      fix_install_name "$prefix/lib/libcadical.so"
+      fix_install_name "$prefix/lib/libkissat.so"
+      for lib in "$prefix/lib"/libcryptominisat5*.dylib; do
+        [ -f "$lib" ] || continue
+        fix_install_name "$lib"
+      done
     fi
     ;;
   Linux)
@@ -185,7 +200,7 @@ case "$os_name" in
 esac
 
 if [ "$skip_copy" -eq 0 ]; then
-  echo "Installed vendored Yices/CUDD from $from_prefix to $prefix"
+  echo "Installed vendored Yices/CUDD/delegates from $from_prefix to $prefix"
 else
-  echo "Applied Yices/CUDD install-name fixups under $prefix"
+  echo "Applied Yices/CUDD/delegate install-name fixups under $prefix"
 fi

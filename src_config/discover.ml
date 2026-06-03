@@ -15,12 +15,14 @@ let () =
   let vendor_root = ref "" in
   let vendor_prefix_arg = ref "" in
   let force_local_yices_arg = ref "" in
+  let enable_mcsat_arg = ref "" in
   let args =
     Arg.(
     [ ("-system", Set_string sys, "set system");
       ("-vendor-root", Set_string vendor_root, "path to project root for vendored deps");
       ("-vendor-prefix", Set_string vendor_prefix_arg, "prefix for vendored deps");
       ("-force-local-yices", Set_string force_local_yices_arg, "force vendored Yices when set to 1");
+      ("-enable-mcsat", Set_string enable_mcsat_arg, "require MCSAT support unless set to 0");
       ("-pkg", Tuple[Set_string first; String(fun s -> pkg := (!first,s)::!pkg)], "package dependency");
       ("-optcomp-cookie", String (fun s -> optcomp_cookie_file := Some s),
        "emit a lines file with ppx_optcomp cookie based on Yices version")
@@ -115,7 +117,7 @@ let () =
       with _ -> false
     in
     let suitable_yices conf =
-      has_mcsat conf && yices_header_ge_2_7 conf.cflags
+      yices_header_ge_2_7 conf.cflags
     in
     let opam_prefix =
       match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
@@ -170,6 +172,80 @@ let () =
       | _, Some "1" -> true
       | _ -> false
     in
+    let enable_mcsat =
+      match !enable_mcsat_arg, Sys.getenv_opt "YICES2_ENABLE_MCSAT" with
+      | "0", _ -> false
+      | _, Some "0" -> false
+      | _ -> true
+    in
+    let suitable_yices conf =
+      suitable_yices conf && ((not enable_mcsat) || has_mcsat conf)
+    in
+    let split_words s =
+      String.split_on_char ',' s
+      |> List.concat_map (String.split_on_char ' ')
+      |> List.map String.trim
+      |> List.filter ((<>) "")
+    in
+    let without_delegates =
+      let from_plural =
+        match Sys.getenv_opt "YICES2_WITHOUT_DELEGATES" with
+        | Some s -> s
+        | None -> ""
+      in
+      let from_singular =
+        match Sys.getenv_opt "YICES2_WITHOUT_DELEGATE" with
+        | Some s -> s
+        | None -> ""
+      in
+      split_words (from_plural ^ " " ^ from_singular)
+    in
+    let enable_delegates =
+      match Sys.getenv_opt "YICES2_ENABLE_DELEGATES" with
+      | Some "0" -> false
+      | _ -> true
+    in
+    let delegate_enabled name =
+      enable_delegates && not (List.mem name without_delegates)
+    in
+    let starts_with s prefix =
+      let s_len = String.length s in
+      let prefix_len = String.length prefix in
+      s_len >= prefix_len && String.sub s 0 prefix_len = prefix
+    in
+    let has_library libdir stem =
+      try
+        Sys.readdir libdir
+        |> Array.exists (fun name -> starts_with name ("lib" ^ stem ^ "."))
+      with _ -> false
+    in
+    let vendor_delegate_libs libdir =
+      let libs =
+        []
+        |> fun acc ->
+             if delegate_enabled "cryptominisat" && has_library libdir "cryptominisat5" then
+               acc @ [ "-lcryptominisat5" ]
+             else
+               acc
+        |> fun acc ->
+             if delegate_enabled "cadical" && has_library libdir "cadical" then
+               acc @ [ "-lcadical" ]
+             else
+               acc
+        |> fun acc ->
+             if delegate_enabled "kissat" && has_library libdir "kissat" then
+               acc @ [ "-lkissat" ]
+             else
+               acc
+      in
+      if libs <> [] then
+        let cxx_runtime =
+          if is_system "macosx" sys then "-lc++" else "-lstdc++"
+        in
+        libs @ [ cxx_runtime; "-lm" ]
+      else
+        []
+    in
 	    let vendor_yices_flags sofar =
 	      match vendor_prefix with
 	      | None -> None
@@ -184,10 +260,18 @@ let () =
 	          let has_yices = List.exists Sys.file_exists candidates in
 	          if not has_yices then None
 	          else
+	            let delegate_libs = vendor_delegate_libs libdir in
+	            let cudd_libs =
+	              if enable_mcsat && has_library libdir "cudd" then [ "-lcudd" ] else []
+	            in
 	            Some
 	              (* Put vendored yices include/lib paths first to avoid accidentally
 	                 picking up an unrelated system yices.h from base include dirs. *)
-	              { libs = ("-L" ^ libdir) :: "-lyices" :: "-lcudd" :: sofar.libs;
+	              { libs =
+	                  ("-L" ^ libdir)
+	                  :: ("-Wl,-rpath," ^ libdir)
+	                  :: "-lyices"
+	                  :: (delegate_libs @ cudd_libs @ sofar.libs);
 	                cflags = ("-I" ^ incdir) :: sofar.cflags }
 	    in
 	    let aux sofar (linux_name, macos_name) =
@@ -214,7 +298,7 @@ let () =
 	            if suitable_yices conf then
 	              conf
 	            else
-	              C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices under %s, but it does not link, MCSAT is disabled, or the header is older than 2.7"
+	              C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices under %s, but it does not link, the requested MCSAT setting is unavailable, or the header is older than 2.7"
 	                (match vendor_prefix with
 	                 | None -> "<unset>"
 	                 | Some p -> p)
@@ -237,7 +321,7 @@ let () =
 	              if suitable_yices conf then
 	                conf
 	              else
-	                C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
+	                C.die "Vendored Yices under %s does not link, the requested MCSAT setting is unavailable, or the header is older than 2.7"
 	                  (match vendor_prefix with
 	                   | None -> "<unset>"
 	                   | Some p -> p)

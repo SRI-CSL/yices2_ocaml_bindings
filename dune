@@ -4,9 +4,13 @@
        scripts/build_vendor_deps.sh)
  (action
   (setenv VENDOR_BUILD_ROOT vendor_build
-   (run %{project_root}/scripts/build_vendor_deps.sh
-        --project-root %{project_root}
-        --prefix vendor_install))))
+   (setenv YICES2_FORCE_LOCAL %{env:YICES2_FORCE_LOCAL=0}
+    (setenv YICES2_ENABLE_MCSAT %{env:YICES2_ENABLE_MCSAT=1}
+     (setenv YICES2_ENABLE_DELEGATES %{env:YICES2_ENABLE_DELEGATES=1}
+      (setenv YICES2_WITHOUT_DELEGATES %{env:YICES2_WITHOUT_DELEGATES=}
+       (run %{project_root}/scripts/build_vendor_deps.sh
+            --project-root %{project_root}
+            --prefix vendor_install))))))))
 
 (alias
  (name vendor_deps)

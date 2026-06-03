@@ -4,3 +4,12 @@
 [submodule "vendor/cudd"]
 	path = vendor/cudd
 	url = https://github.com/ivmai/cudd.git
+[submodule "vendor/delegates/src/cadical"]
+	path = vendor/delegates/src/cadical
+	url = https://github.com/arminbiere/cadical
+[submodule "vendor/delegates/src/cryptominisat"]
+	path = vendor/delegates/src/cryptominisat
+	url = https://github.com/BrunoDutertre/cryptominisat
+[submodule "vendor/delegates/src/kissat"]
+	path = vendor/delegates/src/kissat
+	url = https://github.com/BrunoDutertre/kissat

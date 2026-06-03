@@ -17,6 +17,7 @@ _build/
 
 # project-specific file
 gmp.mlh
+config.mk
 
 # Merlin configuring file for Vim and Emacs
 # .merlin

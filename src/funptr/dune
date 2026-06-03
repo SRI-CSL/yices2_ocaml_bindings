@@ -6,6 +6,7 @@
                -vendor-root %{workspace_root}
                -vendor-prefix ../../vendor_install
                -force-local-yices %{env:YICES2_FORCE_LOCAL=0}
+               -enable-mcsat %{env:YICES2_ENABLE_MCSAT=1}
                -pkg gmp gmp
                -pkg yices yices)))
 
