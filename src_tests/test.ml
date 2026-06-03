@@ -108,3 +108,6 @@ let () = Experiments.test()
 
 let () = print_endline ""
 let () = Smodel_test.test()
+
+let () = print_endline ""
+let () = Lifecycle_test.test()

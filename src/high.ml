@@ -272,6 +272,59 @@ module SumErrorHandling = struct
   let bind = Result.(let*)
 end
 
+(* Process-global lifecycle guard for OCaml finalizers attached to
+   Yices-owned pointers (configs, contexts, models, params).
+
+   Yices is a single process-global C runtime, while the OCaml code can
+   instantiate several high-level APIs (e.g. [Make(ExceptionsErrorHandling)]
+   and [Make(SumErrorHandling)]). This module lives outside the functor so all
+   instances share one lifecycle view.
+
+   [yices_exit] and [yices_reset] free the global registries that own those
+   objects, so any finalizer that runs afterwards would double-free (and lock a
+   destroyed mutex). A monotonic generation counter is captured at allocation
+   time; a finalizer only calls the C free function when Yices is currently
+   alive and the captured generation still matches. *)
+module Runtime_lifecycle = struct
+  let alive      = Atomic.make false
+  let generation = Atomic.make 0
+
+  let current_generation () = Atomic.get generation
+
+  let invalidate () = Atomic.incr generation
+
+  (* Gate the C [yices_init] on [not alive]: several functor instances each
+     expose their own [Global.init], and calling the C yices_init more than once
+     without an intervening exit is double-init. *)
+  let init yices_init =
+    if not (Atomic.get alive) then begin
+      invalidate ();
+      Atomic.set alive true;
+      yices_init ()
+    end
+
+  (* C [yices_reset] is [yices_exit(); yices_init();]. Calling it when Yices is
+     already exited is unsafe: the inner yices_exit dereferences globals already
+     NULLed by a previous exit's clear_globals. So only reset when alive.
+     Reset-after-exit is a no-op here; use [init] for init-after-exit. *)
+  let reset yices_reset =
+    if Atomic.get alive then begin
+      invalidate ();
+      yices_reset ();
+      Atomic.set alive true
+    end
+
+  let exit yices_exit =
+    if Atomic.get alive then begin
+      Atomic.set alive false;
+      invalidate ();
+      yices_exit ()
+    end
+
+  let guarded_finalise gen free ptr =
+    if Atomic.get alive && gen = Atomic.get generation then free ptr
+end
+
 module SafeMake
     (L : Low_types.API with type 'a Types.sintbase = 'a sintbase
                         and type 'a Types.uintbase = 'a uintbase)
@@ -1288,14 +1341,16 @@ module SafeMake
     let cleanup_ocaml ~after = !cleanup_ocaml ~after
 
     let init() =
-      yices_init();
+      Runtime_lifecycle.init yices_init;
       cleanup_ocaml ~after:`Init  
 
     let reset() =
-      yices_reset();
-      cleanup_ocaml ~after:`Reset
+      cleanup_ocaml ~after:`Reset;
+      Runtime_lifecycle.reset yices_reset
 
-    let exit  = yices_exit
+    let exit() =
+      cleanup_ocaml ~after:`Reset;
+      Runtime_lifecycle.exit yices_exit
 
     let set_out_of_mem_callback = yices_set_out_of_mem_callback
   end
@@ -1323,7 +1378,8 @@ module SafeMake
     type t = ctx_config_t ptr
     let malloc () =
       let* ptr = yices_new_config () in
-      Gc.finalise yices_free_config ptr;
+      let gen = Runtime_lifecycle.current_generation () in
+      Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_config) ptr;
       return ptr
     let set     c ~name ~value = yices_set_config c ?>name ?>value |> toUnit
     let default ?(logic="NONE") c = yices_default_config_for_logic c ?>logic |> toUnit
@@ -1337,7 +1393,8 @@ module SafeMake
 
     let from_map l =
       let+ ptr = (yices_model_from_map |> ofList2 term_t term_t <.> return_ptr) l in
-      Gc.finalise yices_free_model ptr;
+      let gen = Runtime_lifecycle.current_generation () in
+      Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_model) ptr;
       return ptr
     let collect_defined_terms m =
       Alloc.(load (yices_model_collect_defined_terms m)
@@ -1346,7 +1403,8 @@ module SafeMake
 
     let empty () =
       let* ptr = yices_new_model () in
-      Gc.finalise yices_free_model ptr;
+      let gen = Runtime_lifecycle.current_generation () in
+      Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_model) ptr;
       return ptr
 
     let set_bool model x = Conv.bool.write <.> yices_model_set_bool model x <.> toUnit
@@ -1600,7 +1658,8 @@ module SafeMake
     type t = context_t ptr
     let malloc ?(config=null ctx_config_t) () =
       let* ptr = yices_new_context config in
-      Gc.finalise yices_free_context ptr;
+      let gen = Runtime_lifecycle.current_generation () in
+      Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_context) ptr;
       return ptr
     let default_param = yices_default_params_for_context
     let status = yices_context_status <.> Conv.smt_status.read
@@ -1649,7 +1708,8 @@ module SafeMake
              let model =
                getf !@interpolation_context (interpolation_context_s#members#model)
              in
-             Gc.finalise yices_free_model model;
+             let gen = Runtime_lifecycle.current_generation () in
+             Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_model) model;
              `STATUS_SAT(Some model)
            else
              `STATUS_SAT None
@@ -1669,7 +1729,8 @@ module SafeMake
     let stop                     = yices_stop_search
     let get_model ?(keep_subst=true) m =
       let* ptr = yices_get_model m (Conv.bool.write keep_subst) in
-      Gc.finalise yices_free_model ptr;
+      let gen = Runtime_lifecycle.current_generation () in
+      Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_model) ptr;
       return ptr
     let get_unsat_core context   = yices_get_unsat_core context |> TermVector.toList
     let get_model_interpolant    = yices_get_model_interpolant <.> return_sint
@@ -1679,7 +1740,8 @@ module SafeMake
     type t = param_t ptr
     let malloc () =
       let* ptr = yices_new_param_record () in
-      Gc.finalise yices_free_param_record ptr;
+      let gen = Runtime_lifecycle.current_generation () in
+      Gc.finalise (Runtime_lifecycle.guarded_finalise gen yices_free_param_record) ptr;
       return ptr
     let set p ~name ~value = yices_set_param p ?>name ?>value |> toUnit
   end
