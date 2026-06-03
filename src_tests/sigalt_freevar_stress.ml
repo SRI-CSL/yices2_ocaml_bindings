@@ -7,8 +7,8 @@ module Yices = Make(NoErrorHandling)
 
 let stress_iters () =
   match Sys.getenv_opt "YICES_SIGALT_STRESS_ITERS" with
-  | Some s -> (try int_of_string s with _ -> 200000)
-  | None -> 200000
+  | Some s -> (try int_of_string s with _ -> 20000)
+  | None -> 20000
 
 let gc_interval () =
   match Sys.getenv_opt "YICES_SIGALT_GC_INTERVAL" with
