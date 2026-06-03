@@ -2,6 +2,7 @@
 
 OPAM_SWITCH_PREFIX ?= $(shell opam var prefix 2>/dev/null)
 SIGALT_STRESS_ITERS ?= 200000
+SIGALT_GC_INTERVAL ?= 1000
 export OPAM_SWITCH_PREFIX
 
 default: build
@@ -39,9 +40,10 @@ test: build
 test-all: test test-sigalt-freevar
 
 test-sigalt-freevar:
-	@printf "Running sigalt free-variable stress (%s iterations)\n" "$(SIGALT_STRESS_ITERS)"
+	@printf "Running sigalt free-variable stress (%s iterations, GC every %s)\n" "$(SIGALT_STRESS_ITERS)" "$(SIGALT_GC_INTERVAL)"
 	@YICES2_FORCE_LOCAL=1 \
 	YICES_SIGALT_STRESS_ITERS=$(SIGALT_STRESS_ITERS) \
+	YICES_SIGALT_GC_INTERVAL=$(SIGALT_GC_INTERVAL) \
 	DYLD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${DYLD_LIBRARY_PATH:+:$${DYLD_LIBRARY_PATH}}" \
 	LD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}" \
 	dune exec src_tests/sigalt_freevar_stress.exe
