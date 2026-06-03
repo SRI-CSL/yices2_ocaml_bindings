@@ -425,6 +425,11 @@ let stress_freevar () =
   let native = Sys.getenv_opt "YICES_FREEVAR_NATIVE" <> None in
   let no_yices_exit = Sys.getenv_opt "YICES_FREEVAR_NO_YICES_EXIT" <> None in
   let fail_on_flip = Sys.getenv_opt "YICES_FREEVAR_FAIL_ON_FLIP" <> None in
+  let gc_interval =
+    match Sys.getenv_opt "YICES_FREEVAR_GC_INTERVAL" with
+    | Some s -> max 1 (try int_of_string s with _ -> 1000)
+    | None -> 1000
+  in
   (match Sys.getenv_opt "YICES_FREEVAR_WAIT" with
    | Some s -> sigalt_wait (try int_of_string s with _ -> 6)
    | None -> ());
@@ -448,19 +453,20 @@ let stress_freevar () =
   end;
   if native then begin
     let boolt = EH1.Type.bool () in
+    let bvar = EH1.Term.new_variable boolt in
+    let cfg = EH1.Config.malloc () in
     let keep = Sys.getenv_opt "YICES_FREEVAR_KEEP" <> None in
     let kept = ref [] in
     let flipped = ref false in
     let i = ref 0 in
-    Printf.eprintf "[stress] start onstack=%d native keep=%b\n%!" (sigalt_onstack ()) keep;
+    EH1.Config.set cfg ~name:"solver-type" ~value:"mcsat";
+    EH1.Config.set cfg ~name:"model-interpolation" ~value:"true";
+    EH1.Config.set cfg ~name:"mode" ~value:"push-pop";
+    Printf.eprintf "[stress] start onstack=%d native keep=%b gc_interval=%d\n%!"
+      (sigalt_onstack ()) keep gc_interval;
     while (not !flipped) && !i < n do
       incr i;
-      let cfg = EH1.Config.malloc () in
-      EH1.Config.set cfg ~name:"solver-type" ~value:"mcsat";
-      EH1.Config.set cfg ~name:"model-interpolation" ~value:"true";
-      EH1.Config.set cfg ~name:"mode" ~value:"push-pop";
       let ctx = EH1.Context.malloc ~config:cfg () in
-      let bvar = EH1.Term.new_variable boolt in
       let _ = EH1.Context.assert_formula ctx bvar in
       if keep then kept := Obj.repr (ctx, cfg) :: !kept;
       if sigalt_onstack () = 1 then begin
@@ -469,31 +475,33 @@ let stress_freevar () =
         let after = sigalt_clear () in
         Printf.eprintf "[stress] (native) after sigalt_clear: onstack=%d\n%!" after;
         if fail_on_flip then sigalt_raw_exit 2
-      end
+      end;
+      if !i mod gc_interval = 0 then Gc.full_major ()
     done;
     ignore (Sys.opaque_identity !kept);
+    Gc.full_major ();
     if not !flipped then Printf.eprintf "[stress] (native) no flip after %d iters\n%!" !i;
     if not no_yices_exit then EH1.Global.exit ();
     raise Exit
   end;
   let boolt = EH1.Type.bool () in
+  let bvar = EH1.Term.new_variable boolt in
   let flipped = ref false in
   let i = ref 0 in
   let last_exn = ref "<none>" in
+  let cfg = Config.malloc () in
+  Config.set cfg ~name:"solver-type" ~value:"mcsat";
+  Config.set cfg ~name:"model-interpolation" ~value:"true";
+  Config.set cfg ~name:"mode" ~value:"push-pop";
   let mkctx () =
-    let cfg = Config.malloc () in
-    Config.set cfg ~name:"solver-type" ~value:"mcsat";
-    Config.set cfg ~name:"model-interpolation" ~value:"true";
-    Config.set cfg ~name:"mode" ~value:"push-pop";
     Context.malloc ~config:cfg ()
   in
   let shared = if reuse then Some (mkctx ()) else None in
-  Printf.eprintf "[stress] start onstack=%d faults=%d reuse=%b no_assert=%b\n%!"
-    (sigalt_onstack ()) (sigalt_count ()) reuse no_assert;
+  Printf.eprintf "[stress] start onstack=%d faults=%d reuse=%b no_assert=%b gc_interval=%d\n%!"
+    (sigalt_onstack ()) (sigalt_count ()) reuse no_assert gc_interval;
   while (not !flipped) && !i < n do
     incr i;
     let ctx = match shared with Some c -> c | None -> mkctx () in
-    let bvar = EH1.Term.new_variable boolt in
     if not no_assert then
       (try Context.assert_formula ctx bvar with e -> last_exn := Printexc.to_string e);
     if sigalt_onstack () = 1 then begin
@@ -503,8 +511,10 @@ let stress_freevar () =
       Printf.eprintf "[stress] last exception: %s\n%!" !last_exn;
       sigalt_scan "stress-flip-owner";
       if fail_on_flip then sigalt_raw_exit 2
-    end
+    end;
+    if !i mod gc_interval = 0 then Gc.full_major ()
   done;
+  Gc.full_major ();
   if not !flipped then
     Printf.eprintf "[stress] no flip after %d iters, faults=%d\n%!" !i (sigalt_count ());
   if not no_yices_exit then EH1.Global.exit ()
