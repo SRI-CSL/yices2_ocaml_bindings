@@ -19,7 +19,13 @@ case "${YICES2_SMT2_STATIC:-0}" in
 
     flags='"-ccopt" "-static"'
     if [ -n "$vendor_lib" ]; then
-      flags="$flags \"-ccopt\" \"-L$vendor_lib\" \"-ccopt\" \"-Wl,--start-group\" \"-cclib\" \"-lyices\""
+      flags="$flags \"-ccopt\" \"-L$vendor_lib\""
+      if [ "$(uname -s 2>/dev/null || echo unknown)" = "Linux" ] \
+         && [ -f "$vendor_lib/libcadical.a" ] \
+         && [ -f "$vendor_lib/libkissat.a" ]; then
+        flags="$flags \"-ccopt\" \"-Wl,--allow-multiple-definition\""
+      fi
+      flags="$flags \"-ccopt\" \"-Wl,--start-group\" \"-cclib\" \"-lyices\""
       [ -f "$vendor_lib/libcadical.a" ] && flags="$flags \"-cclib\" \"-lcadical\""
       [ -f "$vendor_lib/libcryptominisat5.a" ] && flags="$flags \"-cclib\" \"-lcryptominisat5\""
       [ -f "$vendor_lib/libkissat.a" ] && flags="$flags \"-cclib\" \"-lkissat\""
