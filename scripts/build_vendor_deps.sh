@@ -58,6 +58,12 @@ else
   enable_mcsat=1
 fi
 
+smt2_static="${YICES2_SMT2_STATIC:-0}"
+case "$smt2_static" in
+  1|yes|true|TRUE) smt2_static=1 ;;
+  *) smt2_static=0 ;;
+esac
+
 ensure_linux_yices_links() {
   local libdir="$1"
   local candidate target soname inferred
@@ -418,6 +424,9 @@ delegates_installed() {
   if delegate_enabled cryptominisat; then
     [ -f "$prefix/include/cryptominisat5/cmsat_c.h" ] || return 1
     has_any_file "$install_lib/libcryptominisat5.*" || return 1
+    if [ "$smt2_static" -eq 1 ]; then
+      [ -f "$install_lib/libcryptominisat5.a" ] || return 1
+    fi
   fi
   if delegate_enabled kissat; then
     [ -f "$prefix/include/kissat.h" ] || return 1
@@ -549,6 +558,9 @@ delegate_link_libs() {
   if [ ${#libs[@]} -gt 0 ]; then
     libs+=("$cxx_runtime" "-lm")
   fi
+  if [ "$smt2_static" -eq 1 ] && delegate_enabled cryptominisat; then
+    libs+=("-lz" "-pthread")
+  fi
 
   printf '%s\n' "${libs[*]}"
 }
@@ -595,7 +607,7 @@ build_delegates() {
 
   local cadical_src cryptominisat_src kissat_src
   local cadical_build_src cryptominisat_build_src kissat_build_src
-  local cryptominisat_build
+  local cryptominisat_build cryptominisat_static_build
 
   cadical_src="$delegates_dir/src/cadical"
   cryptominisat_src="$delegates_dir/src/cryptominisat"
@@ -648,6 +660,21 @@ build_delegates() {
       -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     cmake --build "$cryptominisat_build" --parallel "$build_jobs"
     cmake --install "$cryptominisat_build"
+    if [ "$smt2_static" -eq 1 ]; then
+      cryptominisat_static_build="$build_root/delegates/cryptominisat-static-build"
+      rm -rf "$cryptominisat_static_build"
+      cmake -S "$cryptominisat_build_src" -B "$cryptominisat_static_build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$prefix" \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DENABLE_TESTING=OFF \
+        -DENABLE_PYTHON_INTERFACE=OFF \
+        -DONLY_SIMPLE=ON \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      cmake --build "$cryptominisat_static_build" --parallel "$build_jobs"
+      cmake --install "$cryptominisat_static_build"
+    fi
   fi
 
   if delegate_enabled kissat; then

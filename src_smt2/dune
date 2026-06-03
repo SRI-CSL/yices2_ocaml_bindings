@@ -1,7 +1,15 @@
+(rule
+ (targets smt2_link_flags.sexp)
+ (deps (:write_flags ../scripts/write_smt2_link_flags.sh))
+ (action
+  (setenv YICES2_SMT2_STATIC %{env:YICES2_SMT2_STATIC=0}
+   (run %{write_flags} smt2_link_flags.sexp))))
+
 (executable
  (name yices_smt2)
  (public_name yices_smt2)
  (libraries ctypes sexplib containers yices2 extensions)
+ (link_flags (:include smt2_link_flags.sexp))
  (preprocess (pps ppx_deriving.std))
  (promote (until-clean) (into ".."))
 )

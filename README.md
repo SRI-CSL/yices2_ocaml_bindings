@@ -62,9 +62,10 @@ Examples:
 ./configure --local-yices --no-mcsat
 ./configure --local-yices --without-delegate cadical --without-delegate kissat
 ./configure --local-yices --without-delegates=cadical,kissat
+./configure --local-yices --static
 ```
 
-Then use `make`, `make install`, `make test`, and the other Make targets normally. To return to the default search behavior, run `./configure` without `--local-yices`.
+Then use `make`, `make install`, `make test`, and the other Make targets normally. `--static` only affects the `yices_smt2.exe` executable, which is also run by `make test`, so the test target checks that the SMT2 executable starts and links correctly. To return to the default search behavior, run `./configure` without `--local-yices`.
 
 When the vendored build runs, it installs Yices2, CUDD, and the delegate SAT solvers into `_build/<context>/vendor_install`. Builds will reuse that local install on subsequent `make` runs (no rebuild) as long as the directory is present. Running `dune install` (or `make install`) copies these into the current opam switch prefix (`opam var prefix`) so the switch stays clean if a build fails. To remove the opam-installed copies, run `make uninstall`.
 

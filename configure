@@ -5,6 +5,7 @@ local_yices=0
 mcsat=1
 delegates=1
 without_delegates=""
+smt2_static=0
 
 usage() {
   cat <<'EOF'
@@ -23,6 +24,7 @@ Options:
   --without-delegate=NAME        Same as above
   --without-delegates LIST       Disable delegates in LIST
   --without-delegates=LIST       Same as above
+  --static                       Link yices_smt2.exe statically
 
 Delegate names: cadical, cryptominisat, kissat.
 
@@ -31,6 +33,7 @@ Examples:
   ./configure --local-yices --no-mcsat
   ./configure --local-yices --without-delegate cadical --without-delegate kissat
   ./configure --local-yices --without-delegates=cadical,kissat
+  ./configure --local-yices --static
 EOF
 }
 
@@ -109,6 +112,10 @@ while [ "$#" -gt 0 ]; do
       append_without_delegates "$2"
       shift 2
       ;;
+    --static)
+      smt2_static=1
+      shift
+      ;;
     *)
       echo "unknown option: $1" >&2
       echo "run ./configure --help for usage" >&2
@@ -123,6 +130,7 @@ YICES2_FORCE_LOCAL := $local_yices
 YICES2_ENABLE_MCSAT := $mcsat
 YICES2_ENABLE_DELEGATES := $delegates
 YICES2_WITHOUT_DELEGATES := $without_delegates
+YICES2_SMT2_STATIC := $smt2_static
 EOF
 
 cat <<EOF
@@ -131,6 +139,7 @@ Configured Make defaults in config.mk:
   YICES2_ENABLE_MCSAT=$mcsat
   YICES2_ENABLE_DELEGATES=$delegates
   YICES2_WITHOUT_DELEGATES=$without_delegates
+  YICES2_SMT2_STATIC=$smt2_static
 
 Run 'make' to build.
 EOF
