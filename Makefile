@@ -1,6 +1,7 @@
-.PHONY: default build install uninstall reinstall test clean smt2 doc with-local-yices
+.PHONY: default build install uninstall reinstall test test-all test-sigalt-freevar clean smt2 doc with-local-yices
 
 OPAM_SWITCH_PREFIX ?= $(shell opam var prefix 2>/dev/null)
+SIGALT_STRESS_ITERS ?= 200000
 export OPAM_SWITCH_PREFIX
 
 default: build
@@ -9,7 +10,7 @@ doc:
 	dune build @doc
 
 build:
-	dune build
+	@dune build
 
 with-local-yices:
 	YICES2_FORCE_LOCAL=1 dune build src_smt2/yices_smt2.exe
@@ -18,22 +19,32 @@ smt2:
 	dune build src_smt2
 
 test: build
-	OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
+	@OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
 	DYLD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${DYLD_LIBRARY_PATH:+:$${DYLD_LIBRARY_PATH}}" \
 	LD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}" \
 	dune build @runtest
-	OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
+	@OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
 	DYLD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${DYLD_LIBRARY_PATH:+:$${DYLD_LIBRARY_PATH}}" \
 	LD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}" \
 	dune exec src_smt2/yices_smt2.exe -- src_smt2/simple.smt2
-	OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
+	@OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
 	DYLD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${DYLD_LIBRARY_PATH:+:$${DYLD_LIBRARY_PATH}}" \
 	LD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}" \
 	dune exec src_smt2/yices_smt2.exe -- src_smt2/qf_nra_tuples_sat.smt2
-	OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
+	@OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1 \
 	DYLD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${DYLD_LIBRARY_PATH:+:$${DYLD_LIBRARY_PATH}}" \
 	LD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}" \
 	dune exec src_smt2/yices_smt2.exe -- src_smt2/qf_nra_tuples_unsat.smt2
+
+test-all: test test-sigalt-freevar
+
+test-sigalt-freevar:
+	@printf "Running sigalt free-variable stress (%s iterations)\n" "$(SIGALT_STRESS_ITERS)"
+	@YICES2_FORCE_LOCAL=1 \
+	YICES_SIGALT_STRESS_ITERS=$(SIGALT_STRESS_ITERS) \
+	DYLD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${DYLD_LIBRARY_PATH:+:$${DYLD_LIBRARY_PATH}}" \
+	LD_LIBRARY_PATH="$(OPAM_SWITCH_PREFIX)/lib:$(PWD)/_build/default/vendor_install/lib$${LD_LIBRARY_PATH:+:$${LD_LIBRARY_PATH}}" \
+	dune exec src_tests/sigalt_freevar_stress.exe
 
 install: build
 	dune build @install

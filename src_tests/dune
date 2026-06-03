@@ -1,7 +1,16 @@
 (test
  (name test)
+ (modules (:standard \ sigalt_freevar_stress))
  (libraries ctypes sexplib containers libpoly yices2 extensions)
  (foreign_stubs (language c) (names funptr_test_stubs))
+ (preprocess (pps ppx_deriving.std))
+)
+
+(executable
+ (name sigalt_freevar_stress)
+ (modules sigalt_freevar_stress)
+ (libraries ctypes sexplib containers libpoly yices2 extensions)
+ (foreign_stubs (language c) (names sigalt_stubs))
  (preprocess (pps ppx_deriving.std))
 )
 

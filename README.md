@@ -104,6 +104,7 @@ All commands run in the top-level directory of this repository.
 - `make reinstall`: uninstall then install.
 - `make clean`: remove build artifacts under `_build`.
 - `make test`: build and run the test suite plus a small SMT2 smoke test (sets `OCAML_DISABLE_ALTERNATE_SIGNAL_STACK=1` to avoid signal-stack teardown issues on some platforms).
+- `make test-all`: run `make test`, then run a vendored-Yices MCSAT/free-variable stress check. The stress check fails immediately if it observes a stuck alternate-signal-stack state; it does not call `Yices.Global.exit`, so it does not rely on `yices_exit` or shutdown-time finalization to reveal the issue.
 - `make smt2`: build the `yices_smt2.exe` SMT2 frontend.
 - `make doc`: build API documentation under `_build/default/_doc/_html/index.html`.
 
