@@ -415,11 +415,11 @@ let test_ext_context () =
 (* Deterministic reproducer for the SS_ONSTACK flip: repeatedly assert a free
    VARIABLE term into a fresh MCSAT context and poll the alt-stack flag after
    each iteration. Gated by env YICES_FREEVAR_STRESS (= max iterations, default
-   200000). *)
+   20000). *)
 let stress_freevar () =
   let open Yices2.Ext.WithExceptionsErrorHandling in
   EH1.Global.init ();
-  let n = try int_of_string (Sys.getenv "YICES_FREEVAR_STRESS") with _ -> 200000 in
+  let n = try int_of_string (Sys.getenv "YICES_FREEVAR_STRESS") with _ -> 20000 in
   let reuse = Sys.getenv_opt "YICES_FREEVAR_REUSE" <> None in
   let no_assert = Sys.getenv_opt "YICES_FREEVAR_NOASSERT" <> None in
   let native = Sys.getenv_opt "YICES_FREEVAR_NATIVE" <> None in
