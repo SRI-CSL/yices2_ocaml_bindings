@@ -246,6 +246,15 @@ let () =
       else
         []
     in
+    let vendor_yices_and_delegate_libs libdir =
+      let delegate_libs = vendor_delegate_libs libdir in
+      if delegate_libs = [] || is_system "macosx" sys then
+        "-lyices" :: delegate_libs
+      else
+        (* Static Linux links can otherwise fail to resolve delegate symbols from
+           libyices.a depending on the final linker command's archive order. *)
+        "-Wl,--start-group" :: "-lyices" :: delegate_libs @ [ "-Wl,--end-group" ]
+    in
 	    let vendor_yices_flags sofar =
 	      match vendor_prefix with
 	      | None -> None
@@ -260,7 +269,7 @@ let () =
 	          let has_yices = List.exists Sys.file_exists candidates in
 	          if not has_yices then None
 	          else
-	            let delegate_libs = vendor_delegate_libs libdir in
+	            let yices_libs = vendor_yices_and_delegate_libs libdir in
 	            let cudd_libs =
 	              if enable_mcsat && has_library libdir "cudd" then [ "-lcudd" ] else []
 	            in
@@ -270,8 +279,7 @@ let () =
 	              { libs =
 	                  ("-L" ^ libdir)
 	                  :: ("-Wl,-rpath," ^ libdir)
-	                  :: "-lyices"
-	                  :: (delegate_libs @ cudd_libs @ sofar.libs);
+	                  :: (yices_libs @ cudd_libs @ sofar.libs);
 	                cflags = ("-I" ^ incdir) :: sofar.cflags }
 	    in
 	    let aux sofar (linux_name, macos_name) =
