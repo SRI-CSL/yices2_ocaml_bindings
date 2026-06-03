@@ -1,5 +1,16 @@
 open Yices2.High
 
+(* DIAG instrumentation (see sigalt_probe.c) *)
+external sigalt_query : string -> unit = "caml_sigalt_query"
+external sigalt_scan  : string -> unit = "caml_sigalt_scan_onstack"
+external sigalt_reinstall : unit -> unit = "caml_sigalt_install_probe"
+external sigalt_count : unit -> int = "caml_sigalt_segv_count"
+external sigalt_onstack : unit -> int = "caml_sigalt_onstack"
+external sigalt_wait : int -> unit = "caml_sigalt_wait"
+external sigalt_clear : unit -> int = "caml_sigalt_clear"
+external sigalt_raw_exit : int -> 'a = "caml_sigalt_raw_exit"
+let cp label = sigalt_query label; sigalt_scan label
+
 (* module EH1 = Make(ExceptionsErrorHandling) *)
 module EH1 = Make(NoErrorHandling)
 
@@ -52,7 +63,9 @@ let test_context (type a) (type c) (type m)
   let module Param = EH1.Param in
   let module ErrorPrint = EH1.ErrorPrint in
 
+  let lbl0 s = Printf.sprintf "tc[mcsat=%b]:%s" mcsat s in
   let ctx = Context.malloc ~config:cfg () in
+  cp (lbl0 "tc-start");
 
   (* Basic tests, asserts, checks, push, pops, options, reset *)
   let _stat = Context.status ctx in
@@ -64,6 +77,7 @@ let test_context (type a) (type c) (type m)
   let smt_stat = Context.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
   Context.reset ctx;
+  cp (lbl0 "after-pushpop-checks");
   let () = Context.enable_option ctx ~option:"arith-elim" in
   let () = Context.disable_option ctx ~option:"arith-elim" in
   let stat = Context.status ctx in
@@ -73,14 +87,19 @@ let test_context (type a) (type c) (type m)
   (* No variables in assertions *)
   let boolt = Type.bool () in
   let bvar1 = Term.new_variable boolt in
+  cp (lbl0 "before-freevar-assert");
   begin
     try Context.assert_formula ctx bvar1;
+      cp (lbl0 "freevar-assert-returned");
       assert false;
-    with _ -> 
+    with e -> 
+      Printf.eprintf "[freevar] caught exception: %s\n%!" (Printexc.to_string e);
+      cp (lbl0 "in-freevar-handler");
       let error_string = ErrorPrint.string () in ();
       (* Next line is commented out because MCSAT sends another error message *)
       if not mcsat then assert(String.equal error_string "assertion contains a free variable")
   end;
+  cp (lbl0 "after-freevar-block");
   
   (* Parsing and naming *)
   let bv_t  = Type.bv 3 in
@@ -93,10 +112,13 @@ let test_context (type a) (type c) (type m)
   let fmla1 = Term.parse "(= x (bv-add y z))" in
   let fmla2 = Term.parse "(bv-gt y 0b000)" in
   let fmla3 = Term.parse "(bv-gt z 0b000)" in
+  cp (lbl0 "after-parse");
   let () = Context.assert_formula ctx fmla1 in
   let () = Context.assert_formulas ctx [fmla1; fmla2; fmla3] in
+  cp (lbl0 "after-asserts");
   let smt_stat = Context.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
+  cp (lbl0 "after-parse-check");
   Context.stop ctx;
   Context.reset ctx;
 
@@ -106,22 +128,30 @@ let test_context (type a) (type c) (type m)
   Context.assert_formula ctx Term.(application f [a] === a);
   Context.assert_formula ctx Term.(application f [BV.bvnot a] === BV.bvnot a);
   let _status = Context.check ctx in
+  cp (lbl0 "after-func-check");
   let _model  = Context.get_model ctx in
+  cp (lbl0 "after-func-get_model");
   (* print_endline (CCFormat.sprintf "%a" Yices2.Ext.Model.pp model); *)
   (* Next line is commented out because it is not supported yet *)
   (* let _ = EH1.Model.get_value_as_term model f in *)
   Context.reset ctx;
 
+  let lbl s = Printf.sprintf "tc[mcsat=%b]:%s" mcsat s in
+  cp (lbl "before-algebraic");
   (* Testing algebraic numbers *)
   if mcsat
   then
     begin
       let x = Term.new_uninterpreted (Type.real()) in
       Context.assert_formula ctx Term.(Arith.(((neg x) ** (neg x)) === Arith.int 2));
+      cp (lbl "alg-before-check");
       let status = Context.check ctx in
+      cp (lbl "alg-after-check");
       assert(Types.equal_smt_status status `STATUS_SAT);
       let model = Context.get_model ctx in
+      cp (lbl "alg-after-get_model");
       let sq2 = Context.get_algebraic_number_value model x in
+      cp (lbl "alg-after-get_algebraic");
       (* The following line does not work without an extension for epsilon-terms *)
       (* let _sq2_term = EH1.Model.get_value_as_term model x in *)
       (* print_endline(EH1.PP.term_string sq2_term); *)
@@ -273,16 +303,25 @@ let cfg_makeNtest (type a) (module Config : Config with type t = a) test_cfg =
   (* Now preparing the call to test_cfg *)
   let cfg = Config.malloc () in
 
+  cp "makeNtest:before-regular";
   print_endline "Regular context tests";
   test_cfg false cfg;
+  cp "makeNtest:after-regular";
 
   print_endline "MCSAT contexts tests";
   Config.set cfg ~name:"solver-type" ~value:"mcsat";
   Config.set cfg ~name:"model-interpolation" ~value:"true";
   Config.set cfg ~name:"mode" ~value:"push-pop";
+  sigalt_reinstall ();
+  let faults_before = sigalt_count () in
   test_cfg true cfg;
+  let faults_after = sigalt_count () in
+  Printf.eprintf "[sigalt] MCSAT-solve fault delta = %d (before=%d after=%d)\n%!"
+    (faults_after - faults_before) faults_before faults_after;
+  cp "makeNtest:after-mcsat(before-exit)";
 
   EH1.Global.exit();
+  cp "makeNtest:after-exit";
   print_endline "Done with Regular and MCSAT Context tests"
 
 (* We've pushed as far as we could the common code for native and extended contexts.
@@ -339,6 +378,7 @@ let test_native_context mcsat cfg =
   test_interpolation (module NativeContext) mcsat cfg
 
 let test_ext_context mcsat cfg =
+  let lbl s = Printf.sprintf "ext-worker[mcsat=%b]:%s" mcsat s in
   let open Yices2.Ext.WithExceptionsErrorHandling in
   let ctx = Context.malloc ~config:cfg () in
   assert(Bool.equal mcsat (Context.is_mcsat ctx));
@@ -349,15 +389,19 @@ let test_ext_context mcsat cfg =
   Context.goto ctx 0;
   let smt_stat = Context.check ctx in
   assert(Types.equal_smt_status smt_stat `STATUS_SAT);
+  cp (lbl "after-goto-checks");
 
   let scalar = Type.new_uninterpreted ~name:"scalar_type" ~card:3 () in
   assert(Type.Names.has_name scalar);
   let cst = Term.constant scalar ~id:1 in
   let () = Term.Names.set cst "CST" in
   assert(Term.Names.has_name cst);
+  cp (lbl "after-scalar");
 
   test_context       (module ExtContext) mcsat cfg;
-  test_interpolation (module ExtContext) mcsat cfg
+  cp (lbl "after-test_context");
+  test_interpolation (module ExtContext) mcsat cfg;
+  cp (lbl "after-test_interpolation")
 
 
 let test_context () =
@@ -367,6 +411,103 @@ let test_context () =
 let test_ext_context () =
   print_endline "Extended bindings tests";
   cfg_makeNtest (module Yices2.Ext.WithExceptionsErrorHandling.Config) test_ext_context
+
+(* Deterministic reproducer for the SS_ONSTACK flip: repeatedly assert a free
+   VARIABLE term into a fresh MCSAT context and poll the alt-stack flag after
+   each iteration. Gated by env YICES_FREEVAR_STRESS (= max iterations, default
+   200000). *)
+let stress_freevar () =
+  let open Yices2.Ext.WithExceptionsErrorHandling in
+  EH1.Global.init ();
+  let n = try int_of_string (Sys.getenv "YICES_FREEVAR_STRESS") with _ -> 200000 in
+  let reuse = Sys.getenv_opt "YICES_FREEVAR_REUSE" <> None in
+  let no_assert = Sys.getenv_opt "YICES_FREEVAR_NOASSERT" <> None in
+  let native = Sys.getenv_opt "YICES_FREEVAR_NATIVE" <> None in
+  let no_yices_exit = Sys.getenv_opt "YICES_FREEVAR_NO_YICES_EXIT" <> None in
+  let fail_on_flip = Sys.getenv_opt "YICES_FREEVAR_FAIL_ON_FLIP" <> None in
+  (match Sys.getenv_opt "YICES_FREEVAR_WAIT" with
+   | Some s -> sigalt_wait (try int_of_string s with _ -> 6)
+   | None -> ());
+  if Sys.getenv_opt "YICES_FREEVAR_OCAMLONLY" <> None then begin
+    let flipped = ref false in
+    let i = ref 0 in
+    let sink = ref [] in
+    Printf.eprintf "[stress] start onstack=%d ocaml-only\n%!" (sigalt_onstack ());
+    while (not !flipped) && !i < n do
+      incr i;
+      sink := (Array.make 64 !i) :: (if !i land 1023 = 0 then [] else !sink);
+      ignore (Sys.opaque_identity !sink);
+      if sigalt_onstack () = 1 then begin
+        flipped := true;
+        Printf.eprintf "[stress] (ocaml-only) SS_ONSTACK flipped at iteration %d\n%!" !i;
+        if fail_on_flip then sigalt_raw_exit 2
+      end
+    done;
+    if not !flipped then Printf.eprintf "[stress] (ocaml-only) no flip after %d iters\n%!" !i;
+    raise Exit
+  end;
+  if native then begin
+    let boolt = EH1.Type.bool () in
+    let keep = Sys.getenv_opt "YICES_FREEVAR_KEEP" <> None in
+    let kept = ref [] in
+    let flipped = ref false in
+    let i = ref 0 in
+    Printf.eprintf "[stress] start onstack=%d native keep=%b\n%!" (sigalt_onstack ()) keep;
+    while (not !flipped) && !i < n do
+      incr i;
+      let cfg = EH1.Config.malloc () in
+      EH1.Config.set cfg ~name:"solver-type" ~value:"mcsat";
+      EH1.Config.set cfg ~name:"model-interpolation" ~value:"true";
+      EH1.Config.set cfg ~name:"mode" ~value:"push-pop";
+      let ctx = EH1.Context.malloc ~config:cfg () in
+      let bvar = EH1.Term.new_variable boolt in
+      let _ = EH1.Context.assert_formula ctx bvar in
+      if keep then kept := Obj.repr (ctx, cfg) :: !kept;
+      if sigalt_onstack () = 1 then begin
+        flipped := true;
+        Printf.eprintf "[stress] (native) SS_ONSTACK flipped at iteration %d\n%!" !i;
+        let after = sigalt_clear () in
+        Printf.eprintf "[stress] (native) after sigalt_clear: onstack=%d\n%!" after;
+        if fail_on_flip then sigalt_raw_exit 2
+      end
+    done;
+    ignore (Sys.opaque_identity !kept);
+    if not !flipped then Printf.eprintf "[stress] (native) no flip after %d iters\n%!" !i;
+    if not no_yices_exit then EH1.Global.exit ();
+    raise Exit
+  end;
+  let boolt = EH1.Type.bool () in
+  let flipped = ref false in
+  let i = ref 0 in
+  let last_exn = ref "<none>" in
+  let mkctx () =
+    let cfg = Config.malloc () in
+    Config.set cfg ~name:"solver-type" ~value:"mcsat";
+    Config.set cfg ~name:"model-interpolation" ~value:"true";
+    Config.set cfg ~name:"mode" ~value:"push-pop";
+    Context.malloc ~config:cfg ()
+  in
+  let shared = if reuse then Some (mkctx ()) else None in
+  Printf.eprintf "[stress] start onstack=%d faults=%d reuse=%b no_assert=%b\n%!"
+    (sigalt_onstack ()) (sigalt_count ()) reuse no_assert;
+  while (not !flipped) && !i < n do
+    incr i;
+    let ctx = match shared with Some c -> c | None -> mkctx () in
+    let bvar = EH1.Term.new_variable boolt in
+    if not no_assert then
+      (try Context.assert_formula ctx bvar with e -> last_exn := Printexc.to_string e);
+    if sigalt_onstack () = 1 then begin
+      flipped := true;
+      Printf.eprintf "[stress] SS_ONSTACK flipped at iteration %d, faults=%d\n%!"
+        !i (sigalt_count ());
+      Printf.eprintf "[stress] last exception: %s\n%!" !last_exn;
+      sigalt_scan "stress-flip-owner";
+      if fail_on_flip then sigalt_raw_exit 2
+    end
+  done;
+  if not !flipped then
+    Printf.eprintf "[stress] no flip after %d iters, faults=%d\n%!" !i (sigalt_count ());
+  if not no_yices_exit then EH1.Global.exit ()
 
 let test_tupleblast () =
   let open Yices2.Ext.WithExceptionsErrorHandling in
@@ -430,4 +571,3 @@ let test_tupleblast () =
 (*        Types.pp_error_report report; *)
 (*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
 (*      raise exc *)
-
