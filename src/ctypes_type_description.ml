@@ -444,11 +444,13 @@ module Types (F : TYPE) = struct
       ((function
         | `YICES_GEN_DEFAULT -> 0L
         | `YICES_GEN_BY_SUBST -> 1L
-        | `YICES_GEN_BY_PROJ -> 2L),
+        | `YICES_GEN_BY_PROJ -> 2L
+        | `YICES_GEN_BY_PROJ_WIDE -> 3L),
        (function
         | 0L -> `YICES_GEN_DEFAULT
         | 1L -> `YICES_GEN_BY_SUBST
         | 2L -> `YICES_GEN_BY_PROJ
+        | 3L -> `YICES_GEN_BY_PROJ_WIDE
         | _ -> failwith "enum to_int")) in
     object
       method ctype = uint

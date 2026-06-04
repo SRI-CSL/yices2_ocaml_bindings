@@ -1556,6 +1556,27 @@ module Functions (F : Ctypes.FOREIGN) = struct
                      ((@->) yices_gen_mode_t
                         ((@->) (ptr term_vector_t)
                            (returning sint))))))))
+  let yices_generalize_model_with_budget =
+    foreign "yices_generalize_model_with_budget"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) uint
+               ((@->) (ptr term_t)
+                  ((@->) yices_gen_mode_t
+                     ((@->) uint
+                        ((@->) (ptr term_vector_t)
+                           (returning sint))))))))
+  let yices_generalize_model_array_with_budget =
+    foreign "yices_generalize_model_array_with_budget"
+      ((@->) (ptr model_t)
+         ((@->) uint
+            ((@->) (ptr term_t)
+               ((@->) uint
+                  ((@->) (ptr term_t)
+                     ((@->) yices_gen_mode_t
+                        ((@->) uint
+                           ((@->) (ptr term_vector_t)
+                              (returning sint)))))))))
   let yices_pp_type =
     foreign "yices_pp_type"
       ((@->) (ptr _FILE)

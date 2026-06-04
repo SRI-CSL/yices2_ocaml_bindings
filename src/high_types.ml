@@ -4027,6 +4027,7 @@ module type Model = sig
 
       mode = YICES_GEN_BY_SUBST  ---> generalize by substitution
       mode = YICES_GEN_BY_PROJ   ---> projection
+      mode = YICES_GEN_BY_PROJ_WIDE ---> SAT-guided wide projection
       mode = YICES_GEN_DEFAULT   ---> automatically choose the mode
       depending on the variables to eliminate
 
@@ -4061,6 +4062,14 @@ module type Model = sig
 
   (** Compute a generalization of mdl for the conjunct (a0 /\ ... /\ an-1)  *)
   val generalize_model_list : t -> term list -> term list -> yices_gen_mode -> term list eh
+
+  (** Like {!generalize_model} but with a cube budget for
+      YICES_GEN_BY_PROJ_WIDE. A budget of 0 means unbounded. *)
+  val generalize_model_with_budget : t -> term -> term list -> yices_gen_mode -> int -> term list eh
+
+  (** Like {!generalize_model_list} but with a cube budget for
+      YICES_GEN_BY_PROJ_WIDE. A budget of 0 means unbounded. *)
+  val generalize_model_list_with_budget : t -> term list -> term list -> yices_gen_mode -> int -> term list eh
 
 end
 

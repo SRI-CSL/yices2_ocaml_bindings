@@ -1612,6 +1612,14 @@ module SafeMake
       ((yices_generalize_model_array m |> ofList1 term_t) l1
        |> ofList1 term_t) l2 (Conv.yices_gen_mode.write gen)
       |> TermVector.toList
+    let generalize_model_with_budget m t l gen cube_budget =
+      (yices_generalize_model_with_budget m t |> ofList1 term_t) l
+        (Conv.yices_gen_mode.write gen) (!> cube_budget)
+      |> TermVector.toList
+    let generalize_model_list_with_budget m l1 l2 gen cube_budget =
+      ((yices_generalize_model_array_with_budget m |> ofList1 term_t) l1
+       |> ofList1 term_t) l2 (Conv.yices_gen_mode.write gen) (!> cube_budget)
+      |> TermVector.toList
 
 
   end
