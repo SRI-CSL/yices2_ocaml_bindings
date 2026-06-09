@@ -100,6 +100,7 @@ module BaseTypes = struct
 
   type yices_gen_mode =
     [ `YICES_GEN_BY_PROJ
+    | `YICES_GEN_BY_PROJ_WIDE
     | `YICES_GEN_BY_SUBST
     | `YICES_GEN_DEFAULT ] [@@deriving eq,show]
 
@@ -5482,6 +5483,15 @@ v}
    v}
   *)
   val yices_generalize_model_array : model_t ptr -> uint -> term_t ptr -> uint -> term_t ptr -> yices_gen_mode_t -> term_vector_t ptr -> unit_t checkable
+
+  (* Same as yices_generalize_model and yices_generalize_model_array but with
+     an explicit cube_budget. The budget only applies to
+     YICES_GEN_BY_PROJ_WIDE. A cube_budget of 0 means unbounded. *)
+  val yices_generalize_model_with_budget :
+    model_t ptr -> term_t -> uint -> term_t ptr -> yices_gen_mode_t -> uint -> term_vector_t ptr -> unit_t checkable
+
+  val yices_generalize_model_array_with_budget :
+    model_t ptr -> uint -> term_t ptr -> uint -> term_t ptr -> yices_gen_mode_t -> uint -> term_vector_t ptr -> unit_t checkable
 
 
   (** {2 PRETTY PRINTING} *)

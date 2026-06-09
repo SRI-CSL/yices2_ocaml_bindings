@@ -48,10 +48,24 @@ let assert_equal_int ~msg expected actual =
   if expected <> actual then
     failwith (Printf.sprintf "%s: expected %d, got %d" msg expected actual)
 
+let assert_status ~msg expected actual =
+  if not (Yices2.High.Types.equal_smt_status expected actual) then
+    failwith
+      (Printf.sprintf "%s: expected %s, got %s" msg
+         (Yices2.High.Types.show_smt_status expected)
+         (Yices2.High.Types.show_smt_status actual))
+
 let assert_raises ~msg f =
   try f (); failwith (Printf.sprintf "expected exception: %s" msg)
   with Yices2.High.ExceptionsErrorHandling.YicesException _ -> ()
      | Yices2.High.ExceptionsErrorHandling.YicesBindingsException _ -> ()
+
+let assert_generalization_implies ~msg assumption generalization =
+  let cfg = Config.malloc () in
+  let ctx = Context.malloc ~config:cfg () in
+  Context.assert_formula ctx assumption;
+  Context.assert_formula ctx Term.(not1 (andN generalization));
+  assert_status ~msg `STATUS_UNSAT (Context.check ctx)
 
 (* ------------------------------------------------------------------ *)
 (* 1. SModel.empty                                                    *)
@@ -398,9 +412,72 @@ let test_generalize () =
   (* Generalize: eliminate y from the conjunction that holds in the model *)
   let fmla = Term.Arith.(leq y x) in
   let gen = SModel.generalize_model smodel fmla [y] `YICES_GEN_BY_PROJ in
-  (* The generalization may be empty (trivially true) or non-empty *)
-  (* Just check it doesn't crash and returns a list *)
-  ignore gen
+  print_endline "  SModel.generalize_model_with_budget";
+  let gen_budget =
+    SModel.generalize_model_with_budget smodel fmla [y] `YICES_GEN_BY_PROJ 1
+  in
+  print_endline "  SModel.generalize_model_list_with_budget";
+  let gen_list_budget =
+    SModel.generalize_model_list_with_budget smodel [fmla] [y] `YICES_GEN_BY_PROJ 1
+  in
+  print_endline "  SModel.generalize_model_with_budget wide";
+  let wide_budget =
+    SModel.generalize_model_with_budget smodel fmla [y] `YICES_GEN_BY_PROJ_WIDE 1
+  in
+  let wide_budget_10 =
+    SModel.generalize_model_with_budget smodel fmla [y] `YICES_GEN_BY_PROJ_WIDE 10
+  in
+  let wide_unbounded =
+    SModel.generalize_model_with_budget smodel fmla [y] `YICES_GEN_BY_PROJ_WIDE 0
+  in
+  let wide_list_budget =
+    SModel.generalize_model_list_with_budget smodel [fmla] [y] `YICES_GEN_BY_PROJ_WIDE 1
+  in
+  List.iter
+    (fun (name, generalization) ->
+      assert_generalization_implies ~msg:name fmla generalization)
+    [
+      "proj generalization", gen;
+      "proj budget generalization", gen_budget;
+      "proj list budget generalization", gen_list_budget;
+      "wide budget generalization", wide_budget;
+      "wide budget 10 generalization", wide_budget_10;
+      "wide unbounded generalization", wide_unbounded;
+      "wide list budget generalization", wide_list_budget;
+    ]
+
+let test_high_model_generalize_with_budget () =
+  print_endline "  Model.generalize_model_with_budget";
+  let module H = Yices2.High.Make(Yices2.High.ExceptionsErrorHandling) in
+  let cfg = H.Config.malloc () in
+  let ctx = H.Context.malloc ~config:cfg () in
+  let x = H.Term.new_uninterpreted ~name:"hgen_x" (H.Type.int ()) in
+  let y = H.Term.new_uninterpreted ~name:"hgen_y" (H.Type.int ()) in
+  H.Context.assert_formula ctx H.Term.Arith.(leq (int 0) x);
+  H.Context.assert_formula ctx H.Term.Arith.(leq x (int 10));
+  H.Context.assert_formula ctx H.Term.Arith.(leq y x);
+  H.Context.assert_formula ctx H.Term.Arith.(leq (int 0) y);
+  assert_status ~msg:"high context sat" `STATUS_SAT (H.Context.check ctx);
+  let model = H.Context.get_model ctx ~keep_subst:true in
+  let fmla = H.Term.Arith.(leq y x) in
+  let wide =
+    H.Model.generalize_model_with_budget model fmla [y] `YICES_GEN_BY_PROJ_WIDE 1
+  in
+  let wide_10 =
+    H.Model.generalize_model_with_budget model fmla [y] `YICES_GEN_BY_PROJ_WIDE 10
+  in
+  print_endline "  Model.generalize_model_list_with_budget";
+  let wide_list =
+    H.Model.generalize_model_list_with_budget model [fmla] [y] `YICES_GEN_BY_PROJ_WIDE 1
+  in
+  List.iter
+    (fun (name, generalization) ->
+      assert_generalization_implies ~msg:name fmla generalization)
+    [
+      "high wide budget generalization", wide;
+      "high wide budget 10 generalization", wide_10;
+      "high wide list budget generalization", wide_list;
+    ]
 
 (* ------------------------------------------------------------------ *)
 (* 19. BV model values round-trip correctly                            *)
@@ -573,6 +650,7 @@ let test () =
   test_model_term_support ();
   test_implicant ();
   test_generalize ();
+  test_high_model_generalize_with_budget ();
   test_bv_model ();
   test_bool_model ();
   test_check_with_smodel ();

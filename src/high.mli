@@ -17,6 +17,9 @@ module type ErrorHandling = sig
   (** What to do when getting back a status *)
   val return_status : smt_status -> smt_status t
 
+  (** What to do when getting back a signed-int C status code *)
+  val return_status_sint : 'a sintbase -> 'a sintbase t
+
   (** What to do when getting back a value implemented as a signed int  *)
   val return_sint : 'a sintbase -> 'a sintbase t
 

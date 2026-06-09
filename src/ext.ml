@@ -1098,6 +1098,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let generalize_model_list (SModel{model; _}) fs elims mode =
       Model.generalize_model_list model fs elims mode
 
+    let generalize_model_with_budget (SModel{model; _}) t elims mode cube_budget =
+      Model.generalize_model_with_budget model t elims mode cube_budget
+
+    let generalize_model_list_with_budget (SModel{model; _}) fs elims mode cube_budget =
+      Model.generalize_model_list_with_budget model fs elims mode cube_budget
+
     let make ?support:support_override ?smodel bindings =
       (* Classify each binding:
          - A values (Bool, Rational, BV, Algebraic) → Model.set

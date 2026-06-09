@@ -730,6 +730,14 @@ module type SModel = sig
   (** Like {!generalize_model} but for a conjunction of formulas. *)
   val generalize_model_list : t -> term list -> term list -> yices_gen_mode -> term list
 
+  (** Like {!generalize_model} but with a cube budget for
+      YICES_GEN_BY_PROJ_WIDE. A budget of 0 means unbounded. *)
+  val generalize_model_with_budget : t -> term -> term list -> yices_gen_mode -> int -> term list
+
+  (** Like {!generalize_model_list} but with a cube budget for
+      YICES_GEN_BY_PROJ_WIDE. A budget of 0 means unbounded. *)
+  val generalize_model_list_with_budget : t -> term list -> term list -> yices_gen_mode -> int -> term list
+
   (** Return all bindings as term-to-term pairs, silently skipping
       any support term whose value cannot be expressed as a term. *)
   val as_map  : t -> (term * term) list
