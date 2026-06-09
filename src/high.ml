@@ -218,6 +218,7 @@ module type SafeErrorHandling = sig
   val raise_yices_error    : unit -> _ t
   val raise_bindings_error : ('a, Format.formatter, unit, _ t) format4 -> 'a
   val return_status : smt_status -> smt_status t
+  val return_status_sint : 'a sintbase checkable -> 'a sintbase t
   val return_sint : 'a sintbase checkable -> 'a sintbase t
   val return_uint : 'a uintbase checkable -> 'a uintbase t
   val return_ptr  : 'a ptr checkable -> 'a ptr t
@@ -234,6 +235,7 @@ module NoErrorHandling = struct
   let raise_yices_error ()   = raise(YicesException(Error.code(),Error.report()))
   let raise_bindings_error a = Format.ksprintf ~f:(fun s -> raise(YicesBindingsException s)) a
   let return_status t = t
+  let return_status_sint t = if sintcheck t then t else raise_yices_error ()
   let return_sint t = t
   let return_uint t = t
   let return_ptr t  = t
@@ -249,6 +251,7 @@ module ExceptionsErrorHandling = struct
   let raise_bindings_error a = Format.ksprintf ~f:(fun s -> raise(YicesBindingsException s)) a
   let aux check t = if check t then t else raise_yices_error ()
   let return_status = aux status_is_not_error
+  let return_status_sint t = aux sintcheck t
   let return_sint t = aux sintcheck t
   let return_uint t = aux uintcheck t
   let return_ptr t  = aux ptrcheck t
@@ -265,6 +268,7 @@ module SumErrorHandling = struct
     if check t then Ok t
     else Error(Yices(Error.code(),Error.report()))
   let return_status = aux status_is_not_error
+  let return_status_sint t = aux sintcheck t
   let return_sint t = aux sintcheck t
   let return_uint t = aux uintcheck t
   let return_ptr t  = aux ptrcheck t
@@ -471,7 +475,7 @@ module SafeMake
     
     let nocheck cont (y,f) = cont f y 
     let check cont (y,f) =
-      let<= x = f in
+      let+ x = return_status_sint f in
       return (cont x y)
 
     let check1 cont = check (fun (_ : unit_t) ((),x) -> cont x)
