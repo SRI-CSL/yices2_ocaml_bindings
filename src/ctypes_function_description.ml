@@ -1537,6 +1537,21 @@ module Functions (F : Ctypes.FOREIGN) = struct
             ((@->) (ptr term_t)
                ((@->) (ptr term_vector_t)
                   (returning sint)))))
+  let yices_implicant_cubes_for_formula =
+    foreign "yices_implicant_cubes_for_formula"
+      ((@->) (ptr model_t)
+         ((@->) term_t
+            ((@->) uint
+               ((@->) (ptr term_vector_t)
+                  (returning sint)))))
+  let yices_implicant_cubes_for_formulas =
+    foreign "yices_implicant_cubes_for_formulas"
+      ((@->) (ptr model_t)
+         ((@->) uint
+            ((@->) (ptr term_t)
+               ((@->) uint
+                  ((@->) (ptr term_vector_t)
+                     (returning sint))))))
   let yices_generalize_model =
     foreign "yices_generalize_model"
       ((@->) (ptr model_t)

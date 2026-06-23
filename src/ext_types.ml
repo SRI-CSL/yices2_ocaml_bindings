@@ -722,6 +722,13 @@ module type SModel = sig
   (** Like {!implicant_for_formula} but for a conjunction of formulas. *)
   val implicant_for_formulas : t -> term list -> term list
 
+  (** Enumerate several implicant cubes for formula [f].
+      The result is a list of cubes, and each cube is a list of literals. *)
+  val implicant_cubes_for_formula : t -> term -> int -> term list list
+
+  (** Like {!implicant_cubes_for_formula} but for a conjunction of formulas. *)
+  val implicant_cubes_for_formulas : t -> term list -> int -> term list list
+
   (** Model-guided generalization: eliminate [elims] from [f].
       Returns a formula [G] such that the model satisfies [G]
       and [G] implies [exists elims. f]. *)

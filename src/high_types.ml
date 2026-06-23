@@ -4000,6 +4000,18 @@ module type Model = sig
       Otherwise, v->size is set to 0.  *)
   val implicant_for_formulas : t -> term list -> term list eh
 
+  (** Variant: enumerate several implicant cubes for formula [f] in [mdl].
+      [max_cubes] is the maximum number of distinct cubes to return; [0] means
+      no explicit cap.
+
+      The result is a list of cubes, and each cube is a list of literals. If
+      [max_cubes] is [1], the single returned cube has the same literal-list
+      shape as {!implicant_for_formula}. *)
+  val implicant_cubes_for_formula : t -> term -> int -> term list list eh
+
+  (** Like {!implicant_cubes_for_formula} but for a conjunction of formulas. *)
+  val implicant_cubes_for_formulas : t -> term list -> int -> term list list eh
+
   (** MODEL GENERALIZATION  *)
 
   (** Given a model mdl for a formula F(X, Y). The following generalization functions
