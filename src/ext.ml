@@ -1092,6 +1092,12 @@ module Make(EH: ErrorHandling with type 'a t = 'a) = struct
     let implicant_for_formulas (SModel{model; _}) fs =
       Model.implicant_for_formulas model fs
 
+    let implicant_cubes_for_formula (SModel{model; _}) f max_cubes =
+      Model.implicant_cubes_for_formula model f max_cubes
+
+    let implicant_cubes_for_formulas (SModel{model; _}) fs max_cubes =
+      Model.implicant_cubes_for_formulas model fs max_cubes
+
     let generalize_model (SModel{model; _}) t elims mode =
       Model.generalize_model model t elims mode
 

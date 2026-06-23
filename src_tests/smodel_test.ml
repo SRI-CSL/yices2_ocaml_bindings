@@ -391,7 +391,21 @@ let test_implicant () =
   let smodel = Context.get_model ctx ~keep_subst:true in
   let fmla = Term.Arith.(lt (int 0) x) in
   let implicant = SModel.implicant_for_formula smodel fmla in
-  assert_true ~msg:"implicant non-empty" (List.length implicant >= 1)
+  assert_true ~msg:"implicant non-empty" (List.length implicant >= 1);
+  let cubes = SModel.implicant_cubes_for_formula smodel fmla 1 in
+  assert_equal_int ~msg:"one formula cube" 1 (List.length cubes);
+  (match cubes with
+   | [cube] ->
+     assert_equal_int ~msg:"one formula cube literals"
+       (List.length implicant) (List.length cube)
+   | _ -> failwith "expected one formula cube");
+  let cubes_array = SModel.implicant_cubes_for_formulas smodel [fmla] 1 in
+  assert_equal_int ~msg:"one formulas cube" 1 (List.length cubes_array);
+  (match cubes_array with
+   | [cube] ->
+     assert_equal_int ~msg:"one formulas cube literals"
+       (List.length implicant) (List.length cube)
+   | _ -> failwith "expected one formulas cube")
 
 (* ------------------------------------------------------------------ *)
 (* 18. SModel.generalize_model                                         *)

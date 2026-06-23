@@ -5411,6 +5411,31 @@ v}
    Otherwise, v->size is set to 0. *)
   val yices_implicant_for_formulas : model_t ptr -> uint -> term_t ptr -> term_vector_t ptr -> unit_t checkable
 
+  (* Variant: enumerate several implicant cubes for formula t in mdl.
+
+   {v
+   yices_implicant_cubes_for_formula mdl t max_cubes v
+   v}
+
+   - max_cubes is the maximum number of distinct cubes to return.
+   - max_cubes = 0 means no explicit cap.
+   - larger values of max_cubes make this function more expensive.
+
+   If the return code is k >= 1, then v contains the literals of k cubes,
+   separated by k-1 occurrences of NULL_TERM. There is no trailing NULL_TERM.
+   If max_cubes is 1, the result has the same flat literal-vector shape as
+   yices_implicant_for_formula.
+
+   Return codes and errors are as in yices_implicant_for_formula, except that
+   success returns the number of cubes instead of 0. If the return code is -1,
+   v is empty. *)
+  val yices_implicant_cubes_for_formula :
+    model_t ptr -> term_t -> uint -> term_vector_t ptr -> sint_t checkable
+
+  (* Same thing for a conjunction of formulas ts[0] ... ts[n-1]. *)
+  val yices_implicant_cubes_for_formulas :
+    model_t ptr -> uint -> term_t ptr -> uint -> term_vector_t ptr -> sint_t checkable
+
   (* MODEL GENERALIZATION *)
 
   (* Given a model mdl for a formula F(X, Y). The following generalization functions

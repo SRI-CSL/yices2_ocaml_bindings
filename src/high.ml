@@ -1609,6 +1609,26 @@ module SafeMake
     
     let implicant_for_formula  = yices_implicant_for_formula <..> TermVector.toList
     let implicant_for_formulas = yices_implicant_for_formulas <.> ofList1 term_t <..> TermVector.toList
+    let split_implicant_cubes = function
+      | [] -> [[]]
+      | literals ->
+        let rec aux cube cubes = function
+          | [] -> List.rev (List.rev cube :: cubes)
+          | t :: rest when Types.equal_term_t t null_term ->
+            aux [] (List.rev cube :: cubes) rest
+          | t :: rest ->
+            aux (t :: cube) cubes rest
+        in
+        aux [] [] literals
+    let term_vector_cubes f =
+      Alloc.(load f |> allocV TermVector.make
+             |> check (fun _ ((), v) -> split_implicant_cubes (TermVector.to_list v)))
+    let implicant_cubes_for_formula m t max_cubes =
+      yices_implicant_cubes_for_formula m t (!> max_cubes)
+      |> term_vector_cubes
+    let implicant_cubes_for_formulas m l max_cubes =
+      (yices_implicant_cubes_for_formulas m |> ofList1 term_t) l (!> max_cubes)
+      |> term_vector_cubes
     let generalize_model m t l gen =
       (yices_generalize_model m t |> ofList1 term_t) l (Conv.yices_gen_mode.write gen)
       |> TermVector.toList
