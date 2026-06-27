@@ -844,6 +844,43 @@ let test_straight_line_at_regex_position_propagation () =
     (S.Term.in_re (S.Term.at x (S.Term.Arith.int 1)) (S.Regex.str ""));
   assert_check `STATUS_UNSAT ctx
 
+let test_straight_line_replace_all_preimage_propagation () =
+  let cd2 =
+    S.Regex.concat [S.Regex.range "c" "d"; S.Regex.range "c" "d"]
+  in
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_pre_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_pre_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
+  S.Context.assert_formula ctx (S.Term.in_re x cd2);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_pre_direct_x" () in
+  S.Context.assert_formula ctx
+    (S.Term.in_re
+       (S.Term.replace_all x (S.Term.str "a") (S.Term.str "b"))
+       (S.Regex.str "bb"));
+  S.Context.assert_formula ctx (S.Term.in_re x cd2);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_pre_range_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_pre_range_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.range "b" "b"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.range "c" "d"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_pre_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_pre_sat_y" () in
+  S.Context.assert_formula ctx S.Term.(x === str "ab");
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
+  assert_check `STATUS_SAT ctx
+
 let test_regex_failed_length_enumerates_to_sat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"regex_star_ge_x" () in
@@ -1195,6 +1232,7 @@ let test () =
   test_straight_line_substring_position_propagation ();
   test_straight_line_at_position_propagation ();
   test_straight_line_at_regex_position_propagation ();
+  test_straight_line_replace_all_preimage_propagation ();
   test_regex_failed_length_enumerates_to_sat ();
   test_regex_periodic_length_refinement ();
   test_regex_semilinear_length_refinement ();

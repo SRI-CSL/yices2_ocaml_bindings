@@ -4268,6 +4268,190 @@ let at_singleton_position_propagation state smodel terms infos equalities =
                           Some lemma
                         end))
 
+let scalar_valid_intervals =
+  [
+    (0, surrogate_lo - 1);
+    (surrogate_hi + 1, unicode_max);
+  ]
+
+let compare_interval_pair (llo, lhi) (rlo, rhi) =
+  let c = Int.compare llo rlo in
+  if c <> 0 then c else Int.compare lhi rhi
+
+let normalize_interval_pairs intervals =
+  let intervals =
+    intervals
+    |> List.filter (fun (lo, hi) -> lo <= hi)
+    |> List.sort compare_interval_pair
+  in
+  let rec aux acc = function
+    | [] -> List.rev acc
+    | (lo, hi) :: rest -> (
+        match acc with
+        | (acc_lo, acc_hi) :: tail when lo <= acc_hi + 1 ->
+            aux ((acc_lo, max acc_hi hi) :: tail) rest
+        | _ -> aux ((lo, hi) :: acc) rest)
+  in
+  aux [] intervals
+
+let intersect_interval_pairs lhs rhs =
+  lhs
+  |> List.concat_map (fun (llo, lhi) ->
+         rhs
+         |> List.filter_map (fun (rlo, rhi) ->
+                let lo = max llo rlo in
+                let hi = min lhi rhi in
+                if lo <= hi then Some (lo, hi) else None))
+  |> normalize_interval_pairs
+
+let valid_scalar_interval_pairs intervals =
+  intersect_interval_pairs intervals scalar_valid_intervals
+
+let interval_pairs_contain scalar intervals =
+  List.exists (fun (lo, hi) -> lo <= scalar && scalar <= hi) intervals
+
+let remove_scalar_from_interval_pairs scalar intervals =
+  intervals
+  |> List.concat_map (fun (lo, hi) ->
+         if scalar < lo || scalar > hi then
+           [lo, hi]
+         else
+           [(lo, scalar - 1); (scalar + 1, hi)])
+  |> normalize_interval_pairs
+
+let add_scalar_to_interval_pairs scalar intervals =
+  if valid_scalar_code scalar then
+    normalize_interval_pairs ((scalar, scalar) :: intervals)
+  else
+    intervals
+
+let regex_of_interval_pairs intervals =
+  let intervals = valid_scalar_interval_pairs intervals in
+  match intervals with
+  | [] -> ReEmpty
+  | [lo, hi] -> ReRange (lo, hi)
+  | _ -> ReUnion (List.map (fun (lo, hi) -> ReRange (lo, hi)) intervals)
+
+let replace_all_char_preimage_regex ~needle ~replacement output_intervals =
+  let output_intervals = valid_scalar_interval_pairs output_intervals in
+  let identity_inputs =
+    output_intervals |> remove_scalar_from_interval_pairs needle
+  in
+  let inputs =
+    if interval_pairs_contain replacement output_intervals then
+      add_scalar_to_interval_pairs needle identity_inputs
+    else
+      identity_inputs
+  in
+  regex_of_interval_pairs inputs
+
+let rec replace_all_single_scalar_preimage_regex ~needle ~replacement regex =
+  let recurse = replace_all_single_scalar_preimage_regex ~needle ~replacement in
+  match regex with
+  | ReEmpty -> Some ReEmpty
+  | ReAll -> Some ReAll
+  | ReAllChar ->
+      Some
+        (replace_all_char_preimage_regex
+           ~needle
+           ~replacement
+           scalar_valid_intervals)
+  | ReLit text ->
+      let pieces =
+        scalar_codes text
+        |> List.map (fun scalar ->
+               replace_all_char_preimage_regex
+                 ~needle
+                 ~replacement
+                 [scalar, scalar])
+      in
+      Some (ReConcat pieces)
+  | ReRange (lo, hi) ->
+      Some
+        (replace_all_char_preimage_regex
+           ~needle
+           ~replacement
+           [lo, hi])
+  | ReConcat regexes ->
+      Option.map (fun regexes -> ReConcat regexes) (sequence_options (List.map recurse regexes))
+  | ReUnion regexes ->
+      Option.map (fun regexes -> ReUnion regexes) (sequence_options (List.map recurse regexes))
+  | ReInter regexes ->
+      Option.map (fun regexes -> ReInter regexes) (sequence_options (List.map recurse regexes))
+  | ReStar regex -> Option.map (fun regex -> ReStar regex) (recurse regex)
+  | ReComp regex -> Option.map (fun regex -> ReComp regex) (recurse regex)
+  | RePlus regex -> Option.map (fun regex -> RePlus regex) (recurse regex)
+  | ReOpt regex -> Option.map (fun regex -> ReOpt regex) (recurse regex)
+  | ReLoop (regex, lo, hi) ->
+      Option.map (fun regex -> ReLoop (regex, lo, hi)) (recurse regex)
+  | ReToRe _ -> None
+
+let replace_all_preimage_regex needle replacement regex =
+  match scalar_codes needle, scalar_codes replacement with
+  | [needle], [replacement] ->
+      replace_all_single_scalar_preimage_regex ~needle ~replacement regex
+  | _ -> None
+
+let replace_all_preimage_lemma smodel equalities constraint_ replace_term =
+  match reveal_string replace_term with
+  | Some (ReplaceAll (haystack, needle, replacement)) -> (
+      match static_string_value needle, static_string_value replacement with
+      | Some needle_text, Some replacement_text
+        when not (String.equal needle_text "") -> (
+          match
+            regex_constraint_premises_for_term equalities replace_term constraint_,
+            replace_all_preimage_regex
+              needle_text
+              replacement_text
+              constraint_.regex_body
+          with
+          | Some premises, Some preimage ->
+              let conclusion = in_re haystack preimage in
+              if true_in_model smodel conclusion then
+                None
+              else
+                Some
+                  (conjoin
+                     (axioms_for_string_term replace_term
+                      @ [imply_all (unique_terms premises) conclusion]))
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+let replace_all_preimage_propagation state smodel infos equalities =
+  infos
+  |> List.find_map (fun info ->
+         let replace_terms =
+           info.regex_terms
+           |> List.filter (fun term ->
+                  match reveal_string term with
+                  | Some (ReplaceAll _) -> true
+                  | _ -> false)
+         in
+         info.regex_constraints
+         |> List.find_map (fun constraint_ ->
+                replace_terms
+                |> List.find_map (fun replace_term ->
+                       match
+                         replace_all_preimage_lemma
+                           smodel
+                           equalities
+                           constraint_
+                           replace_term
+                       with
+                       | None -> None
+                       | Some lemma ->
+                           if is_seen_generated state lemma then
+                             None
+                           else begin
+                             remember_internal_assertion state lemma;
+                             String_log.debug
+                               "straight-line replace_all preimage propagation for %a"
+                               Term.pp
+                               replace_term;
+                             Some lemma
+                           end)))
+
 let containment_domain_lemma smodel info contains_term haystack needle_text =
   if not (term_in_class haystack info.regex_terms)
      || RA.is_empty info.regex_automaton
@@ -5852,6 +6036,20 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
       };
       {
         candidate_priority = 45;
+        candidate_operator = Op_replace_all;
+        candidate_label = "straight-line replace_all preimage propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_replace_all
+               (replace_all_preimage_propagation
+                  state
+                  smodel
+                  regex_infos
+                  syntactic_equalities));
+      };
+      {
+        candidate_priority = 50;
         candidate_operator = Op_in_re;
         candidate_label = "regex domain refinement";
         candidate_produce =
@@ -5861,7 +6059,7 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
                (regex_domain_refinement state smodel regex_infos));
       };
       {
-        candidate_priority = 50;
+        candidate_priority = 55;
         candidate_operator = Op_contains;
         candidate_label = "containment domain refinement";
         candidate_produce =
