@@ -3564,6 +3564,15 @@ let regex_length_lemma constraint_ =
                         (Term.Arith.int min_length)) )
           | None | Some _ -> None))
 
+let propagated_regex_domain_conclusion string regex =
+  let membership = in_re string regex in
+  match compile_regex_body regex with
+  | Error _ -> membership
+  | Ok automaton -> (
+      match length_domain_formula (len string) (RA.length_domain automaton) with
+      | None -> membership
+      | Some (_, length_fact) -> conjoin [membership; length_fact])
+
 let record_length_lemma_kind stats = function
   | Length_empty_kind | Length_finite_kind -> record_length_finite_lemma stats
   | Length_periodic_kind -> record_length_periodic_lemma stats
@@ -4041,7 +4050,9 @@ let at_regex_position_lemma smodel equalities constraint_ at_term =
                     ~index:index_value
                     constraint_.regex_body
                 in
-                let conclusion = in_re source source_regex in
+                let conclusion =
+                  propagated_regex_domain_conclusion source source_regex
+                in
                 if true_in_model smodel conclusion then
                   None
                 else
@@ -4406,7 +4417,9 @@ let replace_all_preimage_lemma smodel equalities constraint_ replace_term =
               constraint_.regex_body
           with
           | Some premises, Some preimage ->
-              let conclusion = in_re haystack preimage in
+              let conclusion =
+                propagated_regex_domain_conclusion haystack preimage
+              in
               if true_in_model smodel conclusion then
                 None
               else

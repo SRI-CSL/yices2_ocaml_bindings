@@ -881,6 +881,49 @@ let test_straight_line_replace_all_preimage_propagation () =
   S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
   assert_check `STATUS_SAT ctx
 
+let test_propagated_regex_length_consequences () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_len_at_x" () in
+  let c = S.Term.string_var ~name:"sl_len_at_c" () in
+  S.Context.assert_formula ctx S.Term.(c === at x (Arith.int 2));
+  S.Context.assert_formula ctx (S.Term.in_re c (S.Regex.range "a" "z"));
+  S.Context.assert_formula ctx
+    S.Term.(Arith.leq (S.Term.len x) (Arith.int 2));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_len_at_direct_x" () in
+  S.Context.assert_formula ctx
+    (S.Term.in_re
+       (S.Term.at x (S.Term.Arith.int 3))
+       (S.Regex.str "q"));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_len_ra_x" () in
+  let y = S.Term.string_var ~name:"sl_len_ra_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_len_ra_periodic_x" () in
+  let y = S.Term.string_var ~name:"sl_len_ra_periodic_y" () in
+  let even_b = S.Regex.star (S.Regex.str "bb") in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y even_b);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_len_ra_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_len_ra_sat_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_SAT ctx
+
 let test_regex_failed_length_enumerates_to_sat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"regex_star_ge_x" () in
@@ -1233,6 +1276,7 @@ let test () =
   test_straight_line_at_position_propagation ();
   test_straight_line_at_regex_position_propagation ();
   test_straight_line_replace_all_preimage_propagation ();
+  test_propagated_regex_length_consequences ();
   test_regex_failed_length_enumerates_to_sat ();
   test_regex_periodic_length_refinement ();
   test_regex_semilinear_length_refinement ();
