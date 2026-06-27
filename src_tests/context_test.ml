@@ -359,6 +359,82 @@ let test_ext_context mcsat cfg =
   test_context       (module ExtContext) mcsat cfg;
   test_interpolation (module ExtContext) mcsat cfg
 
+module UnknownExtension = struct
+  open Yices2.Ext.WithExceptionsErrorHandling
+  open Extensions.Types_ext
+
+  module Arg = struct
+    type term = Term.t
+    type typ = Type.t
+    type old_context = Extensions.Builder.Context.t
+    type config = Config.t
+    type param = Param.t
+    type smodel = SModel.t
+
+    type t = unit
+
+    let malloc ?config () = config, ()
+    let reset _ = ()
+    let push _ = ()
+    let pop _ = ()
+    let goto _ _ = ()
+
+    let translate_assertion (_ctx : old_context) () f = [f]
+    let translate_assumption (_ctx : old_context) () f = f
+
+    let check () _smodel = Unknown "stage 0.5 test extension is incomplete"
+
+    let term_of_old _ t = t
+    let typ_of_old _ ty = ty
+    let param_to_old _ p = p
+    let smodel_to_old _ m = m
+    let smodel_of_old _ m = m
+    let enrich_smodel _ ?support smodel =
+      match support with
+      | None -> smodel
+      | Some support -> SModel.with_support support smodel
+
+    let interpolant _ old_interpolant = old_interpolant
+
+    let pp_term = Term.pp
+    let pp_type = Type.pp
+    let term_to_sexp ?smt2arrays t = Term.to_sexp ?smt2arrays t
+    let type_to_sexp ?smt2arrays t = Type.to_sexp ?smt2arrays t
+    let smodel_to_sexp ?smt2arrays smodel =
+      let bindings =
+        SModel.as_map smodel
+        |> List.map (fun (lhs, rhs) ->
+               let lhs = Term.to_sexp ?smt2arrays lhs in
+               let rhs = Term.to_sexp ?smt2arrays rhs in
+               Sexplib.Sexp.List [Sexplib.Sexp.Atom ":="; lhs; rhs])
+      in
+      Sexplib.Sexp.List (Sexplib.Sexp.Atom "model" :: bindings)
+  end
+
+  module Context = Extensions.Builder.Make (Extensions.Builder.Context) (Arg)
+end
+
+let test_unknown_extension () =
+  let open Yices2.Ext.WithExceptionsErrorHandling in
+  let module Context = UnknownExtension.Context in
+  Global.init();
+  let ctx = Context.malloc () in
+  Context.assert_formula ctx (Term.true0 ());
+  let smt_stat = Context.check ctx in
+  assert(Types.equal_smt_status smt_stat `STATUS_UNKNOWN);
+  assert(Types.equal_smt_status (Context.status ctx) `STATUS_UNKNOWN);
+  let has_no_model =
+    try
+      ignore (Context.get_model ctx);
+      false
+    with
+    | Yices2.High.ExceptionsErrorHandling.YicesException _
+    | Yices2.High.ExceptionsErrorHandling.YicesBindingsException _ -> true
+  in
+  assert has_no_model;
+  Global.exit();
+  print_endline "Done with extension unknown-status test"
+
 
 let test_context () =
   print_endline "High bindings tests";
@@ -366,7 +442,8 @@ let test_context () =
 
 let test_ext_context () =
   print_endline "Extended bindings tests";
-  cfg_makeNtest (module Yices2.Ext.WithExceptionsErrorHandling.Config) test_ext_context
+  cfg_makeNtest (module Yices2.Ext.WithExceptionsErrorHandling.Config) test_ext_context;
+  test_unknown_extension ()
 
 let test_tupleblast () =
   let open Yices2.Ext.WithExceptionsErrorHandling in
@@ -430,4 +507,3 @@ let test_tupleblast () =
 (*        Types.pp_error_report report; *)
 (*      CCFormat.(fprintf stdout) "@[Backtrace is:@,@[%s@]@]@]%!" bcktrace; *)
 (*      raise exc *)
-

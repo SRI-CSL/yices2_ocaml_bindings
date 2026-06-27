@@ -1,4 +1,4 @@
-.PHONY: default build install uninstall reinstall test test-all test-sigalt-freevar clean smt2 doc with-local-yices
+.PHONY: default build install uninstall reinstall test test-all test-sigalt-freevar test-string-benchmarks test-string-smtlib-frontier clean smt2 doc with-local-yices
 
 OPAM_SWITCH_PREFIX ?= $(shell opam var prefix 2>/dev/null)
 SIGALT_STRESS_ITERS ?= 20000
@@ -38,6 +38,14 @@ test: build
 	dune exec src_smt2/yices_smt2.exe -- src_smt2/qf_nra_tuples_unsat.smt2
 
 test-all: test test-sigalt-freevar
+
+test-string-benchmarks:
+	@benchmarks/qf_s/run_core.sh
+	@benchmarks/qf_s/run_extended.sh
+	@benchmarks/qf_s/smtlib/run_smtlib_slices.sh active
+
+test-string-smtlib-frontier:
+	@benchmarks/qf_s/smtlib/run_smtlib_slices.sh frontier
 
 test-sigalt-freevar:
 	@printf "Running sigalt free-variable stress (%s iterations, GC every %s)\n" "$(SIGALT_STRESS_ITERS)" "$(SIGALT_GC_INTERVAL)"

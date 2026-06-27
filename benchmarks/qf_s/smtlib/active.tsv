@@ -1,0 +1,26 @@
+# slice expected relative_path
+stage2_word_equation_active sat QF_S/20230329-woorpje-lu/track01/01_track_108.smt2
+stage2_word_equation_active sat QF_S/20230329-woorpje-lu/track01/01_track_121.smt2
+stage2_word_equation_active sat QF_S/20230329-woorpje-lu/track01/01_track_130.smt2
+stage2_word_equation_active sat QF_S/20230329-woorpje-lu/track01/01_track_146.smt2
+stage2_word_equation_active sat QF_S/20230329-woorpje-lu/track01/01_track_152.smt2
+stage2_word_equation_active sat QF_S/20230329-woorpje-lu/track01/01_track_160.smt2
+stage3_regex_active sat QF_S/20230329-automatark-lu/instance00006.smt2
+stage3_regex_active sat QF_S/20230329-automatark-lu/instance00010.smt2
+stage3_regex_active sat QF_S/20230329-automatark-lu/instance00018.smt2
+stage3_regex_active sat QF_S/20230329-automatark-lu/instance00022.smt2
+stage3_regex_active sat QF_S/20230329-automatark-lu/instance00023.smt2
+stage3_regex_active sat QF_S/20230329-automatark-lu/instance00026.smt2
+stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-1.smt2
+stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-2.smt2
+stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-3.smt2
+stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-4.smt2
+stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-5.smt2
+stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-6.smt2
+stage3_indexof_matching_active unsat QF_SLIA/20250410-matching/sub-find-unsat-3.smt2
+stage3_ext_rewrite_active unsat QF_SLIA/20190311-str-small-rw-Noetzli/str-pred-small-rw/str-pred-small-rw_15.smt2
+stage3_ext_rewrite_active unsat QF_SLIA/20190311-str-small-rw-Noetzli/str-pred-small-rw/str-pred-small-rw_523.smt2
+stage3_ext_rewrite_active unsat QF_SLIA/20190311-str-small-rw-Noetzli/str-pred-small-rw/str-pred-small-rw_527.smt2
+stage3_ext_rewrite_active unsat QF_SLIA/20190311-str-small-rw-Noetzli/str-pred-small-rw/str-pred-small-rw_529.smt2
+stage3_ext_rewrite_active unsat QF_SLIA/20190311-str-small-rw-Noetzli/str-term-small-rw/str-term-small-rw_121.smt2
+stage3_ext_rewrite_active unsat QF_SLIA/20190311-str-small-rw-Noetzli/str-term-small-rw/str-term-small-rw_145.smt2

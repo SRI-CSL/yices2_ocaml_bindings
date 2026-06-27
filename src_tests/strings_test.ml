@@ -1,0 +1,346 @@
+module S = Extensions.Strings
+module Y = Yices2.Ext.WithExceptionsErrorHandling
+
+let with_context f =
+  Y.Global.init();
+  Fun.protect
+    ~finally:(fun () -> Y.Global.exit())
+    (fun () ->
+       let ctx = S.Context.malloc () in
+       f ctx)
+
+let assert_status expected actual =
+  assert (Yices2.Ext.Types.equal_smt_status actual expected)
+
+let assert_check expected ctx =
+  S.Context.check ctx |> assert_status expected
+
+let assert_no_model ctx =
+  let no_model =
+    try
+      ignore (S.Context.get_model ctx);
+      false
+    with
+    | Yices2.High.ExceptionsErrorHandling.YicesException _
+    | Yices2.High.ExceptionsErrorHandling.YicesBindingsException _ -> true
+  in
+  assert no_model
+
+let test_literal_length () =
+  with_context @@ fun ctx ->
+  let abc = S.Term.str "abc" in
+  S.Context.assert_formula ctx S.Term.(S.Term.len abc === Arith.int 3);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model abc)) "abc")
+
+let test_literal_length_unsat () =
+  with_context @@ fun ctx ->
+  let abc = S.Term.str "abc" in
+  S.Context.assert_formula ctx S.Term.(S.Term.len abc === Arith.int 4);
+  assert_check `STATUS_UNSAT ctx
+
+let test_unicode_scalar_length () =
+  with_context @@ fun ctx ->
+  let lambda_str = S.Term.str "lambda: \206\187" in
+  S.Context.assert_formula ctx S.Term.(S.Term.len lambda_str === Arith.int 9);
+  assert_check `STATUS_SAT ctx
+
+let test_invalid_utf8 () =
+  Y.Global.init();
+  let rejected =
+    try
+      ignore (S.Term.str "\192\128");
+      false
+    with
+    | Yices2.High.ExceptionsErrorHandling.YicesBindingsException _ -> true
+    | Yices2.High.ExceptionsErrorHandling.YicesException _ -> true
+  in
+  Y.Global.exit();
+  assert rejected
+
+let test_variable_forced_to_literal () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage1_x" () in
+  let abc = S.Term.str "abc" in
+  S.Context.assert_formula ctx S.Term.(x === abc);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "abc")
+
+let test_distinct_literals_unsat () =
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx S.Term.(S.Term.str "abc" === S.Term.str "def");
+  assert_check `STATUS_UNSAT ctx
+
+let test_ground_concat () =
+  with_context @@ fun ctx ->
+  let ab = S.Term.concat [S.Term.str "a"; S.Term.str "b"] in
+  S.Context.assert_formula ctx S.Term.(ab === S.Term.str "ab");
+  S.Context.assert_formula ctx S.Term.(S.Term.len ab === Arith.int 2);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model ab)) "ab")
+
+let test_ground_concat_unsat () =
+  with_context @@ fun ctx ->
+  let ac = S.Term.concat [S.Term.str "a"; S.Term.str "c"] in
+  S.Context.assert_formula ctx S.Term.(ac === S.Term.str "ab");
+  assert_check `STATUS_UNSAT ctx
+
+let test_concat_suffix_refinement_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_concat_x" () in
+  let xb = S.Term.concat [x; S.Term.str "b"] in
+  S.Context.assert_formula ctx S.Term.(xb === S.Term.str "ab");
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "a");
+  assert (String.equal (Option.get (S.StringModel.find_string model xb)) "ab")
+
+let test_concat_interior_refinement_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_concat_mid_x" () in
+  let axc = S.Term.concat [S.Term.str "a"; x; S.Term.str "c"] in
+  S.Context.assert_formula ctx S.Term.(axc === S.Term.str "abc");
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "b");
+  assert (String.equal (Option.get (S.StringModel.find_string model axc)) "abc")
+
+let test_model_support_filter () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_support_x" () in
+  let xb = S.Term.concat [x; S.Term.str "b"] in
+  S.Context.assert_formula ctx S.Term.(xb === S.Term.str "ab");
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ~support:[x] ctx in
+  assert (List.length model.S.StringModel.strings = 1);
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "a")
+
+let test_concat_incompatible_suffix_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_bad_suffix_x" () in
+  let xb = S.Term.concat [x; S.Term.str "b"] in
+  S.Context.assert_formula ctx S.Term.(xb === S.Term.str "ac");
+  assert_check `STATUS_UNSAT ctx
+
+let test_concat_assignment_conflict_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_conflict_x" () in
+  let xb = S.Term.concat [x; S.Term.str "b"] in
+  S.Context.assert_formula ctx S.Term.(xb === S.Term.str "ab");
+  S.Context.assert_formula ctx S.Term.(x === S.Term.str "c");
+  assert_check `STATUS_UNSAT ctx
+
+let test_length_filler_model () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_len_x" () in
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.length (Option.get (S.StringModel.find_string model x)) = 3)
+
+let test_satisfiable_disequality () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_distinct_x" () in
+  let y = S.Term.string_var ~name:"stage2_distinct_y" () in
+  S.Context.assert_formula ctx S.Term.(not1 (x === y));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  S.Context.assert_formula ctx S.Term.(S.Term.len y === Arith.int 2);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  let y_value = Option.get (S.StringModel.find_string model y) in
+  assert (not (String.equal x_value y_value))
+
+let test_negated_literal_equality_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_neg_x" () in
+  S.Context.assert_formula ctx S.Term.(not1 (x === str "abc"));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (not (String.equal (Option.get (S.StringModel.find_string model x)) "abc"))
+
+let test_multi_unknown_concat_unknown () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage2_unknown_x" () in
+  let y = S.Term.string_var ~name:"stage2_unknown_y" () in
+  S.Context.assert_formula ctx S.Term.(concat [x; y] === str "ab");
+  assert_check `STATUS_UNKNOWN ctx;
+  assert_no_model ctx
+
+let contains_text haystack needle =
+  let haystack_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop index =
+    index + needle_len <= haystack_len
+    && (String.equal (String.sub haystack index needle_len) needle
+        || loop (index + 1))
+  in
+  needle_len = 0 || loop 0
+
+let test_contains_sat () =
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx S.Term.(contains (str "abc") (str "b"));
+  assert_check `STATUS_SAT ctx
+
+let test_contains_symbolic_witness_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_contains_symbolic_x" () in
+  let y = S.Term.string_var ~name:"stage3_contains_symbolic_y" () in
+  S.Context.assert_formula ctx S.Term.(contains x y);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  let y_value = Option.get (S.StringModel.find_string model y) in
+  assert (contains_text x_value y_value)
+
+let test_contains_refinement_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_contains_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx S.Term.(contains x (str "d"));
+  assert_check `STATUS_UNSAT ctx
+
+let test_not_contains_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_not_contains_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx S.Term.(not1 (contains x (str "d")));
+  assert_check `STATUS_SAT ctx
+
+let test_substr_sat_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_substr_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abcdef");
+  S.Context.assert_formula ctx S.Term.(substr x (Arith.int 1) (Arith.int 3) === str "bcd");
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_substr_bad_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abcdef");
+  S.Context.assert_formula ctx S.Term.(substr x (Arith.int 1) (Arith.int 3) === str "xxx");
+  assert_check `STATUS_UNSAT ctx
+
+let test_substr_symbolic_witness_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_substr_symbolic_x" () in
+  S.Context.assert_formula ctx S.Term.(substr x (Arith.int 1) (Arith.int 3) === str "bcd");
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length x_value >= 4);
+  assert (String.equal (String.sub x_value 1 3) "bcd")
+
+let indexof_text haystack needle start =
+  let haystack_len = String.length haystack in
+  let needle_len = String.length needle in
+  if start < 0 || start > haystack_len then -1
+  else if needle_len = 0 then start
+  else
+    let rec loop index =
+      if index + needle_len > haystack_len then -1
+      else if String.equal (String.sub haystack index needle_len) needle then index
+      else loop (index + 1)
+    in
+    loop start
+
+let test_indexof_sat_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_indexof_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abcabc");
+  S.Context.assert_formula ctx S.Term.(indexof x (str "bc") (Arith.int 0) === Arith.int 1);
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_indexof_bad_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abcabc");
+  S.Context.assert_formula ctx S.Term.(indexof x (str "bc") (Arith.int 0) === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx
+
+let test_indexof_symbolic_witness_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_indexof_symbolic_x" () in
+  S.Context.assert_formula ctx S.Term.(indexof x (str "bc") (Arith.int 0) === Arith.int 1);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  assert (indexof_text x_value "bc" 0 = 1)
+
+let replace_text haystack needle replacement =
+  if String.equal needle "" then replacement ^ haystack
+  else
+    let start = indexof_text haystack needle 0 in
+    if start < 0 then haystack
+    else
+      let prefix = String.sub haystack 0 start in
+      let suffix_start = start + String.length needle in
+      let suffix =
+        String.sub haystack suffix_start (String.length haystack - suffix_start)
+      in
+      prefix ^ replacement ^ suffix
+
+let test_replace_prefix_suffix_at () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_replace_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx S.Term.(replace x (str "b") (str "x") === str "axc");
+  S.Context.assert_formula ctx S.Term.(prefixof (str "a") x);
+  S.Context.assert_formula ctx S.Term.(suffixof (str "c") x);
+  S.Context.assert_formula ctx S.Term.(at x (Arith.int 1) === str "b");
+  assert_check `STATUS_SAT ctx
+
+let test_replace_symbolic_witness_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_replace_symbolic_x" () in
+  S.Context.assert_formula ctx S.Term.(replace x (str "b") (str "x") === str "axc");
+  S.Context.assert_formula ctx S.Term.(not1 (x === str "axc"));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  assert (String.equal (replace_text x_value "b" "x") "axc");
+  assert (not (String.equal x_value "axc"))
+
+let test_regex_range_sat_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_regex_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "b");
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.range "a" "c"));
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_regex_bad_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "b");
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.range "a" "a"));
+  assert_check `STATUS_UNSAT ctx
+
+let test () =
+  print_endline "Stage 3 string extension tests";
+  test_literal_length ();
+  test_literal_length_unsat ();
+  test_unicode_scalar_length ();
+  test_invalid_utf8 ();
+  test_variable_forced_to_literal ();
+  test_distinct_literals_unsat ();
+  test_ground_concat ();
+  test_ground_concat_unsat ();
+  test_concat_suffix_refinement_sat ();
+  test_concat_interior_refinement_sat ();
+  test_model_support_filter ();
+  test_concat_incompatible_suffix_unsat ();
+  test_concat_assignment_conflict_unsat ();
+  test_length_filler_model ();
+  test_satisfiable_disequality ();
+  test_negated_literal_equality_sat ();
+  test_multi_unknown_concat_unknown ();
+  test_contains_sat ();
+  test_contains_symbolic_witness_sat ();
+  test_contains_refinement_unsat ();
+  test_not_contains_sat ();
+  test_substr_sat_unsat ();
+  test_substr_symbolic_witness_sat ();
+  test_indexof_sat_unsat ();
+  test_indexof_symbolic_witness_sat ();
+  test_replace_prefix_suffix_at ();
+  test_replace_symbolic_witness_sat ();
+  test_regex_range_sat_unsat ();
+  print_endline "Done with Stage 3 string extension tests"

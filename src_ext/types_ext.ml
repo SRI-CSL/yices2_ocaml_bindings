@@ -23,6 +23,7 @@ module type StandardYicesContext =
 type ('model, 'interpolant) answer =
   | Sat of 'model
   | Unsat of 'interpolant
+  | Unknown of string
 
 (* Here's what you need to implement to build an extension of Yices. *)
 module type Ext = sig
@@ -60,8 +61,9 @@ module type Ext = sig
 
   (* Whenever the solver you're extending produces a supported model,
      if you are happy with it, please convert it to your own notion of model;
-     if you are unhappy with it,
-     please explain why by giving the solver you're extending a model interpolant. *)
+     if you are unhappy with it, please either explain why by giving the solver
+     you're extending a model interpolant, or return [Unknown reason] if the
+     extension cannot soundly decide the current abstraction. *)
   val check : t -> old_smodel -> (old_smodel, old_term) answer
 
   (* Convert old-level terms back to extension-level terms. *)

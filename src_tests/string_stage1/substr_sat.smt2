@@ -1,0 +1,5 @@
+(set-logic QF_S)
+(declare-const x String)
+(assert (= x "abcdef"))
+(assert (= (str.substr x 1 3) "bcd"))
+(check-sat)

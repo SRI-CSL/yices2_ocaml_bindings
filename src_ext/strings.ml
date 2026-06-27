@@ -1,0 +1,2772 @@
+open Containers
+open Sexplib
+
+open Yices2
+open Ext.WithExceptionsErrorHandling
+open Builder
+open Types_ext
+
+module YTypes = Yices2.Ext.Types
+module HTerms = Yices2.Ext.Types.HTerms
+
+type string_view =
+  | Lit of string
+  | Concat of Term.t list
+  | Len of Term.t
+  | Substr of Term.t * Term.t * Term.t
+  | Contains of Term.t * Term.t
+  | Indexof of Term.t * Term.t * Term.t
+  | Replace of Term.t * Term.t * Term.t
+  | Prefixof of Term.t * Term.t
+  | Suffixof of Term.t * Term.t
+  | At of Term.t * Term.t
+  | InRe of Term.t * regex
+
+and regex =
+  | ReEmpty
+  | ReAll
+  | ReAllChar
+  | ReLit of string
+  | ReRange of int * int
+  | ReConcat of regex list
+  | ReUnion of regex list
+  | ReStar of regex
+
+type literal_info = {
+  id : int;
+  text : string;
+  scalar_length : int;
+}
+
+let string_type_ref = ref None
+let len_symbol_ref = ref None
+let substr_symbol_ref = ref None
+let contains_symbol_ref = ref None
+let indexof_symbol_ref = ref None
+let replace_symbol_ref = ref None
+let prefixof_symbol_ref = ref None
+let suffixof_symbol_ref = ref None
+let at_symbol_ref = ref None
+let concat_symbols : (int, Term.t) Hashtbl.t = Hashtbl.create 17
+let regex_symbols : (regex, Term.t) Hashtbl.t = Hashtbl.create 17
+let literal_ids : (string, literal_info) Hashtbl.t = Hashtbl.create 101
+let next_literal_id = ref 0
+
+let literal_terms = Global.hTerms_create 101
+let term_views = Global.hTerms_create 257
+
+let () =
+  Global.register_cleanup (fun ~after:_ ->
+      string_type_ref := None;
+      len_symbol_ref := None;
+      substr_symbol_ref := None;
+      contains_symbol_ref := None;
+      indexof_symbol_ref := None;
+      replace_symbol_ref := None;
+      prefixof_symbol_ref := None;
+      suffixof_symbol_ref := None;
+      at_symbol_ref := None;
+      Hashtbl.clear concat_symbols;
+      Hashtbl.clear regex_symbols;
+      Hashtbl.clear literal_ids;
+      next_literal_id := 0)
+
+let raise_invalid_utf8 s i =
+  Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+    "invalid UTF-8 string literal at byte offset %d in %S" i s
+
+let utf8_scalar_length s =
+  let len = String.length s in
+  let byte i = Char.code s.[i] in
+  let continuation i =
+    i < len && byte i land 0xC0 = 0x80
+  in
+  let rec loop count i =
+    if i = len then count
+    else
+      let b0 = byte i in
+      if b0 <= 0x7F then
+        loop (count + 1) (i + 1)
+      else if b0 >= 0xC2 && b0 <= 0xDF then
+        if continuation (i + 1) then loop (count + 1) (i + 2)
+        else raise_invalid_utf8 s i
+      else if b0 = 0xE0 then
+        if i + 2 < len
+           && byte (i + 1) >= 0xA0 && byte (i + 1) <= 0xBF
+           && continuation (i + 2)
+        then loop (count + 1) (i + 3)
+        else raise_invalid_utf8 s i
+      else if (b0 >= 0xE1 && b0 <= 0xEC) || (b0 >= 0xEE && b0 <= 0xEF) then
+        if continuation (i + 1) && continuation (i + 2)
+        then loop (count + 1) (i + 3)
+        else raise_invalid_utf8 s i
+      else if b0 = 0xED then
+        if i + 2 < len
+           && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x9F
+           && continuation (i + 2)
+        then loop (count + 1) (i + 3)
+        else raise_invalid_utf8 s i
+      else if b0 = 0xF0 then
+        if i + 3 < len
+           && byte (i + 1) >= 0x90 && byte (i + 1) <= 0xBF
+           && continuation (i + 2)
+           && continuation (i + 3)
+        then loop (count + 1) (i + 4)
+        else raise_invalid_utf8 s i
+      else if b0 >= 0xF1 && b0 <= 0xF3 then
+        if continuation (i + 1) && continuation (i + 2) && continuation (i + 3)
+        then loop (count + 1) (i + 4)
+        else raise_invalid_utf8 s i
+      else if b0 = 0xF4 then
+        if i + 3 < len
+           && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x8F
+           && continuation (i + 2)
+           && continuation (i + 3)
+        then loop (count + 1) (i + 4)
+        else raise_invalid_utf8 s i
+      else
+        raise_invalid_utf8 s i
+  in
+  loop 0 0
+
+let string_type () =
+  match !string_type_ref with
+  | Some ty when Type.is_good ty -> ty
+  | _ ->
+      let ty = Type.new_uninterpreted ~name:"String" () in
+      string_type_ref := Some ty;
+      ty
+
+let is_string_type ty =
+  Type.equal ty (string_type ())
+
+let check_string_term t =
+  let ty = Term.type_of_term t in
+  if not (is_string_type ty) then
+    Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+      "expected a String term, got %a of type %a" Term.pp t Type.pp ty
+
+let check_int_term t =
+  let ty = Term.type_of_term t in
+  if not (Type.equal ty Type.(int ())) then
+    Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+      "expected an Int term, got %a of type %a" Term.pp t Type.pp ty
+
+let len_symbol () =
+  match !len_symbol_ref with
+  | Some f when Term.is_good f -> f
+  | _ ->
+      let f =
+        Term.new_uninterpreted
+          ~name:"__yices_string_len"
+          Type.(func [string_type ()] (int ()))
+      in
+      len_symbol_ref := Some f;
+      f
+
+let cached_symbol slot name typ =
+  match !slot with
+  | Some f when Term.is_good f -> f
+  | _ ->
+      let f = Term.new_uninterpreted ~name typ in
+      slot := Some f;
+      f
+
+let substr_symbol () =
+  cached_symbol
+    substr_symbol_ref
+    "__yices_string_substr"
+    Type.(func [string_type (); int (); int ()] (string_type ()))
+
+let contains_symbol () =
+  cached_symbol
+    contains_symbol_ref
+    "__yices_string_contains"
+    Type.(func [string_type (); string_type ()] (bool ()))
+
+let indexof_symbol () =
+  cached_symbol
+    indexof_symbol_ref
+    "__yices_string_indexof"
+    Type.(func [string_type (); string_type (); int ()] (int ()))
+
+let replace_symbol () =
+  cached_symbol
+    replace_symbol_ref
+    "__yices_string_replace"
+    Type.(func [string_type (); string_type (); string_type ()] (string_type ()))
+
+let prefixof_symbol () =
+  cached_symbol
+    prefixof_symbol_ref
+    "__yices_string_prefixof"
+    Type.(func [string_type (); string_type ()] (bool ()))
+
+let suffixof_symbol () =
+  cached_symbol
+    suffixof_symbol_ref
+    "__yices_string_suffixof"
+    Type.(func [string_type (); string_type ()] (bool ()))
+
+let at_symbol () =
+  cached_symbol
+    at_symbol_ref
+    "__yices_string_at"
+    Type.(func [string_type (); int ()] (string_type ()))
+
+let concat_symbol arity =
+  if arity < 2 then
+    Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+      "internal error: concat_symbol expects arity >= 2, got %d" arity;
+  match Hashtbl.find_opt concat_symbols arity with
+  | Some f when Term.is_good f -> f
+  | _ ->
+      let dom = List.init arity (fun _ -> string_type ()) in
+      let f =
+        Term.new_uninterpreted
+          ~name:(Format.sprintf "__yices_string_concat_%d" arity)
+          Type.(func dom (string_type ()))
+      in
+      Hashtbl.replace concat_symbols arity f;
+      f
+
+let regex_symbol regex =
+  match Hashtbl.find_opt regex_symbols regex with
+  | Some f when Term.is_good f -> f
+  | _ ->
+      let name =
+        Format.sprintf "__yices_string_in_re_%d" (Hashtbl.length regex_symbols)
+      in
+      let f = Term.new_uninterpreted ~name Type.(func [string_type ()] (bool ())) in
+      Hashtbl.replace regex_symbols regex f;
+      f
+
+let record_view term view =
+  HTerms.replace term_views term view;
+  term
+
+let literal s =
+  match Hashtbl.find_opt literal_ids s with
+  | Some info ->
+      let term = Term.constant (string_type ()) ~id:info.id in
+      record_view term (Lit info.text)
+  | None ->
+      let scalar_length = utf8_scalar_length s in
+      let id = !next_literal_id in
+      incr next_literal_id;
+      let info = { id; text = s; scalar_length } in
+      Hashtbl.add literal_ids s info;
+      let term = Term.constant (string_type ()) ~id in
+      HTerms.replace literal_terms term info;
+      record_view term (Lit s)
+
+let literal_info term =
+  HTerms.find_opt literal_terms term
+
+let reveal_string term =
+  HTerms.find_opt term_views term
+
+let rec flatten_concat acc = function
+  | [] -> List.rev acc
+  | term :: tail ->
+      match reveal_string term with
+      | Some (Concat terms) -> flatten_concat acc (terms @ tail)
+      | _ -> flatten_concat (term :: acc) tail
+
+let concat terms =
+  let terms = flatten_concat [] terms in
+  match terms with
+  | [] -> literal ""
+  | [term] ->
+      check_string_term term;
+      term
+  | _ ->
+      List.iter check_string_term terms;
+      let term = Term.application (concat_symbol (List.length terms)) terms in
+      record_view term (Concat terms)
+
+let len term =
+  check_string_term term;
+  let lterm = Term.application (len_symbol ()) [term] in
+  record_view lterm (Len term)
+
+let substr string start length =
+  check_string_term string;
+  check_int_term start;
+  check_int_term length;
+  let term = Term.application (substr_symbol ()) [string; start; length] in
+  record_view term (Substr (string, start, length))
+
+let contains haystack needle =
+  check_string_term haystack;
+  check_string_term needle;
+  let term = Term.application (contains_symbol ()) [haystack; needle] in
+  record_view term (Contains (haystack, needle))
+
+let indexof haystack needle start =
+  check_string_term haystack;
+  check_string_term needle;
+  check_int_term start;
+  let term = Term.application (indexof_symbol ()) [haystack; needle; start] in
+  record_view term (Indexof (haystack, needle, start))
+
+let replace haystack needle replacement =
+  check_string_term haystack;
+  check_string_term needle;
+  check_string_term replacement;
+  let term =
+    Term.application (replace_symbol ()) [haystack; needle; replacement]
+  in
+  record_view term (Replace (haystack, needle, replacement))
+
+let prefixof prefix string =
+  check_string_term prefix;
+  check_string_term string;
+  let term = Term.application (prefixof_symbol ()) [prefix; string] in
+  record_view term (Prefixof (prefix, string))
+
+let suffixof suffix string =
+  check_string_term suffix;
+  check_string_term string;
+  let term = Term.application (suffixof_symbol ()) [suffix; string] in
+  record_view term (Suffixof (suffix, string))
+
+let at string index =
+  check_string_term string;
+  check_int_term index;
+  let term = Term.application (at_symbol ()) [string; index] in
+  record_view term (At (string, index))
+
+let in_re string regex =
+  check_string_term string;
+  let term = Term.application (regex_symbol regex) [string] in
+  record_view term (InRe (string, regex))
+
+module StringModel = struct
+  type t = {
+    base : SModel.t;
+    strings : (Term.t * string) list;
+  }
+
+  let find_string model term =
+    List.find_map
+      (fun (key, value) -> if Term.equal key term then Some value else None)
+      model.strings
+end
+
+module StringTermSet = Set.Make(Term)
+
+type eq_atom = {
+  atom : Term.t;
+  lhs : Term.t;
+  rhs : Term.t;
+}
+
+type witness_key =
+  | ContainsPrefix of Term.t * Term.t
+  | ContainsSuffix of Term.t * Term.t
+  | SubstrPrefix of Term.t * Term.t * Term.t
+  | SubstrSuffix of Term.t * Term.t * Term.t
+  | IndexofPrefix of Term.t * Term.t * Term.t
+  | IndexofSuffix of Term.t * Term.t * Term.t
+  | ReplacePrefix of Term.t * Term.t * Term.t
+  | ReplaceSuffix of Term.t * Term.t * Term.t
+[@@warning "-37"]
+
+module WitnessKey = struct
+  type t = witness_key
+
+  let equal lhs rhs =
+    match lhs, rhs with
+    | ContainsPrefix (lh, ln), ContainsPrefix (rh, rn)
+    | ContainsSuffix (lh, ln), ContainsSuffix (rh, rn) ->
+        Term.equal lh rh && Term.equal ln rn
+    | SubstrPrefix (ls, li, ln), SubstrPrefix (rs, ri, rn)
+    | SubstrSuffix (ls, li, ln), SubstrSuffix (rs, ri, rn) ->
+        Term.equal ls rs && Term.equal li ri && Term.equal ln rn
+    | IndexofPrefix (lh, ln, li), IndexofPrefix (rh, rn, ri)
+    | IndexofSuffix (lh, ln, li), IndexofSuffix (rh, rn, ri) ->
+        Term.equal lh rh && Term.equal ln rn && Term.equal li ri
+    | ReplacePrefix (lh, ln, lr), ReplacePrefix (rh, rn, rr)
+    | ReplaceSuffix (lh, ln, lr), ReplaceSuffix (rh, rn, rr) ->
+        Term.equal lh rh && Term.equal ln rn && Term.equal lr rr
+    | _ -> false
+
+  let hash = function
+    | ContainsPrefix (haystack, needle) ->
+        Hashtbl.hash (0, Term.hash haystack, Term.hash needle)
+    | ContainsSuffix (haystack, needle) ->
+        Hashtbl.hash (1, Term.hash haystack, Term.hash needle)
+    | SubstrPrefix (string, start, length) ->
+        Hashtbl.hash (2, Term.hash string, Term.hash start, Term.hash length)
+    | SubstrSuffix (string, start, length) ->
+        Hashtbl.hash (3, Term.hash string, Term.hash start, Term.hash length)
+    | IndexofPrefix (haystack, needle, start) ->
+        Hashtbl.hash (4, Term.hash haystack, Term.hash needle, Term.hash start)
+    | IndexofSuffix (haystack, needle, start) ->
+        Hashtbl.hash (5, Term.hash haystack, Term.hash needle, Term.hash start)
+    | ReplacePrefix (haystack, needle, replacement) ->
+        Hashtbl.hash
+          (6, Term.hash haystack, Term.hash needle, Term.hash replacement)
+    | ReplaceSuffix (haystack, needle, replacement) ->
+        Hashtbl.hash
+          (7, Term.hash haystack, Term.hash needle, Term.hash replacement)
+end
+
+module HWitness = Hashtbl.Make(WitnessKey)
+
+let witness_key_name = function
+  | ContainsPrefix _ -> "contains-prefix"
+  | ContainsSuffix _ -> "contains-suffix"
+  | SubstrPrefix _ -> "substr-prefix"
+  | SubstrSuffix _ -> "substr-suffix"
+  | IndexofPrefix _ -> "indexof-prefix"
+  | IndexofSuffix _ -> "indexof-suffix"
+  | ReplacePrefix _ -> "replace-prefix"
+  | ReplaceSuffix _ -> "replace-suffix"
+
+type refinement_operator =
+  | Op_concat
+  | Op_substr
+  | Op_contains
+  | Op_indexof
+  | Op_replace
+  | Op_prefixof
+  | Op_suffixof
+  | Op_at
+  | Op_in_re
+
+let refinement_operator_name = function
+  | Op_concat -> "concat"
+  | Op_substr -> "substr"
+  | Op_contains -> "contains"
+  | Op_indexof -> "indexof"
+  | Op_replace -> "replace"
+  | Op_prefixof -> "prefixof"
+  | Op_suffixof -> "suffixof"
+  | Op_at -> "at"
+  | Op_in_re -> "in_re"
+
+let refinement_operator_of_view = function
+  | Substr _ -> Some Op_substr
+  | Contains _ -> Some Op_contains
+  | Indexof _ -> Some Op_indexof
+  | Replace _ -> Some Op_replace
+  | Prefixof _ -> Some Op_prefixof
+  | Suffixof _ -> Some Op_suffixof
+  | At _ -> Some Op_at
+  | InRe _ -> Some Op_in_re
+  | Lit _ | Concat _ | Len _ -> None
+
+type stats = {
+  mutable refinement_iterations : int;
+  mutable generated_lemmas : int;
+  mutable generated_witnesses : int;
+  mutable active_iterations : int;
+  operator_counts : (string, int) Hashtbl.t;
+}
+
+type t = {
+  mutable frames : Term.t list list;
+  mutable internal_frames : Term.t list list;
+  generated : unit HTerms.t;
+  generated_contains_splits : unit HTerms.t;
+  generated_symbolic_reductions : unit HTerms.t;
+  witnesses : Term.t HWitness.t;
+  mutable last_unknown : string option;
+  mutable last_strings : (Term.t * string) list;
+  mutable next_witness_id : int;
+  refinement_limit : int;
+  witness_limit : int;
+  witness_round_limit : int;
+  stats : stats;
+}
+
+let current_terms state =
+  List.concat state.frames @ List.concat state.internal_frames
+
+let public_terms state =
+  List.concat state.frames
+
+let reset_generated state =
+  HTerms.reset state.generated;
+  HTerms.reset state.generated_contains_splits;
+  HTerms.reset state.generated_symbolic_reductions
+
+let default_refinement_limit = 100
+let default_witness_limit = 100
+let default_witness_round_limit = 10
+
+let nonnegative_int_from_env name default =
+  match Sys.getenv_opt name with
+  | None -> default
+  | Some raw -> (
+      match int_of_string_opt raw with
+      | Some n when n >= 0 -> n
+      | _ ->
+          String_log.warn
+            "ignoring invalid %s=%S; using %d"
+            name raw default;
+          default)
+
+let refinement_limit_from_env () =
+  nonnegative_int_from_env
+    "YICES_STRING_REFINEMENT_LIMIT"
+    default_refinement_limit
+
+let witness_limit_from_env () =
+  nonnegative_int_from_env "YICES_STRING_WITNESS_LIMIT" default_witness_limit
+
+let witness_round_limit_from_env () =
+  nonnegative_int_from_env
+    "YICES_STRING_WITNESS_ROUND_LIMIT"
+    default_witness_round_limit
+
+let empty_stats () =
+  {
+    refinement_iterations = 0;
+    generated_lemmas = 0;
+    generated_witnesses = 0;
+    active_iterations = 0;
+    operator_counts = Hashtbl.create 17;
+  }
+
+let reset_stats stats =
+  stats.refinement_iterations <- 0;
+  stats.generated_lemmas <- 0;
+  stats.generated_witnesses <- 0;
+  stats.active_iterations <- 0;
+  Hashtbl.clear stats.operator_counts
+
+let reset_active_iterations state =
+  state.stats.active_iterations <- 0
+
+let increment_operator_count stats op =
+  let key = refinement_operator_name op in
+  let count = Option.value ~default:0 (Hashtbl.find_opt stats.operator_counts key) in
+  Hashtbl.replace stats.operator_counts key (count + 1)
+
+let record_refinement_lemma stats op =
+  stats.generated_lemmas <- stats.generated_lemmas + 1;
+  increment_operator_count stats op
+
+let operator_counts_summary stats =
+  Hashtbl.fold
+    (fun key count acc -> (key, count) :: acc)
+    stats.operator_counts
+    []
+  |> List.sort (fun (lhs, _) (rhs, _) -> String.compare lhs rhs)
+  |> List.map (fun (key, count) -> Format.sprintf "%s=%d" key count)
+  |> String.concat ", "
+
+let log_stats state outcome =
+  let operator_counts = operator_counts_summary state.stats in
+  if String.equal operator_counts "" then
+    String_log.info
+      "Stage 3 stats after %s: %d extension iteration(s), %d lemma(s), %d witness(es)"
+      outcome
+      state.stats.refinement_iterations
+      state.stats.generated_lemmas
+      state.stats.generated_witnesses
+  else
+    String_log.info
+      "Stage 3 stats after %s: %d extension iteration(s), %d lemma(s), %d witness(es); operators: %s"
+      outcome
+      state.stats.refinement_iterations
+      state.stats.generated_lemmas
+      state.stats.generated_witnesses
+      operator_counts
+
+let malloc ?config () =
+  config,
+  {
+    frames = [[]];
+    internal_frames = [[]];
+    generated = Global.hTerms_create 257;
+    generated_contains_splits = Global.hTerms_create 257;
+    generated_symbolic_reductions = Global.hTerms_create 257;
+    witnesses = HWitness.create 257;
+    last_unknown = None;
+    last_strings = [];
+    next_witness_id = 0;
+    refinement_limit = refinement_limit_from_env ();
+    witness_limit = witness_limit_from_env ();
+    witness_round_limit = witness_round_limit_from_env ();
+    stats = empty_stats ();
+  }
+
+let reset state =
+  state.frames <- [[]];
+  state.internal_frames <- [[]];
+  state.last_unknown <- None;
+  state.last_strings <- [];
+  state.next_witness_id <- 0;
+  HWitness.clear state.witnesses;
+  reset_stats state.stats;
+  reset_generated state
+
+let push state =
+  state.frames <- [] :: state.frames;
+  state.internal_frames <- [] :: state.internal_frames
+
+let pop_one_frame = function
+  | [] | [_] -> None
+  | _ :: tail -> Some tail
+
+let pop state =
+  match pop_one_frame state.frames, pop_one_frame state.internal_frames with
+  | Some frames, Some internal_frames ->
+      state.frames <- frames;
+      state.internal_frames <- internal_frames;
+      reset_generated state
+  | _ ->
+      Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+        "String extension pop on empty assertion stack"
+
+let goto state level =
+  if level < 0 then
+    Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+      "String extension goto expects non-negative level, got %d" level;
+  while List.length state.frames - 1 < level do
+    push state
+  done;
+  while List.length state.frames - 1 > level do
+    pop state
+  done
+
+let remember_assertion state formula =
+  match state.frames with
+  | [] -> state.frames <- [[formula]]
+  | frame :: tail -> state.frames <- (formula :: frame) :: tail
+
+let remember_internal_assertion state formula =
+  match state.internal_frames with
+  | [] -> state.internal_frames <- [[formula]]
+  | frame :: tail -> state.internal_frames <- (formula :: frame) :: tail
+
+let is_seen_generated state term =
+  if HTerms.mem state.generated term then true
+  else (
+    HTerms.add state.generated term ();
+    false)
+
+let scalar_length_of_literal term =
+  match literal_info term with
+  | Some info -> Some info.scalar_length
+  | None ->
+      match reveal_string term with
+      | Some (Lit text) -> Some (utf8_scalar_length text)
+      | _ -> None
+
+let ground_concat_value terms =
+  let rec aux acc = function
+    | [] -> Some (String.concat "" (List.rev acc))
+    | term :: tail ->
+        match reveal_string term with
+        | Some (Lit text) -> aux (text :: acc) tail
+        | Some (Concat terms) -> aux acc (terms @ tail)
+        | _ -> None
+  in
+  aux [] terms
+
+let rec scan_term acc term =
+  let acc =
+    if is_string_type (Term.type_of_term term) then StringTermSet.add term acc
+    else acc
+  in
+  let Term tstruct = Term.reveal term in
+  let acc =
+    match reveal_string term with
+    | Some (Len arg) -> scan_term acc arg
+    | Some (Concat args) -> List.fold_left scan_term acc args
+    | Some (Substr (string, start, length)) ->
+        List.fold_left scan_term acc [string; start; length]
+    | Some (Contains (haystack, needle))
+    | Some (Prefixof (haystack, needle))
+    | Some (Suffixof (haystack, needle)) ->
+        List.fold_left scan_term acc [haystack; needle]
+    | Some (Indexof (haystack, needle, start)) ->
+        List.fold_left scan_term acc [haystack; needle; start]
+    | Some (Replace (haystack, needle, replacement)) ->
+        List.fold_left scan_term acc [haystack; needle; replacement]
+    | Some (At (string, index)) ->
+        List.fold_left scan_term acc [string; index]
+    | Some (InRe (string, _regex)) -> scan_term acc string
+    | Some (Lit _) | None -> acc
+  in
+  match tstruct with
+  | A0 _ -> acc
+  | A1 (_, t) -> scan_term acc t
+  | A2 (_, t1, t2) -> scan_term (scan_term acc t1) t2
+  | Astar (_, terms) -> List.fold_left scan_term acc terms
+  | ITE (c, tb, eb) -> List.fold_left scan_term acc [c; tb; eb]
+  | App (f, args) -> List.fold_left scan_term (scan_term acc f) args
+  | Bindings { vars; body; _ } -> List.fold_left scan_term (scan_term acc body) vars
+  | Update { array; index; value } ->
+      List.fold_left scan_term (scan_term (scan_term acc array) value) index
+  | Projection (_, _, t) -> scan_term acc t
+  | BV_Sum terms ->
+      List.fold_left
+        (fun acc (_, term) -> Option.map_or ~default:acc (scan_term acc) term)
+        acc terms
+  | Sum terms
+  | FF_Sum terms ->
+      List.fold_left
+        (fun acc (_, term) -> Option.map_or ~default:acc (scan_term acc) term)
+        acc terms
+  | Product (_, terms) ->
+      List.fold_left (fun acc (term, _) -> scan_term acc term) acc terms
+
+let sum_lengths terms =
+  match terms with
+  | [] -> Term.Arith.zero ()
+  | term :: tail ->
+      List.fold_left
+        (fun acc term -> Term.Arith.(acc ++ len term))
+        (len term)
+        tail
+
+let axioms_for_string_term term =
+  let length = len term in
+  let zero = Term.Arith.zero () in
+  let empty = literal "" in
+  let common =
+    [
+      Term.Arith.geq length zero;
+      Term.iff Term.(length === zero) Term.(term === empty);
+    ]
+  in
+  let empty_axiom =
+    if Term.equal term empty then []
+    else [Term.(len empty === zero)]
+  in
+  let literal_axiom =
+    match scalar_length_of_literal term with
+    | Some n -> [Term.(length === Term.Arith.int n)]
+    | None -> []
+  in
+  let concat_axiom =
+    match reveal_string term with
+    | Some (Concat terms) ->
+        let length_axiom = Term.(length === sum_lengths terms) in
+        let content_axioms =
+          match ground_concat_value terms with
+          | Some text -> [Term.(term === literal text)]
+          | None -> []
+        in
+        length_axiom :: content_axioms
+    | _ -> []
+  in
+  empty_axiom @ common @ literal_axiom @ concat_axiom
+
+let conjoin = function
+  | [] -> Term.true0 ()
+  | [formula] -> formula
+  | formulas -> Term.andN formulas
+
+let disjoin = function
+  | [] -> Term.false0 ()
+  | [formula] -> formula
+  | formulas -> Term.orN formulas
+
+let imply_all premises conclusion =
+  match premises with
+  | [] -> conclusion
+  | _ -> Term.(conjoin premises ==> conclusion)
+
+let find_witness state key =
+  try Some (HWitness.find state.witnesses key) with Not_found -> None
+
+let fresh_witness_name state key =
+  let id = state.next_witness_id in
+  state.next_witness_id <- id + 1;
+  Format.sprintf "__yices_string_%s_%d" (witness_key_name key) id
+
+let witness_for_key state created_this_round key =
+  match find_witness state key with
+  | Some term ->
+      String_log.info
+        "Stage 3 reused %s witness %a"
+        (witness_key_name key)
+        Term.pp
+        term;
+      Ok (term, created_this_round)
+  | None ->
+      if state.stats.generated_witnesses >= state.witness_limit then
+        Error
+          (Format.asprintf
+             "Stage 3 witness limit %d prevents creating %s witness"
+             state.witness_limit
+             (witness_key_name key))
+      else if created_this_round >= state.witness_round_limit then
+        Error
+          (Format.asprintf
+             "Stage 3 per-round witness limit %d prevents creating %s witness"
+             state.witness_round_limit
+             (witness_key_name key))
+      else
+        let name = fresh_witness_name state key in
+        let term = Term.new_uninterpreted ~name (string_type ()) in
+        HWitness.add state.witnesses key term;
+        state.stats.generated_witnesses <- state.stats.generated_witnesses + 1;
+        String_log.info
+          "Stage 3 created %s witness %a"
+          (witness_key_name key)
+          Term.pp
+          term;
+        Ok (term, created_this_round + 1)
+
+let collect_contains_terms formulas =
+  let rec aux acc term =
+    let acc =
+      match reveal_string term with
+      | Some (Contains _) -> StringTermSet.add term acc
+      | _ -> acc
+    in
+    let Term tstruct = Term.reveal term in
+    fold_children acc tstruct
+  and fold_children : type a. StringTermSet.t -> a YTypes.termstruct -> StringTermSet.t =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  List.fold_left aux StringTermSet.empty formulas |> StringTermSet.elements
+
+type symbolic_reduction =
+  | Symbolic_none
+  | Symbolic_refine of refinement_operator * Term.t
+  | Symbolic_blocked of string
+
+let contains_split_reduction state contains_term haystack needle =
+  match
+    witness_for_key state 0 (ContainsPrefix (haystack, needle))
+  with
+  | Error reason -> Error reason
+  | Ok (prefix, created) -> (
+      match witness_for_key state created (ContainsSuffix (haystack, needle)) with
+      | Error reason -> Error reason
+      | Ok (suffix, _) ->
+          let split = concat [prefix; needle; suffix] in
+          let split_axioms =
+            [prefix; suffix; split]
+            |> List.map axioms_for_string_term
+            |> List.flatten
+          in
+          let reduction = Term.(contains_term ==> (haystack === split)) in
+          let lemma = conjoin (split_axioms @ [reduction]) in
+          HTerms.replace state.generated_contains_splits contains_term ();
+          remember_internal_assertion state lemma;
+          Ok lemma)
+
+let witness_pair state first_key second_key =
+  match witness_for_key state 0 first_key with
+  | Error reason -> Error reason
+  | Ok (first, created) -> (
+      match witness_for_key state created second_key with
+      | Error reason -> Error reason
+      | Ok (second, _) -> Ok (first, second))
+
+let mark_symbolic_reduction state atom lemma =
+  HTerms.replace state.generated_symbolic_reductions atom ();
+  remember_internal_assertion state lemma;
+  Ok lemma
+
+let substr_split_reduction state eq string start length result =
+  if HTerms.mem state.generated_symbolic_reductions eq.atom then Ok None
+  else
+    match
+      witness_pair
+        state
+        (SubstrPrefix (string, start, length))
+        (SubstrSuffix (string, start, length))
+    with
+    | Error reason -> Error reason
+    | Ok (prefix, suffix) ->
+        let zero = Term.Arith.zero () in
+        let split = concat [prefix; result; suffix] in
+        let normal_guard =
+          conjoin
+            [
+              Term.Arith.geq start zero;
+              Term.Arith.gt length zero;
+              Term.Arith.lt start (len string);
+            ]
+        in
+        let result_empty = Term.(len result === zero) in
+        let possible_case = disjoin [result_empty; normal_guard] in
+        let normal_split =
+          conjoin
+            [
+              Term.(string === split);
+              Term.(len prefix === start);
+              Term.Arith.leq (len result) length;
+            ]
+        in
+        let split_axioms =
+          [prefix; suffix; split]
+          |> List.map axioms_for_string_term
+          |> List.flatten
+        in
+        let lemma =
+          conjoin
+            (split_axioms
+             @ [
+                 Term.implies eq.atom possible_case;
+                 imply_all [eq.atom; normal_guard] normal_split;
+               ])
+        in
+        Result.map (fun lemma -> Some lemma) (mark_symbolic_reduction state eq.atom lemma)
+
+let indexof_split_reduction state eq haystack needle start result =
+  if HTerms.mem state.generated_symbolic_reductions eq.atom then Ok None
+  else
+    match
+      witness_pair
+        state
+        (IndexofPrefix (haystack, needle, start))
+        (IndexofSuffix (haystack, needle, start))
+    with
+    | Error reason -> Error reason
+    | Ok (prefix, suffix) ->
+        let zero = Term.Arith.zero () in
+        let split = concat [prefix; needle; suffix] in
+        let found_guard = Term.Arith.geq result zero in
+        let needle_empty = Term.(len needle === zero) in
+        let needle_nonempty = Term.Arith.gt (len needle) zero in
+        let empty_case =
+          conjoin
+            [
+              Term.(result === start);
+              Term.Arith.geq start zero;
+              Term.Arith.leq start (len haystack);
+            ]
+        in
+        let occurrence_case =
+          conjoin
+            [
+              Term.(haystack === split);
+              Term.(len prefix === result);
+              Term.Arith.geq start zero;
+              Term.Arith.leq start result;
+            ]
+        in
+        let split_axioms =
+          [prefix; suffix; split]
+          |> List.map axioms_for_string_term
+          |> List.flatten
+        in
+        let lemma =
+          conjoin
+            (split_axioms
+             @ [
+                 imply_all [eq.atom; found_guard; needle_empty] empty_case;
+                 imply_all [eq.atom; found_guard; needle_nonempty] occurrence_case;
+               ])
+        in
+        Result.map (fun lemma -> Some lemma) (mark_symbolic_reduction state eq.atom lemma)
+
+let replace_split_reduction state eq haystack needle replacement result =
+  if HTerms.mem state.generated_symbolic_reductions eq.atom then Ok None
+  else
+    match
+      witness_pair
+        state
+        (ReplacePrefix (haystack, needle, replacement))
+        (ReplaceSuffix (haystack, needle, replacement))
+    with
+    | Error reason -> Error reason
+    | Ok (prefix, suffix) ->
+        let zero = Term.Arith.zero () in
+        let input_split = concat [prefix; needle; suffix] in
+        let output_split = concat [prefix; replacement; suffix] in
+        let empty_output = concat [replacement; haystack] in
+        let needle_empty = Term.(len needle === zero) in
+        let needle_nonempty = Term.Arith.gt (len needle) zero in
+        let occurrence_case =
+          conjoin
+            [
+              Term.(haystack === input_split);
+              Term.(result === output_split);
+            ]
+        in
+        let no_occurrence_case = Term.(result === haystack) in
+        let split_axioms =
+          [prefix; suffix; input_split; output_split; empty_output]
+          |> List.map axioms_for_string_term
+          |> List.flatten
+        in
+        let lemma =
+          conjoin
+            (split_axioms
+             @ [
+                 imply_all [eq.atom; needle_empty] Term.(result === empty_output);
+                 imply_all
+                   [eq.atom; needle_nonempty]
+                   (disjoin [no_occurrence_case; occurrence_case]);
+               ])
+        in
+        Result.map (fun lemma -> Some lemma) (mark_symbolic_reduction state eq.atom lemma)
+
+let translate_assertion (_ctx : Context.t) state formula =
+  remember_assertion state formula;
+  let string_terms = scan_term StringTermSet.empty formula in
+  String_log.debug
+    "registered %d string term(s) from assertion %a"
+    (StringTermSet.cardinal string_terms)
+    Term.pp formula;
+  let axioms =
+    StringTermSet.fold
+      (fun term axioms ->
+         if is_seen_generated state term then axioms
+         else List.rev_append (axioms_for_string_term term) axioms)
+      string_terms
+      []
+  in
+  List.rev axioms @ [formula]
+
+let translate_assumption (_ctx : Context.t) _state formula =
+  formula
+
+let term_of_old _ term = term
+let typ_of_old _ typ = typ
+let param_to_old _ param = param
+let smodel_to_old _ model = model.StringModel.base
+let smodel_of_old _ base = { StringModel.base; strings = [] }
+
+let string_terms_in_state state =
+  current_terms state
+  |> List.fold_left scan_term StringTermSet.empty
+  |> StringTermSet.elements
+
+let string_terms_in_public_state state =
+  public_terms state
+  |> List.fold_left scan_term StringTermSet.empty
+  |> StringTermSet.elements
+
+let dedup_assignments assignments =
+  let add result (term, text) =
+    match result with
+    | Error _ as err -> err
+    | Ok acc -> (
+        match List.find_opt (fun (term', _) -> Term.equal term term') acc with
+        | None -> Ok ((term, text) :: acc)
+        | Some (_, old) when String.equal old text -> Ok acc
+        | Some (_, old) ->
+            Error
+              (Format.asprintf
+                 "inconsistent duplicate concrete values for %a: %S and %S"
+                 Term.pp term old text))
+  in
+  Result.map List.rev (List.fold_left add (Ok []) assignments)
+
+let static_string_value term =
+  match reveal_string term with
+  | Some (Lit text) -> Some text
+  | Some (Concat terms) -> ground_concat_value terms
+  | _ -> None
+
+let assignment_find assignments term =
+  List.find_map
+    (fun (key, text) -> if Term.equal key term then Some text else None)
+    assignments
+
+let add_assignment assignments term text =
+  match assignment_find assignments term with
+  | None -> Ok ((term, text) :: assignments)
+  | Some old when String.equal old text -> Ok assignments
+  | Some old ->
+      Error
+        (Format.asprintf
+           "inconsistent concrete values for %a: %S and %S"
+           Term.pp term old text)
+
+let force_assignment assignments term text =
+  match static_string_value term with
+  | Some known when not (String.equal known text) ->
+      Error
+        (Format.asprintf
+           "cannot force %a to %S because it is the literal %S"
+           Term.pp term text known)
+  | _ ->
+      let assignments =
+        List.filter (fun (key, _) -> not (Term.equal key term)) assignments
+      in
+      Ok ((term, text) :: assignments)
+
+let string_starts_with text prefix =
+  let len_text = String.length text in
+  let len_prefix = String.length prefix in
+  len_prefix <= len_text && String.equal (String.sub text 0 len_prefix) prefix
+
+let string_ends_with text suffix =
+  let len_text = String.length text in
+  let len_suffix = String.length suffix in
+  len_suffix <= len_text
+  && String.equal (String.sub text (len_text - len_suffix) len_suffix) suffix
+
+let q_to_int q =
+  if Z.equal (Q.den q) Z.one then
+    try Some (Z.to_int (Q.num q)) with Z.Overflow -> None
+  else
+    None
+
+let int_value_in_model smodel term =
+  try
+    match ModelValue.reveal (SModel.get_value smodel term) with
+    | `Rational q -> q_to_int q
+    | _ -> None
+  with _ -> None
+
+let string_length_in_model smodel term =
+  match int_value_in_model smodel (len term) with
+  | Some n when n >= 0 -> Some n
+  | _ -> None
+
+let utf8_scalar_boundaries s =
+  let len = String.length s in
+  let byte i = Char.code s.[i] in
+  let continuation i =
+    i < len && byte i land 0xC0 = 0x80
+  in
+  let rec loop acc i =
+    if i = len then List.rev (len :: acc)
+    else
+      let next =
+        let b0 = byte i in
+        if b0 <= 0x7F then i + 1
+        else if b0 >= 0xC2 && b0 <= 0xDF && continuation (i + 1) then i + 2
+        else if b0 = 0xE0
+                && i + 2 < len
+                && byte (i + 1) >= 0xA0 && byte (i + 1) <= 0xBF
+                && continuation (i + 2)
+        then i + 3
+        else if ((b0 >= 0xE1 && b0 <= 0xEC) || (b0 >= 0xEE && b0 <= 0xEF))
+                && continuation (i + 1) && continuation (i + 2)
+        then i + 3
+        else if b0 = 0xED
+                && i + 2 < len
+                && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x9F
+                && continuation (i + 2)
+        then i + 3
+        else if b0 = 0xF0
+                && i + 3 < len
+                && byte (i + 1) >= 0x90 && byte (i + 1) <= 0xBF
+                && continuation (i + 2)
+                && continuation (i + 3)
+        then i + 4
+        else if b0 >= 0xF1 && b0 <= 0xF3
+                && continuation (i + 1)
+                && continuation (i + 2)
+                && continuation (i + 3)
+        then i + 4
+        else if b0 = 0xF4
+                && i + 3 < len
+                && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x8F
+                && continuation (i + 2)
+                && continuation (i + 3)
+        then i + 4
+        else raise_invalid_utf8 s i
+      in
+      loop (i :: acc) next
+  in
+  loop [] 0
+
+let scalar_length_from_boundaries boundaries =
+  List.length boundaries - 1
+
+let list_nth_opt list index =
+  if index < 0 then None else List.nth_opt list index
+
+let substring_by_scalars s start length =
+  if start < 0 || length <= 0 then ""
+  else
+    let boundaries = utf8_scalar_boundaries s in
+    let scalar_len = scalar_length_from_boundaries boundaries in
+    if start >= scalar_len then ""
+    else
+      let stop = min scalar_len (start + length) in
+      match list_nth_opt boundaries start, list_nth_opt boundaries stop with
+      | Some start_byte, Some stop_byte ->
+          String.sub s start_byte (stop_byte - start_byte)
+      | _ -> ""
+
+let scalar_index_of_byte s byte_index =
+  let boundaries = utf8_scalar_boundaries s in
+  let rec loop index = function
+    | [] -> None
+    | boundary :: tail ->
+        if boundary = byte_index then Some index
+        else if boundary > byte_index then None
+        else loop (index + 1) tail
+  in
+  loop 0 boundaries
+
+let find_substring_from haystack needle start_byte =
+  let hay_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then None
+    else if String.equal (String.sub haystack i needle_len) needle then Some i
+    else loop (i + 1)
+  in
+  if needle_len = 0 then Some start_byte
+  else if start_byte < 0 || start_byte > hay_len then None
+  else loop start_byte
+
+let eval_contains_text haystack needle =
+  match find_substring_from haystack needle 0 with
+  | Some _ -> true
+  | None -> false
+
+let eval_indexof_text haystack needle start =
+  let boundaries = utf8_scalar_boundaries haystack in
+  let scalar_len = scalar_length_from_boundaries boundaries in
+  if start < 0 || start > scalar_len then -1
+  else if String.equal needle "" then start
+  else
+    match list_nth_opt boundaries start with
+    | None -> -1
+    | Some start_byte -> (
+        match find_substring_from haystack needle start_byte with
+        | None -> -1
+        | Some byte_index ->
+            Option.value ~default:(-1) (scalar_index_of_byte haystack byte_index))
+
+let eval_replace_text haystack needle replacement =
+  if String.equal needle "" then replacement ^ haystack
+  else
+    match find_substring_from haystack needle 0 with
+    | None -> haystack
+    | Some start ->
+        let prefix = String.sub haystack 0 start in
+        let suffix_start = start + String.length needle in
+        let suffix =
+          String.sub haystack suffix_start (String.length haystack - suffix_start)
+        in
+        prefix ^ replacement ^ suffix
+
+let eval_prefixof_text prefix string =
+  string_starts_with string prefix
+
+let eval_suffixof_text suffix string =
+  string_ends_with string suffix
+
+let eval_at_text string index =
+  substring_by_scalars string index 1
+
+let scalar_codes s =
+  let boundaries = utf8_scalar_boundaries s in
+  let codepoint start stop =
+    let b0 = Char.code s.[start] in
+    if stop - start = 1 then b0
+    else if stop - start = 2 then
+      ((b0 land 0x1F) lsl 6) lor (Char.code s.[start + 1] land 0x3F)
+    else if stop - start = 3 then
+      ((b0 land 0x0F) lsl 12)
+      lor ((Char.code s.[start + 1] land 0x3F) lsl 6)
+      lor (Char.code s.[start + 2] land 0x3F)
+    else
+      ((b0 land 0x07) lsl 18)
+      lor ((Char.code s.[start + 1] land 0x3F) lsl 12)
+      lor ((Char.code s.[start + 2] land 0x3F) lsl 6)
+      lor (Char.code s.[start + 3] land 0x3F)
+  in
+  let rec pairs acc = function
+    | start :: (stop :: _ as tail) -> pairs (codepoint start stop :: acc) tail
+    | _ -> List.rev acc
+  in
+  pairs [] boundaries
+
+let regex_accepts regex text =
+  let boundaries = utf8_scalar_boundaries text in
+  let boundary_count = List.length boundaries in
+  let boundary_at index =
+    match list_nth_opt boundaries index with
+    | Some boundary -> boundary
+    | None -> invalid_arg "regex_accepts: boundary index out of range"
+  in
+  let scalar_count = boundary_count - 1 in
+  let text_between start_idx end_idx =
+    let start_byte = boundary_at start_idx in
+    let end_byte = boundary_at end_idx in
+    String.sub text start_byte (end_byte - start_byte)
+  in
+  let rec match_from regex start =
+    match regex with
+    | ReEmpty -> []
+    | ReAll -> [scalar_count]
+    | ReAllChar ->
+        if start < scalar_count then [start + 1] else []
+    | ReLit literal ->
+        let lit_len = utf8_scalar_length literal in
+        let stop = start + lit_len in
+        if stop <= scalar_count && String.equal (text_between start stop) literal then
+          [stop]
+        else
+          []
+    | ReRange (lo, hi) -> (
+        if start >= scalar_count then []
+        else
+          match scalar_codes (text_between start (start + 1)) with
+          | [code] when lo <= code && code <= hi -> [start + 1]
+          | _ -> [])
+    | ReUnion regexes ->
+        regexes
+        |> List.concat_map (fun regex -> match_from regex start)
+        |> List.sort_uniq ~cmp:Int.compare
+    | ReConcat regexes ->
+        List.fold_left
+          (fun starts regex ->
+             starts
+             |> List.concat_map (fun start -> match_from regex start)
+             |> List.sort_uniq ~cmp:Int.compare)
+          [start]
+          regexes
+    | ReStar regex ->
+        let rec closure seen queue =
+          match queue with
+          | [] -> seen
+          | start :: rest ->
+              let next =
+                match_from regex start
+                |> List.filter
+                     (fun stop -> stop > start && not (List.exists (( = ) stop) seen))
+              in
+              closure (List.rev_append next seen) (List.rev_append next rest)
+        in
+        closure [start] [start] |> List.sort_uniq ~cmp:Int.compare
+  in
+  List.exists (( = ) scalar_count) (match_from regex 0)
+
+let filler_string seed length =
+  if length <= 0 then ""
+  else
+    let code = Char.code 'a' + (seed mod 26) in
+    String.make length (Char.chr code)
+
+let all_distinct = function
+  | [] | [_] -> true
+  | values ->
+      let rec loop seen = function
+        | [] -> true
+        | value :: tail ->
+            if List.exists (String.equal value) seen then false
+            else loop (value :: seen) tail
+      in
+      loop [] values
+
+let sequence_options values =
+  let rec aux acc = function
+    | [] -> Some (List.rev acc)
+    | None :: _ -> None
+    | Some value :: tail -> aux (value :: acc) tail
+  in
+  aux [] values
+
+let true_in_model smodel term =
+  try SModel.formula_true_in_model smodel term with _ -> false
+
+let positive_contains_reduction state smodel formulas =
+  let rec find = function
+    | [] -> Symbolic_none
+    | term :: tail -> (
+        if HTerms.mem state.generated_contains_splits term
+           || not (true_in_model smodel term)
+        then
+          find tail
+        else
+          match reveal_string term with
+          | Some (Contains (haystack, needle)) -> (
+              match contains_split_reduction state term haystack needle with
+              | Ok lemma -> Symbolic_refine (Op_contains, lemma)
+              | Error reason -> Symbolic_blocked reason)
+          | _ -> find tail)
+  in
+  find (collect_contains_terms formulas)
+
+let is_string_equality lhs rhs =
+  is_string_type (Term.type_of_term lhs) && is_string_type (Term.type_of_term rhs)
+
+let collect_true_equalities smodel formulas =
+  let rec aux acc term =
+    let Term tstruct = Term.reveal term in
+    let acc =
+      match tstruct with
+      | A2 (`YICES_EQ_TERM, lhs, rhs) when is_string_equality lhs rhs ->
+          if true_in_model smodel term then { atom = term; lhs; rhs } :: acc else acc
+      | _ -> acc
+    in
+    fold_children acc tstruct
+  and fold_children : type a. eq_atom list -> a YTypes.termstruct -> eq_atom list =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  List.fold_left aux [] formulas |> List.rev
+
+let is_int_term_type term =
+  Type.equal (Term.type_of_term term) Type.(int ())
+
+let has_reducible_stage3_equality lhs rhs =
+  match reveal_string lhs, reveal_string rhs with
+  | Some (Substr _), _ | _, Some (Substr _)
+  | Some (Indexof _), _ | _, Some (Indexof _)
+  | Some (Replace _), _ | _, Some (Replace _) -> true
+  | _ -> false
+
+let collect_true_stage3_equalities smodel formulas =
+  let rec aux acc term =
+    let Term tstruct = Term.reveal term in
+    let acc =
+      match tstruct with
+      | A2 (`YICES_EQ_TERM, lhs, rhs)
+        when has_reducible_stage3_equality lhs rhs && true_in_model smodel term ->
+          { atom = term; lhs; rhs } :: acc
+      | _ -> acc
+    in
+    fold_children acc tstruct
+  and fold_children : type a. eq_atom list -> a YTypes.termstruct -> eq_atom list =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  List.fold_left aux [] formulas |> List.rev
+
+type stage3_equality_reduction =
+  | Reduce_substr of eq_atom * Term.t * Term.t * Term.t * Term.t
+  | Reduce_indexof of eq_atom * Term.t * Term.t * Term.t * Term.t
+  | Reduce_replace of eq_atom * Term.t * Term.t * Term.t * Term.t
+
+let stage3_equality_reduction_of_eq eq =
+  match reveal_string eq.lhs, reveal_string eq.rhs with
+  | Some (Substr (string, start, length)), _ ->
+      Some (Reduce_substr (eq, string, start, length, eq.rhs))
+  | _, Some (Substr (string, start, length)) ->
+      Some (Reduce_substr (eq, string, start, length, eq.lhs))
+  | Some (Indexof (haystack, needle, start)), _ when is_int_term_type eq.rhs ->
+      Some (Reduce_indexof (eq, haystack, needle, start, eq.rhs))
+  | _, Some (Indexof (haystack, needle, start)) when is_int_term_type eq.lhs ->
+      Some (Reduce_indexof (eq, haystack, needle, start, eq.lhs))
+  | Some (Replace (haystack, needle, replacement)), _ ->
+      Some (Reduce_replace (eq, haystack, needle, replacement, eq.rhs))
+  | _, Some (Replace (haystack, needle, replacement)) ->
+      Some (Reduce_replace (eq, haystack, needle, replacement, eq.lhs))
+  | _ -> None
+
+let symbolic_stage3_equality_reduction state smodel formulas =
+  let rec find = function
+    | [] -> Symbolic_none
+    | eq :: tail -> (
+        match stage3_equality_reduction_of_eq eq with
+        | None -> find tail
+        | Some (Reduce_substr (eq, string, start, length, result)) -> (
+            match substr_split_reduction state eq string start length result with
+            | Ok None -> find tail
+            | Ok (Some lemma) -> Symbolic_refine (Op_substr, lemma)
+            | Error reason -> Symbolic_blocked reason)
+        | Some (Reduce_indexof (eq, haystack, needle, start, result)) -> (
+            match indexof_split_reduction state eq haystack needle start result with
+            | Ok None -> find tail
+            | Ok (Some lemma) -> Symbolic_refine (Op_indexof, lemma)
+            | Error reason -> Symbolic_blocked reason)
+        | Some (Reduce_replace (eq, haystack, needle, replacement, result)) -> (
+            match replace_split_reduction state eq haystack needle replacement result with
+            | Ok None -> find tail
+            | Ok (Some lemma) -> Symbolic_refine (Op_replace, lemma)
+            | Error reason -> Symbolic_blocked reason))
+  in
+  find (collect_true_stage3_equalities smodel formulas)
+
+let fixed_concat_prefix_middle_suffix parts =
+  let rec aux prefix = function
+    | [] -> None
+    | term :: tail -> (
+        match static_string_value term with
+        | Some text -> aux (prefix ^ text) tail
+        | None -> (
+            match ground_concat_value tail with
+            | Some suffix -> Some (prefix, term, suffix)
+            | None -> None))
+  in
+  aux "" parts
+
+let concat_literal_refinement eq =
+  let one_direction concat_term literal_text =
+    let atom = eq.atom in
+    match reveal_string concat_term with
+    | Some (Concat parts) -> (
+        match fixed_concat_prefix_middle_suffix parts with
+        | None -> None
+        | Some (prefix, middle, suffix) ->
+            if string_starts_with literal_text prefix
+               && string_ends_with literal_text suffix
+               && String.length prefix + String.length suffix <= String.length literal_text
+            then
+              let middle_start = String.length prefix in
+              let middle_len =
+                String.length literal_text - middle_start - String.length suffix
+              in
+              let inferred = String.sub literal_text middle_start middle_len in
+              Some Term.(atom ==> (middle === literal inferred))
+            else
+              Some Term.(not1 atom))
+    | _ -> None
+  in
+  match static_string_value eq.lhs, static_string_value eq.rhs with
+  | Some literal_text, None -> one_direction eq.rhs literal_text
+  | None, Some literal_text -> one_direction eq.lhs literal_text
+  | _ -> None
+
+let concat_literal_assignment eq =
+  let one_direction concat_term literal_text =
+    match reveal_string concat_term with
+    | Some (Concat parts) -> (
+        match fixed_concat_prefix_middle_suffix parts with
+        | None -> None
+        | Some (prefix, middle, suffix) ->
+            if string_starts_with literal_text prefix
+               && string_ends_with literal_text suffix
+               && String.length prefix + String.length suffix <= String.length literal_text
+            then
+              let middle_start = String.length prefix in
+              let middle_len =
+                String.length literal_text - middle_start - String.length suffix
+              in
+              Some (middle, String.sub literal_text middle_start middle_len)
+            else
+              None)
+    | _ -> None
+  in
+  match static_string_value eq.lhs, static_string_value eq.rhs with
+  | Some literal_text, None -> one_direction eq.rhs literal_text
+  | None, Some literal_text -> one_direction eq.lhs literal_text
+  | _ -> None
+
+let refinement_lemma smodel equalities =
+  List.find_map
+    (fun eq ->
+       match concat_literal_refinement eq with
+       | None -> None
+       | Some lemma ->
+           if true_in_model smodel lemma then None
+           else (
+             String_log.debug "generated string refinement lemma %a" Term.pp lemma;
+             Some lemma))
+    equalities
+
+let equality_classes terms equalities =
+  let neighbors term =
+    List.fold_left
+      (fun acc eq ->
+         if Term.equal term eq.lhs then eq.rhs :: acc
+         else if Term.equal term eq.rhs then eq.lhs :: acc
+         else acc)
+      [] equalities
+  in
+  let rec bfs seen = function
+    | [] -> seen
+    | term :: queue ->
+        if StringTermSet.mem term seen then bfs seen queue
+        else bfs (StringTermSet.add term seen) (neighbors term @ queue)
+  in
+  let rec build remaining classes =
+    if StringTermSet.is_empty remaining then classes
+    else
+      let term = StringTermSet.choose remaining in
+      let cls = bfs StringTermSet.empty [term] in
+      build (StringTermSet.diff remaining cls) (StringTermSet.elements cls :: classes)
+  in
+  build (List.fold_left (fun acc term -> StringTermSet.add term acc) StringTermSet.empty terms) []
+
+let fixed_string_terms equalities =
+  let terms =
+    List.fold_left
+      (fun acc eq -> StringTermSet.add eq.lhs (StringTermSet.add eq.rhs acc))
+      StringTermSet.empty
+      equalities
+    |> StringTermSet.elements
+  in
+  equality_classes terms equalities
+  |> List.fold_left
+       (fun acc cls ->
+          if List.exists (fun term -> Option.is_some (static_string_value term)) cls then
+            List.fold_left (fun acc term -> StringTermSet.add term acc) acc cls
+          else
+            acc)
+       StringTermSet.empty
+
+let representative_length smodel cls =
+  List.find_map (string_length_in_model smodel) cls
+
+let class_known_value forced cls =
+  let values =
+    let forced_values =
+      List.filter_map
+        (fun (term, text) ->
+           if List.exists (Term.equal term) cls then Some text else None)
+        forced
+    in
+    cls |> List.filter_map static_string_value |> List.rev_append forced_values
+    |> List.sort_uniq ~cmp:String.compare
+  in
+  match values with
+  | [] -> Ok None
+  | [value] -> Ok (Some value)
+  | values ->
+      Error
+        (Format.asprintf
+           "conflicting literal values in string equality class: %a"
+           (List.pp (fun fmt value -> Format.fprintf fmt "%S" value)) values)
+
+let seed_for_class index cls =
+  index + List.fold_left (fun acc term -> acc + Term.hash term) 0 cls
+
+let initial_assignments smodel terms equalities forced =
+  let classes = equality_classes terms equalities in
+  let assign_class (index, result) cls =
+    match result with
+    | Error _ as err -> index + 1, err
+    | Ok assignments -> (
+        match class_known_value forced cls with
+        | Error _ as err -> index + 1, err
+        | Ok known ->
+            let value =
+              match known with
+              | Some text -> text
+              | None ->
+                  let length = Option.value ~default:0 (representative_length smodel cls) in
+                  filler_string (seed_for_class index cls) length
+            in
+            let result =
+              List.fold_left
+                (fun result term ->
+                   match result with
+                   | Error _ as err -> err
+                   | Ok assignments -> add_assignment assignments term value)
+                (Ok assignments)
+                cls
+            in
+            index + 1, result)
+  in
+  snd (List.fold_left assign_class (0, Ok []) classes)
+
+let rec string_value smodel assignments term =
+  match reveal_string term with
+  | Some (Lit text) -> Some text
+  | Some (Concat terms) ->
+      let rec aux acc = function
+        | [] -> Some (String.concat "" (List.rev acc))
+        | term :: tail -> (
+            match string_value smodel assignments term with
+            | Some text -> aux (text :: acc) tail
+            | None -> None)
+      in
+      aux [] terms
+  | Some (Substr (string, start, length)) -> (
+      match
+        string_value smodel assignments string,
+        int_value smodel assignments start,
+        int_value smodel assignments length
+      with
+      | Some string, Some start, Some length ->
+          Some (substring_by_scalars string start length)
+      | _ -> None)
+  | Some (Replace (haystack, needle, replacement)) -> (
+      match
+        string_value smodel assignments haystack,
+        string_value smodel assignments needle,
+        string_value smodel assignments replacement
+      with
+      | Some haystack, Some needle, Some replacement ->
+          Some (eval_replace_text haystack needle replacement)
+      | _ -> None)
+  | Some (At (string, index)) -> (
+      match string_value smodel assignments string, int_value smodel assignments index with
+      | Some string, Some index -> Some (eval_at_text string index)
+      | _ -> None)
+  | _ -> assignment_find assignments term
+
+and int_value smodel assignments term =
+  match reveal_string term with
+  | Some (Len string) ->
+      begin
+        match string_value smodel assignments string with
+        | Some text -> Some (utf8_scalar_length text)
+        | None -> int_value_in_model smodel term
+      end
+  | Some (Indexof (haystack, needle, start)) -> (
+      match
+        string_value smodel assignments haystack,
+        string_value smodel assignments needle,
+        int_value smodel assignments start
+      with
+      | Some haystack, Some needle, Some start ->
+          Some (eval_indexof_text haystack needle start)
+      | _ -> None)
+  | _ -> int_value_in_model smodel term
+
+and bool_value smodel assignments term =
+  match reveal_string term with
+  | Some (Contains (haystack, needle)) -> (
+      match
+        string_value smodel assignments haystack,
+        string_value smodel assignments needle
+      with
+      | Some haystack, Some needle -> Some (eval_contains_text haystack needle)
+      | _ -> None)
+  | Some (Prefixof (prefix, string)) -> (
+      match string_value smodel assignments prefix, string_value smodel assignments string with
+      | Some prefix, Some string -> Some (eval_prefixof_text prefix string)
+      | _ -> None)
+  | Some (Suffixof (suffix, string)) -> (
+      match string_value smodel assignments suffix, string_value smodel assignments string with
+      | Some suffix, Some string -> Some (eval_suffixof_text suffix string)
+      | _ -> None)
+  | Some (InRe (string, regex)) -> (
+      match string_value smodel assignments string with
+      | Some text -> Some (regex_accepts regex text)
+      | None -> None)
+  | _ -> None
+
+let complete_contains_witness_assignments state smodel formulas assignments =
+  List.fold_left
+    (fun result term ->
+       match result, reveal_string term with
+       | Error _ as err, _ -> err
+       | Ok assignments, Some (Contains (haystack, needle))
+         when HTerms.mem state.generated_contains_splits term
+              && true_in_model smodel term -> (
+           match
+             find_witness state (ContainsPrefix (haystack, needle)),
+             find_witness state (ContainsSuffix (haystack, needle))
+           with
+           | Some prefix, Some suffix -> (
+               match
+                 string_value smodel assignments prefix,
+                 string_value smodel assignments needle,
+                 string_value smodel assignments suffix
+               with
+               | Some prefix_text, Some needle_text, Some suffix_text ->
+                   let text = prefix_text ^ needle_text ^ suffix_text in
+                   let split = concat [prefix; needle; suffix] in
+                   begin
+                     match force_assignment assignments split text with
+                     | Error _ as err -> err
+                     | Ok assignments -> force_assignment assignments haystack text
+                   end
+               | _ -> Ok assignments)
+           | _ -> Ok assignments)
+       | Ok assignments, _ -> Ok assignments)
+    (Ok assignments)
+    (collect_contains_terms formulas)
+
+let force_assignments assignments bindings =
+  List.fold_left
+    (fun result (term, text) ->
+       match result with
+       | Error _ as err -> err
+       | Ok assignments -> force_assignment assignments term text)
+    (Ok assignments)
+    bindings
+
+let witness_text smodel assignments term length seed =
+  match string_value smodel assignments term with
+  | Some text when utf8_scalar_length text = length -> text
+  | _ -> filler_string seed length
+
+let witness_length smodel assignments term default =
+  match string_value smodel assignments term with
+  | Some text -> utf8_scalar_length text
+  | None -> Option.value ~default (string_length_in_model smodel term)
+
+let filler_avoiding needle length =
+  if length <= 0 then ""
+  else
+    let rec pick code =
+      if code > 126 then filler_string 0 length
+      else
+        let candidate = String.make length (Char.chr code) in
+        if eval_contains_text candidate needle then pick (code + 1)
+        else candidate
+    in
+    pick 1
+
+let split_text_on_first text needle =
+  if String.equal needle "" then
+    Some ("", text)
+  else
+    match find_substring_from text needle 0 with
+    | None -> None
+    | Some start ->
+        let stop = start + String.length needle in
+        let prefix = String.sub text 0 start in
+        let suffix = String.sub text stop (String.length text - stop) in
+        Some (prefix, suffix)
+
+let complete_substr_reduction
+    state smodel fixed_terms assignments eq string start length result =
+  if not (HTerms.mem state.generated_symbolic_reductions eq.atom)
+     || not (true_in_model smodel eq.atom)
+  then Ok assignments
+  else
+    match
+      find_witness state (SubstrPrefix (string, start, length)),
+      find_witness state (SubstrSuffix (string, start, length))
+    with
+    | Some prefix, Some suffix -> (
+        match
+          int_value smodel assignments start,
+          int_value smodel assignments length,
+          string_value smodel assignments result,
+          string_value smodel assignments string
+        with
+        | Some start_value, Some length_value, _, Some text
+          when StringTermSet.mem string fixed_terms ->
+            begin
+              match
+                force_assignment
+                  assignments
+                  result
+                  (substring_by_scalars text start_value length_value)
+              with
+              | Ok assignments -> Ok assignments
+              | Error _ -> Ok assignments
+            end
+        | Some start_value, Some length_value, Some result_text, _
+          when start_value >= 0
+               && length_value > 0
+               && utf8_scalar_length result_text <= length_value ->
+            let prefix_text =
+              witness_text smodel assignments prefix start_value (Term.hash prefix)
+            in
+            let suffix_len = witness_length smodel assignments suffix 0 in
+            let suffix_text =
+              witness_text smodel assignments suffix suffix_len (Term.hash suffix)
+            in
+            let split = concat [prefix; result; suffix] in
+            let string_text = prefix_text ^ result_text ^ suffix_text in
+            force_assignments
+              assignments
+              [
+                prefix, prefix_text;
+                suffix, suffix_text;
+                split, string_text;
+                string, string_text;
+              ]
+        | Some start_value, Some length_value, _, Some text ->
+            force_assignment
+              assignments
+              result
+              (substring_by_scalars text start_value length_value)
+        | Some start_value, Some length_value, _, _
+          when start_value < 0 || length_value <= 0 ->
+            force_assignment assignments result ""
+        | _ -> Ok assignments)
+    | _ -> Ok assignments
+
+let complete_indexof_reduction
+    state smodel fixed_terms assignments eq haystack needle start result =
+  if not (HTerms.mem state.generated_symbolic_reductions eq.atom)
+     || not (true_in_model smodel eq.atom)
+  then Ok assignments
+  else
+    match
+      find_witness state (IndexofPrefix (haystack, needle, start)),
+      find_witness state (IndexofSuffix (haystack, needle, start))
+    with
+    | Some prefix, Some suffix -> (
+        match
+          int_value smodel assignments result,
+          int_value smodel assignments start,
+          string_value smodel assignments needle,
+          string_value smodel assignments haystack
+        with
+        | _, _, _, Some _
+          when StringTermSet.mem haystack fixed_terms ->
+            Ok assignments
+        | Some found_at, Some _start_value, Some needle_text, _
+          when found_at >= 0 && not (String.equal needle_text "") ->
+            let prefix_text = filler_avoiding needle_text found_at in
+            let suffix_len = witness_length smodel assignments suffix 0 in
+            let suffix_text =
+              witness_text smodel assignments suffix suffix_len (Term.hash suffix)
+            in
+            let split = concat [prefix; needle; suffix] in
+            let haystack_text = prefix_text ^ needle_text ^ suffix_text in
+            force_assignments
+              assignments
+              [
+                prefix, prefix_text;
+                suffix, suffix_text;
+                split, haystack_text;
+                haystack, haystack_text;
+              ]
+        | _ -> Ok assignments)
+    | _ -> Ok assignments
+
+let complete_replace_reduction
+    state smodel fixed_terms assignments eq haystack needle replacement result =
+  if not (HTerms.mem state.generated_symbolic_reductions eq.atom)
+     || not (true_in_model smodel eq.atom)
+  then Ok assignments
+  else
+    match
+      find_witness state (ReplacePrefix (haystack, needle, replacement)),
+      find_witness state (ReplaceSuffix (haystack, needle, replacement))
+    with
+    | Some prefix, Some suffix -> (
+        match
+          string_value smodel assignments haystack,
+          string_value smodel assignments needle,
+          string_value smodel assignments replacement,
+          string_value smodel assignments result
+        with
+        | Some _, _, _, _
+          when StringTermSet.mem haystack fixed_terms ->
+            Ok assignments
+        | Some haystack_text, Some "", Some replacement_text, _ ->
+            force_assignment assignments result (replacement_text ^ haystack_text)
+        | _, Some needle_text, _, Some result_text
+          when not (String.equal needle_text "")
+               && not (eval_contains_text result_text needle_text)
+               && true_in_model smodel Term.(haystack === result) ->
+            force_assignment assignments haystack result_text
+        | _, Some needle_text, Some replacement_text, Some result_text
+          when not (String.equal needle_text "") -> (
+            match split_text_on_first result_text replacement_text with
+            | Some (prefix_text, suffix_text) ->
+                let input_split = concat [prefix; needle; suffix] in
+                let output_split = concat [prefix; replacement; suffix] in
+                let haystack_text = prefix_text ^ needle_text ^ suffix_text in
+                force_assignments
+                  assignments
+                  [
+                    prefix, prefix_text;
+                    suffix, suffix_text;
+                    input_split, haystack_text;
+                    output_split, result_text;
+                    haystack, haystack_text;
+                    result, result_text;
+                  ]
+            | None -> Ok assignments)
+        | _, Some needle_text, Some replacement_text, _
+          when not (String.equal needle_text "") -> (
+            match
+              string_value smodel assignments prefix,
+              string_value smodel assignments suffix
+            with
+            | Some prefix_text, Some suffix_text ->
+                let input_split = concat [prefix; needle; suffix] in
+                let output_split = concat [prefix; replacement; suffix] in
+                let haystack_text = prefix_text ^ needle_text ^ suffix_text in
+                let result_text = prefix_text ^ replacement_text ^ suffix_text in
+                force_assignments
+                  assignments
+                  [
+                    input_split, haystack_text;
+                    output_split, result_text;
+                    haystack, haystack_text;
+                    result, result_text;
+                  ]
+            | _ -> Ok assignments)
+        | _ -> Ok assignments)
+    | _ -> Ok assignments
+
+let complete_stage3_witness_assignments state smodel formulas fixed_terms assignments =
+  List.fold_left
+    (fun result eq ->
+       match result, stage3_equality_reduction_of_eq eq with
+       | Error _ as err, _ -> err
+       | Ok assignments, Some (Reduce_substr (eq, string, start, length, result)) ->
+           complete_substr_reduction
+             state
+             smodel
+             fixed_terms
+             assignments
+             eq
+             string
+             start
+             length
+             result
+       | Ok assignments, Some (Reduce_indexof (eq, haystack, needle, start, result)) ->
+           complete_indexof_reduction
+             state
+             smodel
+             fixed_terms
+             assignments
+             eq
+             haystack
+             needle
+             start
+             result
+       | Ok assignments, Some (Reduce_replace (eq, haystack, needle, replacement, result)) ->
+           complete_replace_reduction
+             state
+             smodel
+             fixed_terms
+             assignments
+             eq
+             haystack
+             needle
+             replacement
+             result
+       | Ok assignments, None -> Ok assignments)
+    (Ok assignments)
+    (collect_true_stage3_equalities smodel formulas)
+
+let complete_concat_assignments smodel terms assignments =
+  List.fold_left
+    (fun result term ->
+       match result, reveal_string term with
+       | Error _ as err, _ -> err
+       | Ok assignments, Some (Concat _) -> (
+           match string_value smodel assignments term with
+           | Some text -> force_assignment assignments term text
+           | None -> Ok assignments)
+       | Ok assignments, _ -> Ok assignments)
+    (Ok assignments)
+    terms
+
+let validate_lengths smodel assignments =
+  List.find_map
+    (fun (term, text) ->
+       match string_length_in_model smodel term with
+       | None -> None
+       | Some expected ->
+           let actual = utf8_scalar_length text in
+           if actual = expected then None
+           else
+             Some
+               (Format.asprintf
+                  "length mismatch for %a: concrete length %d, Yices length %d"
+                  Term.pp term actual expected))
+    assignments
+
+let is_stage3_view = function
+  | Substr _ | Contains _ | Indexof _ | Replace _ | Prefixof _ | Suffixof _
+  | At _ | InRe _ -> true
+  | Lit _ | Concat _ | Len _ -> false
+
+let rec contains_stage3_view term =
+  let self =
+    match reveal_string term with
+    | Some view -> is_stage3_view view
+    | None -> false
+  in
+  if self then true
+  else
+    let Term tstruct = Term.reveal term in
+    contains_stage3_view_children tstruct
+
+and contains_stage3_view_children : type a. a YTypes.termstruct -> bool = function
+  | A0 _ -> false
+  | A1 (_, t) -> contains_stage3_view t
+  | A2 (_, t1, t2) -> contains_stage3_view t1 || contains_stage3_view t2
+  | Astar (_, terms) -> List.exists contains_stage3_view terms
+  | ITE (c, tb, eb) ->
+      List.exists contains_stage3_view [c; tb; eb]
+  | App (f, args) ->
+      contains_stage3_view f || List.exists contains_stage3_view args
+  | Bindings { vars; body; _ } ->
+      contains_stage3_view body || List.exists contains_stage3_view vars
+  | Update { array; index; value } ->
+      contains_stage3_view array
+      || contains_stage3_view value
+      || List.exists contains_stage3_view index
+  | Projection (_, _, t) -> contains_stage3_view t
+  | BV_Sum terms ->
+      List.exists
+        (fun (_, term) -> Option.map_or ~default:false contains_stage3_view term)
+        terms
+  | Sum terms
+  | FF_Sum terms ->
+      List.exists
+        (fun (_, term) -> Option.map_or ~default:false contains_stage3_view term)
+        terms
+  | Product (_, terms) ->
+      List.exists (fun (term, _) -> contains_stage3_view term) terms
+
+let is_int_term term =
+  Type.equal (Term.type_of_term term) Type.(int ())
+
+let is_bool_term term =
+  Type.equal (Term.type_of_term term) Type.(bool ())
+
+let rec eval_bool smodel assignments formula =
+  let fallback () =
+    if contains_stage3_view formula then None
+    else try Some (SModel.formula_true_in_model smodel formula) with _ -> None
+  in
+  match bool_value smodel assignments formula with
+  | Some value -> Some value
+  | None ->
+  let Term tstruct = Term.reveal formula in
+  match tstruct with
+  | A2 (`YICES_EQ_TERM, lhs, rhs) when is_string_equality lhs rhs -> (
+      match string_value smodel assignments lhs, string_value smodel assignments rhs with
+      | Some lhs, Some rhs -> Some (String.equal lhs rhs)
+      | _ -> None)
+  | A2 (`YICES_EQ_TERM, lhs, rhs)
+    when is_int_term lhs && is_int_term rhs && contains_stage3_view formula -> (
+      match int_value smodel assignments lhs, int_value smodel assignments rhs with
+      | Some lhs, Some rhs -> Some (lhs = rhs)
+      | _ -> None)
+  | A2 (`YICES_EQ_TERM, lhs, rhs)
+    when is_bool_term lhs && is_bool_term rhs && contains_stage3_view formula -> (
+      match eval_bool smodel assignments lhs, eval_bool smodel assignments rhs with
+      | Some lhs, Some rhs -> Some (Bool.equal lhs rhs)
+      | _ -> None)
+  | A2 (`YICES_ARITH_GE_ATOM, lhs, rhs) when contains_stage3_view formula -> (
+      match int_value smodel assignments lhs, int_value smodel assignments rhs with
+      | Some lhs, Some rhs -> Some (lhs >= rhs)
+      | _ -> None)
+  | Astar (`YICES_DISTINCT_TERM, terms)
+    when List.for_all (fun term -> is_string_type (Term.type_of_term term)) terms ->
+      begin
+        match sequence_options (List.map (string_value smodel assignments) terms) with
+        | Some values -> Some (all_distinct values)
+        | None -> None
+      end
+  | A1 (`YICES_NOT_TERM, arg) -> Option.map not (eval_bool smodel assignments arg)
+  | Astar (`YICES_OR_TERM, terms) ->
+      let values = List.map (eval_bool smodel assignments) terms in
+      if List.exists (function Some true -> true | _ -> false) values then Some true
+      else if List.for_all (function Some false -> true | _ -> false) values then Some false
+      else None
+  | Astar (`YICES_XOR_TERM, terms) ->
+      begin
+        match sequence_options (List.map (eval_bool smodel assignments) terms) with
+        | Some values ->
+            Some
+              (List.fold_left
+                 (fun parity value -> if value then not parity else parity)
+                 false
+                 values)
+        | None -> None
+      end
+  | ITE (cond, then_branch, else_branch)
+    when Type.equal (Term.type_of_term then_branch) Type.(bool ()) ->
+      begin
+        match eval_bool smodel assignments cond with
+        | Some true -> eval_bool smodel assignments then_branch
+        | Some false -> eval_bool smodel assignments else_branch
+        | None -> None
+      end
+  | _ -> fallback ()
+
+let validate_formulas smodel assignments formulas =
+  List.find_map
+    (fun formula ->
+       match eval_bool smodel assignments formula with
+       | Some true -> None
+       | Some false ->
+           Some
+             (Format.asprintf
+                "concrete string model does not satisfy %a"
+                Term.pp formula)
+       | None ->
+           Some
+             (Format.asprintf
+                "concrete string model cannot evaluate %a"
+                Term.pp formula))
+    formulas
+
+type concrete_value =
+  | Value_string of string
+  | Value_int of int
+  | Value_bool of bool
+
+let stage3_args = function
+  | Substr (string, start, length) -> [string; start; length]
+  | Contains (haystack, needle)
+  | Prefixof (haystack, needle)
+  | Suffixof (haystack, needle) -> [haystack; needle]
+  | Indexof (haystack, needle, start) -> [haystack; needle; start]
+  | Replace (haystack, needle, replacement) -> [haystack; needle; replacement]
+  | At (string, index) -> [string; index]
+  | InRe (string, _regex) -> [string]
+  | Lit _ | Concat _ | Len _ -> []
+
+let stage3_value smodel assignments term =
+  match reveal_string term with
+  | Some view when is_stage3_view view ->
+      let ty = Term.type_of_term term in
+      if is_string_type ty then
+        Option.map (fun text -> Value_string text) (string_value smodel assignments term)
+      else if is_int_term term then
+        Option.map (fun value -> Value_int value) (int_value smodel assignments term)
+      else if is_bool_term term then
+        Option.map (fun value -> Value_bool value) (bool_value smodel assignments term)
+      else
+        None
+  | _ -> None
+
+let premise_for_value term = function
+  | Value_string text -> Term.(term === literal text)
+  | Value_int value -> Term.(term === Term.Arith.int value)
+  | Value_bool true -> term
+  | Value_bool false -> Term.not1 term
+
+let premise_for_arg smodel assignments term =
+  if is_string_type (Term.type_of_term term) then
+    Option.map
+      (fun text -> premise_for_value term (Value_string text))
+      (string_value smodel assignments term)
+  else if is_int_term term then
+    Option.map
+      (fun value -> premise_for_value term (Value_int value))
+      (int_value smodel assignments term)
+  else if is_bool_term term then
+    Option.map
+      (fun value -> premise_for_value term (Value_bool value))
+      (bool_value smodel assignments term)
+  else
+    None
+
+let collect_stage3_terms formulas =
+  let rec aux acc term =
+    let acc =
+      match reveal_string term with
+      | Some view when is_stage3_view view -> StringTermSet.add term acc
+      | _ -> acc
+    in
+    let Term tstruct = Term.reveal term in
+    fold_children acc tstruct
+  and fold_children : type a. StringTermSet.t -> a YTypes.termstruct -> StringTermSet.t =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  List.fold_left aux StringTermSet.empty formulas |> StringTermSet.elements
+
+let extended_refinement_lemma smodel assignments formulas =
+  collect_stage3_terms formulas
+  |> List.find_map (fun term ->
+         match reveal_string term, stage3_value smodel assignments term with
+         | Some view, Some value ->
+             let op = refinement_operator_of_view view in
+             Option.flat_map
+               (fun op ->
+                 let args = stage3_args view in
+                 let premises = List.filter_map (premise_for_arg smodel assignments) args in
+                 if List.length premises <> List.length args
+                    || not (List.for_all (true_in_model smodel) premises)
+                 then
+                   None
+                 else
+                   let conclusion = premise_for_value term value in
+                   if true_in_model smodel conclusion then None
+                   else
+                     let lemma =
+                       match premises with
+                       | [] -> conclusion
+                       | [premise] -> Term.(premise ==> conclusion)
+                       | premises -> Term.(andN premises ==> conclusion)
+                     in
+                     if true_in_model smodel lemma then None else Some (op, lemma))
+               op
+         | _ -> None)
+
+type concrete_result =
+  | Concrete_sat of (Term.t * string) list
+  | Concrete_refine of refinement_operator * Term.t
+  | Concrete_unknown of string
+
+let build_concrete_strings state smodel support =
+  let formulas = current_terms state in
+  let terms =
+    List.fold_left
+      (fun acc term -> StringTermSet.add term acc)
+      (List.fold_left scan_term StringTermSet.empty formulas)
+      support
+    |> StringTermSet.elements
+  in
+  let equalities = collect_true_equalities smodel formulas in
+  let fixed_terms = fixed_string_terms equalities in
+  match refinement_lemma smodel equalities with
+  | Some lemma -> Concrete_refine (Op_concat, lemma)
+  | None ->
+      let forced = List.filter_map concat_literal_assignment equalities in
+      match initial_assignments smodel terms equalities forced with
+      | Error reason -> Concrete_unknown reason
+      | Ok assignments ->
+          match complete_contains_witness_assignments state smodel formulas assignments with
+          | Error reason -> Concrete_unknown reason
+          | Ok assignments ->
+              match
+                complete_stage3_witness_assignments
+                  state
+                  smodel
+                  formulas
+                  fixed_terms
+                  assignments
+              with
+              | Error reason -> Concrete_unknown reason
+              | Ok assignments ->
+                  match complete_concat_assignments smodel terms assignments with
+                  | Error reason -> Concrete_unknown reason
+                  | Ok assignments ->
+                      match dedup_assignments assignments with
+                      | Error reason -> Concrete_unknown reason
+                      | Ok assignments -> (
+                          match validate_lengths smodel assignments with
+                          | Some reason -> Concrete_unknown reason
+                          | None -> (
+                              match validate_formulas smodel assignments formulas with
+                              | None -> Concrete_sat assignments
+                              | Some reason -> (
+                                  match refinement_lemma smodel equalities with
+                                  | Some lemma -> Concrete_refine (Op_concat, lemma)
+                                  | None -> (
+                                      match
+                                        symbolic_stage3_equality_reduction
+                                          state
+                                          smodel
+                                          formulas
+                                      with
+                                      | Symbolic_refine (op, lemma) ->
+                                          Concrete_refine (op, lemma)
+                                      | Symbolic_blocked blocked ->
+                                          Concrete_unknown blocked
+                                      | Symbolic_none -> (
+                                          match
+                                            extended_refinement_lemma
+                                              smodel
+                                              assignments
+                                              formulas
+                                          with
+                                          | Some (op, lemma) ->
+                                              Concrete_refine (op, lemma)
+                                          | None -> (
+                                              match
+                                                positive_contains_reduction
+                                                  state
+                                                  smodel
+                                                  formulas
+                                              with
+                                              | Symbolic_refine (op, lemma) ->
+                                                  Concrete_refine (op, lemma)
+                                              | Symbolic_blocked blocked ->
+                                                  Concrete_unknown blocked
+                                              | Symbolic_none ->
+                                                  Concrete_unknown reason))))))
+
+let check state smodel =
+  if state.stats.active_iterations >= state.refinement_limit then begin
+    let reason =
+      Format.asprintf
+        "Stage 3 string extension exceeded refinement limit of %d iteration(s)"
+        state.refinement_limit
+    in
+    state.last_unknown <- Some reason;
+    ignore state.last_unknown;
+    state.last_strings <- [];
+    reset_active_iterations state;
+    String_log.info "%s" reason;
+    log_stats state "unknown";
+    Unknown reason
+  end else begin
+    state.stats.active_iterations <- state.stats.active_iterations + 1;
+    state.stats.refinement_iterations <- state.stats.refinement_iterations + 1;
+    state.last_strings <- [];
+    let support = string_terms_in_state state in
+    match build_concrete_strings state smodel support with
+    | Concrete_sat strings ->
+        state.last_unknown <- None;
+        state.last_strings <- strings;
+        reset_active_iterations state;
+        log_stats state "sat";
+        Sat smodel
+    | Concrete_refine (op, lemma) ->
+        record_refinement_lemma state.stats op;
+        String_log.info "Stage 3 generated %s refinement lemma %a"
+          (refinement_operator_name op)
+          Term.pp
+          lemma;
+        log_stats state "refinement";
+        Unsat lemma
+    | Concrete_unknown reason ->
+        state.last_unknown <- Some reason;
+        ignore state.last_unknown;
+        reset_active_iterations state;
+        String_log.info "Stage 3 string extension is incomplete: %s" reason;
+        log_stats state "unknown";
+        Unknown reason
+  end
+
+let enrich_smodel state ?support base =
+  let support =
+    match support with
+    | None -> string_terms_in_public_state state
+    | Some support -> support
+  in
+  let strings =
+    match state.last_strings with
+    | [] -> (
+        match build_concrete_strings state base support with
+        | Concrete_sat strings -> strings
+        | Concrete_refine _ | Concrete_unknown _ -> [])
+    | strings -> strings
+  in
+  let strings =
+    List.filter
+      (fun (term, _) -> List.exists (Term.equal term) support)
+      strings
+  in
+  { StringModel.base = SModel.with_support support base; strings }
+
+let interpolant _ old_interpolant = old_interpolant
+
+let pp_string_literal fmt s =
+  Format.fprintf fmt "%S" s
+
+let regex_code_string code =
+  if 0 <= code && code <= 0x7F then String.make 1 (Char.chr code)
+  else Format.sprintf "\\u{%X}" code
+
+let rec pp_regex fmt = function
+  | ReEmpty -> Format.fprintf fmt "re.none"
+  | ReAll -> Format.fprintf fmt "re.all"
+  | ReAllChar -> Format.fprintf fmt "re.allchar"
+  | ReLit text -> Format.fprintf fmt "@[<2>(str.to_re@ %S)@]" text
+  | ReRange (lo, hi) ->
+      Format.fprintf fmt "@[<2>(re.range@ %S@ %S)@]"
+        (regex_code_string lo)
+        (regex_code_string hi)
+  | ReConcat regexes ->
+      Format.fprintf fmt "@[<2>(re.++@ %a)@]" (List.pp pp_regex) regexes
+  | ReUnion regexes ->
+      Format.fprintf fmt "@[<2>(re.union@ %a)@]" (List.pp pp_regex) regexes
+  | ReStar regex ->
+      Format.fprintf fmt "@[<2>(re.*@ %a)@]" pp_regex regex
+
+let pp_term fmt term =
+  match reveal_string term with
+  | Some (Lit text) -> pp_string_literal fmt text
+  | Some (Concat terms) ->
+      Format.fprintf fmt "@[<2>(str.++@ %a)@]" (List.pp Term.pp) terms
+  | Some (Len term) ->
+      Format.fprintf fmt "@[<2>(str.len@ %a)@]" Term.pp term
+  | Some (Substr (string, start, length)) ->
+      Format.fprintf fmt "@[<2>(str.substr@ %a@ %a@ %a)@]"
+        Term.pp string Term.pp start Term.pp length
+  | Some (Contains (haystack, needle)) ->
+      Format.fprintf fmt "@[<2>(str.contains@ %a@ %a)@]"
+        Term.pp haystack Term.pp needle
+  | Some (Indexof (haystack, needle, start)) ->
+      Format.fprintf fmt "@[<2>(str.indexof@ %a@ %a@ %a)@]"
+        Term.pp haystack Term.pp needle Term.pp start
+  | Some (Replace (haystack, needle, replacement)) ->
+      Format.fprintf fmt "@[<2>(str.replace@ %a@ %a@ %a)@]"
+        Term.pp haystack Term.pp needle Term.pp replacement
+  | Some (Prefixof (prefix, string)) ->
+      Format.fprintf fmt "@[<2>(str.prefixof@ %a@ %a)@]"
+        Term.pp prefix Term.pp string
+  | Some (Suffixof (suffix, string)) ->
+      Format.fprintf fmt "@[<2>(str.suffixof@ %a@ %a)@]"
+        Term.pp suffix Term.pp string
+  | Some (At (string, index)) ->
+      Format.fprintf fmt "@[<2>(str.at@ %a@ %a)@]" Term.pp string Term.pp index
+  | Some (InRe (string, regex)) ->
+      Format.fprintf fmt "@[<2>(str.in_re@ %a@ %a)@]" Term.pp string pp_regex regex
+  | None -> Term.pp fmt term
+
+let pp_type fmt typ =
+  if is_string_type typ then Format.fprintf fmt "String"
+  else Type.pp fmt typ
+
+let rec term_to_sexp ?smt2arrays term =
+  match reveal_string term with
+  | Some (Lit text) -> Sexp.Atom (Format.sprintf "%S" text)
+  | Some (Concat terms) ->
+      Sexp.List (Sexp.Atom "str.++" :: List.map (term_to_sexp ?smt2arrays) terms)
+  | Some (Len term) ->
+      Sexp.List [Sexp.Atom "str.len"; term_to_sexp ?smt2arrays term]
+  | Some (Substr (string, start, length)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.substr";
+          term_to_sexp ?smt2arrays string;
+          term_to_sexp ?smt2arrays start;
+          term_to_sexp ?smt2arrays length;
+        ]
+  | Some (Contains (haystack, needle)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.contains";
+          term_to_sexp ?smt2arrays haystack;
+          term_to_sexp ?smt2arrays needle;
+        ]
+  | Some (Indexof (haystack, needle, start)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.indexof";
+          term_to_sexp ?smt2arrays haystack;
+          term_to_sexp ?smt2arrays needle;
+          term_to_sexp ?smt2arrays start;
+        ]
+  | Some (Replace (haystack, needle, replacement)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.replace";
+          term_to_sexp ?smt2arrays haystack;
+          term_to_sexp ?smt2arrays needle;
+          term_to_sexp ?smt2arrays replacement;
+        ]
+  | Some (Prefixof (prefix, string)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.prefixof";
+          term_to_sexp ?smt2arrays prefix;
+          term_to_sexp ?smt2arrays string;
+        ]
+  | Some (Suffixof (suffix, string)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.suffixof";
+          term_to_sexp ?smt2arrays suffix;
+          term_to_sexp ?smt2arrays string;
+        ]
+  | Some (At (string, index)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.at";
+          term_to_sexp ?smt2arrays string;
+          term_to_sexp ?smt2arrays index;
+        ]
+  | Some (InRe (string, regex)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.in_re";
+          term_to_sexp ?smt2arrays string;
+          regex_to_sexp regex;
+        ]
+  | None -> Term.to_sexp ?smt2arrays term
+
+and regex_to_sexp = function
+  | ReEmpty -> Sexp.Atom "re.none"
+  | ReAll -> Sexp.Atom "re.all"
+  | ReAllChar -> Sexp.Atom "re.allchar"
+  | ReLit text -> Sexp.List [Sexp.Atom "str.to_re"; Sexp.Atom (Format.sprintf "%S" text)]
+  | ReRange (lo, hi) ->
+      Sexp.List
+        [
+          Sexp.Atom "re.range";
+          Sexp.Atom (Format.sprintf "%S" (regex_code_string lo));
+          Sexp.Atom (Format.sprintf "%S" (regex_code_string hi));
+        ]
+  | ReConcat regexes ->
+      Sexp.List (Sexp.Atom "re.++" :: List.map regex_to_sexp regexes)
+  | ReUnion regexes ->
+      Sexp.List (Sexp.Atom "re.union" :: List.map regex_to_sexp regexes)
+  | ReStar regex ->
+      Sexp.List [Sexp.Atom "re.*"; regex_to_sexp regex]
+
+let type_to_sexp ?smt2arrays typ =
+  if is_string_type typ then Sexp.Atom "String"
+  else Type.to_sexp ?smt2arrays typ
+
+let smodel_to_sexp ?smt2arrays model =
+  let string_bindings =
+    model.StringModel.strings
+    |> List.map (fun (term, text) ->
+           Sexp.List
+             [
+               Sexp.Atom ":=";
+               term_to_sexp ?smt2arrays term;
+               Sexp.Atom (Format.sprintf "%S" text);
+             ])
+  in
+  match SModel.as_map model.base with
+  | [] -> Sexp.List (Sexp.Atom "model" :: string_bindings)
+  | base_bindings ->
+      let base_bindings =
+        List.map
+          (fun (lhs, rhs) ->
+             Sexp.List
+               [
+                 Sexp.Atom ":=";
+                 Term.to_sexp ?smt2arrays lhs;
+                 Term.to_sexp ?smt2arrays rhs;
+               ])
+          base_bindings
+      in
+      Sexp.List (Sexp.Atom "model" :: string_bindings @ base_bindings)
+
+module Type = struct
+  include Type
+
+  let string = string_type
+  let is_string = is_string_type
+end
+
+module Term = struct
+  include Term
+
+  let str = literal
+
+  let string_var ?name () =
+    Term.new_uninterpreted ?name (string_type ())
+
+  let concat = concat
+  let len = len
+  let substr = substr
+  let contains = contains
+  let indexof = indexof
+  let replace = replace
+  let prefixof = prefixof
+  let suffixof = suffixof
+  let at = at
+  let in_re = in_re
+  let string_reveal = reveal_string
+end
+
+module Regex = struct
+  type t = regex
+
+  let empty = ReEmpty
+  let all = ReAll
+  let all_char = ReAllChar
+  let str text =
+    ignore (utf8_scalar_length text);
+    ReLit text
+  let range lo hi =
+    let lo_codes = scalar_codes lo in
+    let hi_codes = scalar_codes hi in
+    match lo_codes, hi_codes with
+    | [lo], [hi] when lo <= hi -> ReRange (lo, hi)
+    | [_], [_] ->
+        Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+          "invalid regex range: lower bound %S is greater than upper bound %S"
+          lo hi
+    | _ ->
+        Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+          "regex range endpoints must be single Unicode scalar values: %S %S"
+          lo hi
+  let concat regexes =
+    match regexes with
+    | [] -> ReLit ""
+    | [regex] -> regex
+    | _ -> ReConcat regexes
+  let union regexes =
+    match regexes with
+    | [] -> ReEmpty
+    | [regex] -> regex
+    | _ -> ReUnion regexes
+  let star regex = ReStar regex
+end
+
+module Arg = struct
+  type term = Term.t
+  type typ = Type.t
+  type old_context = Context.t
+  type config = Config.t
+  type param = Param.t
+  type smodel = StringModel.t
+
+  type nonrec t = t
+
+  let translate_assertion_impl = translate_assertion
+  let translate_assumption_impl = translate_assumption
+
+  let malloc = malloc
+  let reset = reset
+  let push = push
+  let pop = pop
+  let goto = goto
+  let translate_assertion (ctx : old_context) state formula =
+    translate_assertion_impl ctx state formula
+  let translate_assumption (ctx : old_context) state formula =
+    translate_assumption_impl ctx state formula
+  let check = check
+  let term_of_old = term_of_old
+  let typ_of_old = typ_of_old
+  let param_to_old = param_to_old
+  let smodel_to_old = smodel_to_old
+  let smodel_of_old = smodel_of_old
+  let enrich_smodel = enrich_smodel
+  let interpolant = interpolant
+  let pp_term = pp_term
+  let pp_type = pp_type
+  let term_to_sexp = term_to_sexp
+  let type_to_sexp = type_to_sexp
+  let smodel_to_sexp = smodel_to_sexp
+end
+
+module Context = Make (Context) (Arg)

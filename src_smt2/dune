@@ -1,6 +1,16 @@
 (executable
  (name yices_smt2)
  (public_name yices_smt2)
+ (modules yices_smt2)
+ (libraries ctypes sexplib containers yices2 extensions)
+ (preprocess (pps ppx_deriving.std))
+ (promote (until-clean) (into ".."))
+)
+
+(executable
+ (name yices_string_smt2)
+ (public_name yices_string_smt2)
+ (modules yices_string_smt2)
  (libraries ctypes sexplib containers yices2 extensions)
  (preprocess (pps ppx_deriving.std))
  (promote (until-clean) (into ".."))

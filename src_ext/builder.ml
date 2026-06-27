@@ -447,6 +447,10 @@ Context with type term   = C.term
                recorded in the extension-level assertion log. *)
             Context.assert_formula t.old_context interpolant;
             check ?param ?assumptions ?smodel ?as_inequalities ?hints t
+         | Unknown _reason ->
+            t.model := None;
+            t.status := `STATUS_UNKNOWN;
+            `STATUS_UNKNOWN
        end
     | status ->
        t.model := None;
