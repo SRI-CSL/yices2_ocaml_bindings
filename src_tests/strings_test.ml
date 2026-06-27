@@ -280,6 +280,25 @@ let replace_text haystack needle replacement =
       in
       prefix ^ replacement ^ suffix
 
+let replace_all_text haystack needle replacement =
+  if String.equal needle "" then haystack
+  else
+    let haystack_len = String.length haystack in
+    let needle_len = String.length needle in
+    let output = Buffer.create haystack_len in
+    let rec loop start =
+      let found = indexof_text haystack needle start in
+      if found < 0 then
+        Buffer.add_substring output haystack start (haystack_len - start)
+      else begin
+        Buffer.add_substring output haystack start (found - start);
+        Buffer.add_string output replacement;
+        loop (found + needle_len)
+      end
+    in
+    loop 0;
+    Buffer.contents output
+
 let test_replace_prefix_suffix_at () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_replace_x" () in
@@ -300,6 +319,48 @@ let test_replace_symbolic_witness_sat () =
   let x_value = Option.get (S.StringModel.find_string model x) in
   assert (String.equal (replace_text x_value "b" "x") "axc");
   assert (not (String.equal x_value "axc"))
+
+let test_replace_all_ground_semantics () =
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx
+    S.Term.(replace_all (str "ababa") (str "a") (str "x") === str "xbxbx");
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx
+    S.Term.(replace_all (str "ababa") (str "a") (str "x") === str "ababa");
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx
+    S.Term.(replace_all (str "abc") (str "") (str "x") === str "abc");
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx
+    S.Term.(replace_all (str "a") (str "a") (str "aa") === str "aa");
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx
+    S.Term.(replace_all (str "a") (str "a") (str "aa") === str "aaaa");
+  assert_check `STATUS_UNSAT ctx
+
+let test_replace_all_symbolic_witness_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_replace_all_symbolic_x" () in
+  S.Context.assert_formula ctx S.Term.(contains x (str "a"));
+  S.Context.assert_formula ctx
+    S.Term.(replace_all x (str "a") (str "b") === str "bb");
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  assert (contains_text x_value "a");
+  assert (String.equal (replace_all_text x_value "a" "b") "bb")
+
+let test_replace_all_fixed_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"stage3_replace_all_fixed_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "aaa");
+  S.Context.assert_formula ctx
+    S.Term.(replace_all x (str "a") (str "b") === str "aba");
+  assert_check `STATUS_UNSAT ctx
 
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
@@ -748,6 +809,9 @@ let test () =
   test_indexof_symbolic_witness_sat ();
   test_replace_prefix_suffix_at ();
   test_replace_symbolic_witness_sat ();
+  test_replace_all_ground_semantics ();
+  test_replace_all_symbolic_witness_sat ();
+  test_replace_all_fixed_unsat ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();

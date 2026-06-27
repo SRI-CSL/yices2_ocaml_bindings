@@ -228,6 +228,12 @@ let parse_term : type a.
                 let* needle = parse env needle in
                 let* replacement = parse env replacement in
                 return (S.Term.replace haystack needle replacement))
+          | "str.replace_all", [haystack; needle; replacement] ->
+             Some
+               (let* haystack = parse env haystack in
+                let* needle = parse env needle in
+                let* replacement = parse env replacement in
+                return (S.Term.replace_all haystack needle replacement))
           | "str.prefixof", [prefix; string] ->
              Some
                (let* prefix = parse env prefix in
@@ -253,6 +259,7 @@ let parse_term : type a.
             | "str.contains"
             | "str.indexof"
             | "str.replace"
+            | "str.replace_all"
             | "str.prefixof"
             | "str.suffixof"
             | "str.at"

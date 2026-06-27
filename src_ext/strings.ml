@@ -18,6 +18,7 @@ type string_view =
   | Contains of Term.t * Term.t
   | Indexof of Term.t * Term.t * Term.t
   | Replace of Term.t * Term.t * Term.t
+  | ReplaceAll of Term.t * Term.t * Term.t
   | Prefixof of Term.t * Term.t
   | Suffixof of Term.t * Term.t
   | At of Term.t * Term.t
@@ -51,6 +52,7 @@ let substr_symbol_ref = ref None
 let contains_symbol_ref = ref None
 let indexof_symbol_ref = ref None
 let replace_symbol_ref = ref None
+let replace_all_symbol_ref = ref None
 let prefixof_symbol_ref = ref None
 let suffixof_symbol_ref = ref None
 let at_symbol_ref = ref None
@@ -111,6 +113,7 @@ let () =
       contains_symbol_ref := None;
       indexof_symbol_ref := None;
       replace_symbol_ref := None;
+      replace_all_symbol_ref := None;
       prefixof_symbol_ref := None;
       suffixof_symbol_ref := None;
       at_symbol_ref := None;
@@ -244,6 +247,12 @@ let replace_symbol () =
     "__yices_string_replace"
     Type.(func [string_type (); string_type (); string_type ()] (string_type ()))
 
+let replace_all_symbol () =
+  cached_symbol
+    replace_all_symbol_ref
+    "__yices_string_replace_all"
+    Type.(func [string_type (); string_type (); string_type ()] (string_type ()))
+
 let prefixof_symbol () =
   cached_symbol
     prefixof_symbol_ref
@@ -367,6 +376,15 @@ let replace haystack needle replacement =
   in
   record_view term (Replace (haystack, needle, replacement))
 
+let replace_all haystack needle replacement =
+  check_string_term haystack;
+  check_string_term needle;
+  check_string_term replacement;
+  let term =
+    Term.application (replace_all_symbol ()) [haystack; needle; replacement]
+  in
+  record_view term (ReplaceAll (haystack, needle, replacement))
+
 let prefixof prefix string =
   check_string_term prefix;
   check_string_term string;
@@ -419,6 +437,8 @@ type witness_key =
   | IndexofSuffix of Term.t * Term.t * Term.t
   | ReplacePrefix of Term.t * Term.t * Term.t
   | ReplaceSuffix of Term.t * Term.t * Term.t
+  | ReplaceAllPrefix of Term.t * Term.t * Term.t
+  | ReplaceAllSuffix of Term.t * Term.t * Term.t
 [@@warning "-37"]
 
 module WitnessKey = struct
@@ -436,7 +456,9 @@ module WitnessKey = struct
     | IndexofSuffix (lh, ln, li), IndexofSuffix (rh, rn, ri) ->
         Term.equal lh rh && Term.equal ln rn && Term.equal li ri
     | ReplacePrefix (lh, ln, lr), ReplacePrefix (rh, rn, rr)
-    | ReplaceSuffix (lh, ln, lr), ReplaceSuffix (rh, rn, rr) ->
+    | ReplaceSuffix (lh, ln, lr), ReplaceSuffix (rh, rn, rr)
+    | ReplaceAllPrefix (lh, ln, lr), ReplaceAllPrefix (rh, rn, rr)
+    | ReplaceAllSuffix (lh, ln, lr), ReplaceAllSuffix (rh, rn, rr) ->
         Term.equal lh rh && Term.equal ln rn && Term.equal lr rr
     | _ -> false
 
@@ -459,6 +481,12 @@ module WitnessKey = struct
     | ReplaceSuffix (haystack, needle, replacement) ->
         Hashtbl.hash
           (7, Term.hash haystack, Term.hash needle, Term.hash replacement)
+    | ReplaceAllPrefix (haystack, needle, replacement) ->
+        Hashtbl.hash
+          (8, Term.hash haystack, Term.hash needle, Term.hash replacement)
+    | ReplaceAllSuffix (haystack, needle, replacement) ->
+        Hashtbl.hash
+          (9, Term.hash haystack, Term.hash needle, Term.hash replacement)
 end
 
 module HWitness = Hashtbl.Make(WitnessKey)
@@ -472,6 +500,8 @@ let witness_key_name = function
   | IndexofSuffix _ -> "indexof-suffix"
   | ReplacePrefix _ -> "replace-prefix"
   | ReplaceSuffix _ -> "replace-suffix"
+  | ReplaceAllPrefix _ -> "replace-all-prefix"
+  | ReplaceAllSuffix _ -> "replace-all-suffix"
 
 type refinement_operator =
   | Op_concat
@@ -479,6 +509,7 @@ type refinement_operator =
   | Op_contains
   | Op_indexof
   | Op_replace
+  | Op_replace_all
   | Op_prefixof
   | Op_suffixof
   | Op_at
@@ -490,6 +521,7 @@ let refinement_operator_name = function
   | Op_contains -> "contains"
   | Op_indexof -> "indexof"
   | Op_replace -> "replace"
+  | Op_replace_all -> "replace_all"
   | Op_prefixof -> "prefixof"
   | Op_suffixof -> "suffixof"
   | Op_at -> "at"
@@ -500,6 +532,7 @@ let refinement_operator_of_view = function
   | Contains _ -> Some Op_contains
   | Indexof _ -> Some Op_indexof
   | Replace _ -> Some Op_replace
+  | ReplaceAll _ -> Some Op_replace_all
   | Prefixof _ -> Some Op_prefixof
   | Suffixof _ -> Some Op_suffixof
   | At _ -> Some Op_at
@@ -757,6 +790,42 @@ let ground_concat_value terms =
   in
   aux [] terms
 
+let static_string_value term =
+  match reveal_string term with
+  | Some (Lit text) -> Some text
+  | Some (Concat terms) -> ground_concat_value terms
+  | _ -> None
+
+let find_substring_from haystack needle start_byte =
+  let hay_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then None
+    else if String.equal (String.sub haystack i needle_len) needle then Some i
+    else loop (i + 1)
+  in
+  if needle_len = 0 then Some start_byte
+  else if start_byte < 0 || start_byte > hay_len then None
+  else loop start_byte
+
+let eval_replace_all_text haystack needle replacement =
+  if String.equal needle "" then haystack
+  else
+    let hay_len = String.length haystack in
+    let needle_len = String.length needle in
+    let output = Buffer.create hay_len in
+    let rec loop start =
+      match find_substring_from haystack needle start with
+      | None ->
+          Buffer.add_substring output haystack start (hay_len - start)
+      | Some index ->
+          Buffer.add_substring output haystack start (index - start);
+          Buffer.add_string output replacement;
+          loop (index + needle_len)
+    in
+    loop 0;
+    Buffer.contents output
+
 let rec regex_string_terms acc = function
   | ReToRe term -> scan_term acc term
   | ReConcat regexes
@@ -790,6 +859,8 @@ and scan_term acc term =
     | Some (Indexof (haystack, needle, start)) ->
         List.fold_left scan_term acc [haystack; needle; start]
     | Some (Replace (haystack, needle, replacement)) ->
+        List.fold_left scan_term acc [haystack; needle; replacement]
+    | Some (ReplaceAll (haystack, needle, replacement)) ->
         List.fold_left scan_term acc [haystack; needle; replacement]
     | Some (At (string, index)) ->
         List.fold_left scan_term acc [string; index]
@@ -859,7 +930,47 @@ let axioms_for_string_term term =
         length_axiom :: content_axioms
     | _ -> []
   in
-  empty_axiom @ common @ literal_axiom @ concat_axiom
+  let replace_all_axiom =
+    match reveal_string term with
+    | Some (ReplaceAll (haystack, needle, replacement)) -> (
+        let content_axioms =
+          match
+            static_string_value haystack,
+            static_string_value needle,
+            static_string_value replacement
+          with
+          | Some haystack_text, Some needle_text, Some replacement_text ->
+              [
+                Term.(
+                  term
+                  === literal
+                        (eval_replace_all_text
+                           haystack_text
+                           needle_text
+                           replacement_text));
+              ]
+          | _, Some "", _ -> [Term.(term === haystack)]
+          | _, Some needle_text, Some replacement_text
+            when String.equal needle_text replacement_text ->
+              [Term.(term === haystack)]
+          | Some "", Some needle_text, _
+            when not (String.equal needle_text "") ->
+              [Term.(term === haystack)]
+          | _ -> []
+        in
+        let length_axioms =
+          match static_string_value needle, static_string_value replacement with
+          | Some needle_text, Some replacement_text
+            when not (String.equal needle_text "")
+                 && utf8_scalar_length needle_text
+                    = utf8_scalar_length replacement_text ->
+              [Term.(length === len haystack)]
+          | _ -> []
+        in
+        content_axioms @ length_axioms)
+    | _ -> []
+  in
+  empty_axiom @ common @ literal_axiom @ concat_axiom @ replace_all_axiom
 
 let conjoin = function
   | [] -> Term.true0 ()
@@ -1128,6 +1239,62 @@ let replace_split_reduction state eq haystack needle replacement result =
         in
         Result.map (fun lemma -> Some lemma) (mark_symbolic_reduction state eq.atom lemma)
 
+let replace_all_split_reduction state eq haystack needle replacement result =
+  if HTerms.mem state.generated_symbolic_reductions eq.atom then Ok None
+  else if Option.is_none (static_string_value needle) then
+    Error
+      (Format.asprintf
+         "unsupported symbolic str.replace_all needle in %a"
+         Term.pp
+         eq.atom)
+  else
+    match
+      witness_pair
+        state
+        (ReplaceAllPrefix (haystack, needle, replacement))
+        (ReplaceAllSuffix (haystack, needle, replacement))
+    with
+    | Error reason -> Error reason
+    | Ok (prefix, suffix) ->
+        let zero = Term.Arith.zero () in
+        let input_split = concat [prefix; needle; suffix] in
+        let tail_result = replace_all suffix needle replacement in
+        let output_split = concat [prefix; replacement; tail_result] in
+        let needle_empty = Term.(len needle === zero) in
+        let needle_nonempty = Term.Arith.gt (len needle) zero in
+        let no_occurrence_case =
+          conjoin
+            [
+              Term.not1 (contains haystack needle);
+              Term.(result === haystack);
+            ]
+        in
+        let occurrence_case =
+          conjoin
+            [
+              contains haystack needle;
+              Term.not1 (contains prefix needle);
+              Term.(haystack === input_split);
+              Term.(result === output_split);
+            ]
+        in
+        let split_axioms =
+          [prefix; suffix; input_split; tail_result; output_split]
+          |> List.map axioms_for_string_term
+          |> List.flatten
+        in
+        let lemma =
+          conjoin
+            (split_axioms
+             @ [
+                 imply_all [eq.atom; needle_empty] Term.(result === haystack);
+                 imply_all
+                   [eq.atom; needle_nonempty]
+                   (disjoin [no_occurrence_case; occurrence_case]);
+               ])
+        in
+        Result.map (fun lemma -> Some lemma) (mark_symbolic_reduction state eq.atom lemma)
+
 let translate_assertion (_ctx : Context.t) state formula =
   remember_assertion state formula;
   let string_terms = scan_term StringTermSet.empty formula in
@@ -1179,12 +1346,6 @@ let dedup_assignments assignments =
                  Term.pp term old text))
   in
   Result.map List.rev (List.fold_left add (Ok []) assignments)
-
-let static_string_value term =
-  match reveal_string term with
-  | Some (Lit text) -> Some text
-  | Some (Concat terms) -> ground_concat_value terms
-  | _ -> None
 
 let assignment_find assignments term =
   List.find_map
@@ -1321,18 +1482,6 @@ let scalar_index_of_byte s byte_index =
         else loop (index + 1) tail
   in
   loop 0 boundaries
-
-let find_substring_from haystack needle start_byte =
-  let hay_len = String.length haystack in
-  let needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len then None
-    else if String.equal (String.sub haystack i needle_len) needle then Some i
-    else loop (i + 1)
-  in
-  if needle_len = 0 then Some start_byte
-  else if start_byte < 0 || start_byte > hay_len then None
-  else loop start_byte
 
 let eval_contains_text haystack needle =
   match find_substring_from haystack needle 0 with
@@ -1610,7 +1759,8 @@ let has_reducible_stage3_equality lhs rhs =
   match reveal_string lhs, reveal_string rhs with
   | Some (Substr _), _ | _, Some (Substr _)
   | Some (Indexof _), _ | _, Some (Indexof _)
-  | Some (Replace _), _ | _, Some (Replace _) -> true
+  | Some (Replace _), _ | _, Some (Replace _)
+  | Some (ReplaceAll _), _ | _, Some (ReplaceAll _) -> true
   | _ -> false
 
 let collect_true_stage3_equalities smodel formulas =
@@ -1654,6 +1804,7 @@ type stage3_equality_reduction =
   | Reduce_substr of eq_atom * Term.t * Term.t * Term.t * Term.t
   | Reduce_indexof of eq_atom * Term.t * Term.t * Term.t * Term.t
   | Reduce_replace of eq_atom * Term.t * Term.t * Term.t * Term.t
+  | Reduce_replace_all of eq_atom * Term.t * Term.t * Term.t * Term.t
 
 let stage3_equality_reduction_of_eq eq =
   match reveal_string eq.lhs, reveal_string eq.rhs with
@@ -1669,6 +1820,10 @@ let stage3_equality_reduction_of_eq eq =
       Some (Reduce_replace (eq, haystack, needle, replacement, eq.rhs))
   | _, Some (Replace (haystack, needle, replacement)) ->
       Some (Reduce_replace (eq, haystack, needle, replacement, eq.lhs))
+  | Some (ReplaceAll (haystack, needle, replacement)), _ ->
+      Some (Reduce_replace_all (eq, haystack, needle, replacement, eq.rhs))
+  | _, Some (ReplaceAll (haystack, needle, replacement)) ->
+      Some (Reduce_replace_all (eq, haystack, needle, replacement, eq.lhs))
   | _ -> None
 
 let symbolic_stage3_equality_reduction state smodel formulas =
@@ -1691,6 +1846,11 @@ let symbolic_stage3_equality_reduction state smodel formulas =
             match replace_split_reduction state eq haystack needle replacement result with
             | Ok None -> find tail
             | Ok (Some lemma) -> Symbolic_refine (Op_replace, lemma)
+            | Error reason -> Symbolic_blocked reason)
+        | Some (Reduce_replace_all (eq, haystack, needle, replacement, result)) -> (
+            match replace_all_split_reduction state eq haystack needle replacement result with
+            | Ok None -> find tail
+            | Ok (Some lemma) -> Symbolic_refine (Op_replace_all, lemma)
             | Error reason -> Symbolic_blocked reason))
   in
   find (collect_true_stage3_equalities smodel formulas)
@@ -2825,6 +2985,15 @@ let rec string_value smodel assignments term =
       | Some haystack, Some needle, Some replacement ->
           Some (eval_replace_text haystack needle replacement)
       | _ -> None)
+  | Some (ReplaceAll (haystack, needle, replacement)) -> (
+      match
+        string_value smodel assignments haystack,
+        string_value smodel assignments needle,
+        string_value smodel assignments replacement
+      with
+      | Some haystack, Some needle, Some replacement ->
+          Some (eval_replace_all_text haystack needle replacement)
+      | _ -> None)
   | Some (At (string, index)) -> (
       match string_value smodel assignments string, int_value smodel assignments index with
       | Some string, Some index -> Some (eval_at_text string index)
@@ -3297,6 +3466,132 @@ let complete_replace_reduction
         | _ -> Ok assignments)
     | _ -> Ok assignments
 
+let complete_replace_all_reduction
+    state smodel fixed_terms assignments eq haystack needle replacement result =
+  if not (HTerms.mem state.generated_symbolic_reductions eq.atom)
+     || not (true_in_model smodel eq.atom)
+  then Ok assignments
+  else
+    match
+      find_witness state (ReplaceAllPrefix (haystack, needle, replacement)),
+      find_witness state (ReplaceAllSuffix (haystack, needle, replacement))
+    with
+    | Some prefix, Some suffix -> (
+        match
+          string_value smodel assignments haystack,
+          string_value smodel assignments needle,
+          string_value smodel assignments replacement,
+          string_value smodel assignments result
+        with
+        | Some haystack_text, Some needle_text, Some replacement_text, _
+          when StringTermSet.mem haystack fixed_terms ->
+            begin
+              match
+                force_assignment
+                  assignments
+                  result
+                  (eval_replace_all_text haystack_text needle_text replacement_text)
+              with
+              | Ok assignments -> Ok assignments
+              | Error _ -> Ok assignments
+            end
+        | _, Some needle_text, Some replacement_text, Some result_text
+          when not (String.equal needle_text "")
+               && not (String.equal replacement_text "")
+               && not (StringTermSet.mem haystack fixed_terms) -> (
+            let prefix_len = witness_length smodel assignments prefix 0 in
+            let replacement_len = utf8_scalar_length replacement_text in
+            let result_len = utf8_scalar_length result_text in
+            if prefix_len >= 0 && prefix_len + replacement_len <= result_len then
+              let prefix_text =
+                substring_by_scalars result_text 0 prefix_len
+              in
+              let replacement_slice =
+                substring_by_scalars result_text prefix_len replacement_len
+              in
+              let suffix_text =
+                substring_by_scalars
+                  result_text
+                  (prefix_len + replacement_len)
+                  (result_len - prefix_len - replacement_len)
+              in
+              if String.equal replacement_slice replacement_text
+                 && not (eval_contains_text prefix_text needle_text)
+                 && not (eval_contains_text suffix_text needle_text)
+              then
+                let input_split = concat [prefix; needle; suffix] in
+                let tail_result = replace_all suffix needle replacement in
+                let output_split = concat [prefix; replacement; tail_result] in
+                let haystack_text = prefix_text ^ needle_text ^ suffix_text in
+                let bindings =
+                  [
+                    prefix, prefix_text;
+                    suffix, suffix_text;
+                    input_split, haystack_text;
+                    tail_result, suffix_text;
+                    output_split, result_text;
+                    haystack, haystack_text;
+                    result, result_text;
+                  ]
+                in
+                force_assignments assignments bindings
+              else
+                Ok assignments
+            else
+              Ok assignments)
+        | _, Some "", _, Some result_text
+          when not (StringTermSet.mem haystack fixed_terms) ->
+            force_assignment assignments haystack result_text
+        | _, Some needle_text, _, Some result_text
+          when not (String.equal needle_text "")
+               && not (StringTermSet.mem haystack fixed_terms)
+               && not (eval_contains_text result_text needle_text)
+               && true_in_model smodel Term.(haystack === result) ->
+            force_assignment assignments haystack result_text
+        | Some haystack_text, Some needle_text, Some replacement_text, _ ->
+            begin
+              match
+                force_assignment
+                  assignments
+                  result
+                  (eval_replace_all_text haystack_text needle_text replacement_text)
+              with
+              | Ok assignments -> Ok assignments
+              | Error _ -> Ok assignments
+            end
+        | _, Some needle_text, Some replacement_text, _
+          when not (String.equal needle_text "") -> (
+            match
+              string_value smodel assignments prefix,
+              string_value smodel assignments suffix
+            with
+            | Some prefix_text, Some suffix_text
+              when not (eval_contains_text prefix_text needle_text) ->
+                let input_split = concat [prefix; needle; suffix] in
+                let tail_result = replace_all suffix needle replacement in
+                let output_split = concat [prefix; replacement; tail_result] in
+                let haystack_text = prefix_text ^ needle_text ^ suffix_text in
+                let tail_text =
+                  eval_replace_all_text suffix_text needle_text replacement_text
+                in
+                let result_text = prefix_text ^ replacement_text ^ tail_text in
+                let bindings =
+                  [
+                    input_split, haystack_text;
+                    tail_result, tail_text;
+                    output_split, result_text;
+                    result, result_text;
+                  ]
+                in
+                let bindings =
+                  if StringTermSet.mem haystack fixed_terms then bindings
+                  else (haystack, haystack_text) :: bindings
+                in
+                force_assignments assignments bindings
+            | _ -> Ok assignments)
+        | _ -> Ok assignments)
+    | _ -> Ok assignments
+
 let complete_stage3_witness_assignments state smodel formulas fixed_terms assignments =
   List.fold_left
     (fun result eq ->
@@ -3326,6 +3621,17 @@ let complete_stage3_witness_assignments state smodel formulas fixed_terms assign
              result
        | Ok assignments, Some (Reduce_replace (eq, haystack, needle, replacement, result)) ->
            complete_replace_reduction
+             state
+             smodel
+             fixed_terms
+             assignments
+             eq
+             haystack
+             needle
+             replacement
+             result
+       | Ok assignments, Some (Reduce_replace_all (eq, haystack, needle, replacement, result)) ->
+           complete_replace_all_reduction
              state
              smodel
              fixed_terms
@@ -3368,8 +3674,8 @@ let validate_lengths smodel assignments =
     assignments
 
 let is_stage3_view = function
-  | Substr _ | Contains _ | Indexof _ | Replace _ | Prefixof _ | Suffixof _
-  | At _ | InRe _ -> true
+  | Substr _ | Contains _ | Indexof _ | Replace _ | ReplaceAll _ | Prefixof _
+  | Suffixof _ | At _ | InRe _ -> true
   | Lit _ | Concat _ | Len _ -> false
 
 let rec contains_stage3_view term =
@@ -3522,6 +3828,8 @@ let stage3_args = function
   | Suffixof (haystack, needle) -> [haystack; needle]
   | Indexof (haystack, needle, start) -> [haystack; needle; start]
   | Replace (haystack, needle, replacement) -> [haystack; needle; replacement]
+  | ReplaceAll (haystack, needle, replacement) ->
+      [haystack; needle; replacement]
   | At (string, index) -> [string; index]
   | InRe (string, regex) -> string :: regex_argument_terms regex
   | Lit _ | Concat _ | Len _ -> []
@@ -3884,6 +4192,9 @@ let pp_term fmt term =
   | Some (Replace (haystack, needle, replacement)) ->
       Format.fprintf fmt "@[<2>(str.replace@ %a@ %a@ %a)@]"
         Term.pp haystack Term.pp needle Term.pp replacement
+  | Some (ReplaceAll (haystack, needle, replacement)) ->
+      Format.fprintf fmt "@[<2>(str.replace_all@ %a@ %a@ %a)@]"
+        Term.pp haystack Term.pp needle Term.pp replacement
   | Some (Prefixof (prefix, string)) ->
       Format.fprintf fmt "@[<2>(str.prefixof@ %a@ %a)@]"
         Term.pp prefix Term.pp string
@@ -3934,6 +4245,14 @@ let rec term_to_sexp ?smt2arrays term =
       Sexp.List
         [
           Sexp.Atom "str.replace";
+          term_to_sexp ?smt2arrays haystack;
+          term_to_sexp ?smt2arrays needle;
+          term_to_sexp ?smt2arrays replacement;
+        ]
+  | Some (ReplaceAll (haystack, needle, replacement)) ->
+      Sexp.List
+        [
+          Sexp.Atom "str.replace_all";
           term_to_sexp ?smt2arrays haystack;
           term_to_sexp ?smt2arrays needle;
           term_to_sexp ?smt2arrays replacement;
@@ -4062,6 +4381,7 @@ module Term = struct
   let contains = contains
   let indexof = indexof
   let replace = replace
+  let replace_all = replace_all
   let prefixof = prefixof
   let suffixof = suffixof
   let at = at

@@ -29,6 +29,7 @@ type string_view =
   | Contains of Term.t * Term.t
   | Indexof of Term.t * Term.t * Term.t
   | Replace of Term.t * Term.t * Term.t
+  | ReplaceAll of Term.t * Term.t * Term.t
   | Prefixof of Term.t * Term.t
   | Suffixof of Term.t * Term.t
   | At of Term.t * Term.t
@@ -113,6 +114,7 @@ module Term : sig
   val contains : Term.t -> Term.t -> Term.t
   val indexof : Term.t -> Term.t -> Term.t -> Term.t
   val replace : Term.t -> Term.t -> Term.t -> Term.t
+  val replace_all : Term.t -> Term.t -> Term.t -> Term.t
   val prefixof : Term.t -> Term.t -> Term.t
   val suffixof : Term.t -> Term.t -> Term.t
   val at : Term.t -> Term.t -> Term.t
