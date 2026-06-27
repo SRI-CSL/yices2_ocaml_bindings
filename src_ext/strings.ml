@@ -4465,6 +4465,216 @@ let replace_all_preimage_propagation state smodel infos equalities =
                              Some lemma
                            end)))
 
+let finite_literal_language_limit = 32
+
+let add_limited_literal_texts acc texts =
+  let combined =
+    List.rev_append acc texts |> List.sort_uniq ~cmp:String.compare
+  in
+  if List.length combined > finite_literal_language_limit then
+    None
+  else
+    Some combined
+
+let concat_literal_languages lhs rhs =
+  let products =
+    lhs
+    |> List.concat_map (fun left ->
+           rhs |> List.map (fun right -> left ^ right))
+  in
+  add_limited_literal_texts [] products
+
+let rec repeat_literal_language language count =
+  if count = 0 then
+    Some [""]
+  else
+    match repeat_literal_language language (count - 1) with
+    | None -> None
+    | Some prefix -> concat_literal_languages prefix language
+
+let rec finite_literal_language = function
+  | ReEmpty -> Some []
+  | ReLit text -> Some [text]
+  | ReConcat regexes ->
+      let rec aux acc = function
+        | [] -> Some acc
+        | regex :: rest -> (
+            match finite_literal_language regex with
+            | None -> None
+            | Some language -> (
+                match concat_literal_languages acc language with
+                | None -> None
+                | Some acc -> aux acc rest))
+      in
+      aux [""] regexes
+  | ReUnion regexes ->
+      let rec aux acc = function
+        | [] -> Some acc
+        | regex :: rest -> (
+            match finite_literal_language regex with
+            | None -> None
+            | Some language -> (
+                match add_limited_literal_texts acc language with
+                | None -> None
+                | Some acc -> aux acc rest))
+      in
+      aux [] regexes
+  | ReOpt regex -> finite_literal_language (ReUnion [ReLit ""; regex])
+  | ReLoop (regex, lo, hi) ->
+      if lo < 0 || hi < lo then
+        Some []
+      else if hi > finite_literal_language_limit then
+        None
+      else
+        begin
+          match finite_literal_language regex with
+          | None -> None
+          | Some language ->
+              let rec aux acc count =
+                if count > hi then
+                  Some acc
+                else
+                  match repeat_literal_language language count with
+                  | None -> None
+                  | Some repeated -> (
+                      match add_limited_literal_texts acc repeated with
+                      | None -> None
+                      | Some acc -> aux acc (count + 1))
+              in
+              aux [] lo
+        end
+  | ReAll
+  | ReAllChar
+  | ReRange _
+  | ReInter _
+  | ReComp _
+  | ReStar _
+  | RePlus _
+  | ReToRe _ -> None
+
+let nonempty_substring_occurrences text pattern =
+  if String.equal pattern "" then
+    []
+  else
+    let rec aux acc start =
+      match find_substring_from text pattern start with
+      | None -> List.rev acc
+      | Some index -> aux (index :: acc) (index + 1)
+    in
+    aux [] 0
+
+let replace_preimage_texts needle replacement output =
+  if String.equal needle "" || String.equal replacement "" then
+    None
+  else
+    let no_occurrence =
+      if eval_contains_text output needle then [] else [output]
+    in
+    let occurrence_inputs =
+      nonempty_substring_occurrences output replacement
+      |> List.filter_map (fun index ->
+             let prefix = String.sub output 0 index in
+             if eval_contains_text prefix needle then
+               None
+             else
+               let suffix_start = index + String.length replacement in
+               let suffix =
+                 String.sub
+                   output
+                   suffix_start
+                   (String.length output - suffix_start)
+               in
+               Some (prefix ^ needle ^ suffix))
+    in
+    Some
+      (List.rev_append no_occurrence occurrence_inputs
+       |> List.sort_uniq ~cmp:String.compare)
+
+let regex_of_literal_texts texts =
+  match List.sort_uniq ~cmp:String.compare texts with
+  | [] -> ReEmpty
+  | [text] -> ReLit text
+  | texts -> ReUnion (List.map (fun text -> ReLit text) texts)
+
+let replace_preimage_regex needle replacement regex =
+  match finite_literal_language regex with
+  | None -> None
+  | Some outputs ->
+      let rec aux acc = function
+        | [] -> Some (regex_of_literal_texts acc)
+        | output :: rest -> (
+            match replace_preimage_texts needle replacement output with
+            | None -> None
+            | Some inputs -> (
+                match add_limited_literal_texts acc inputs with
+                | None -> None
+                | Some acc -> aux acc rest))
+      in
+      aux [] outputs
+
+let replace_preimage_lemma smodel equalities constraint_ replace_term =
+  match reveal_string replace_term with
+  | Some (Replace (haystack, needle, replacement)) -> (
+      match static_string_value needle, static_string_value replacement with
+      | Some needle_text, Some replacement_text
+        when not (String.equal needle_text "")
+             && not (String.equal replacement_text "") -> (
+          match
+            regex_constraint_premises_for_term equalities replace_term constraint_,
+            replace_preimage_regex
+              needle_text
+              replacement_text
+              constraint_.regex_body
+          with
+          | Some premises, Some preimage ->
+              let conclusion =
+                propagated_regex_domain_conclusion haystack preimage
+              in
+              if true_in_model smodel conclusion then
+                None
+              else
+                Some
+                  (conjoin
+                     (axioms_for_string_term replace_term
+                      @ [imply_all (unique_terms premises) conclusion]))
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+let replace_preimage_propagation state smodel infos equalities =
+  infos
+  |> List.find_map (fun info ->
+         let replace_terms =
+           info.regex_terms
+           |> List.filter (fun term ->
+                  match reveal_string term with
+                  | Some (Replace _) -> true
+                  | _ -> false)
+         in
+         info.regex_constraints
+         |> List.find_map (fun constraint_ ->
+                replace_terms
+                |> List.find_map (fun replace_term ->
+                       match
+                         replace_preimage_lemma
+                           smodel
+                           equalities
+                           constraint_
+                           replace_term
+                       with
+                       | None -> None
+                       | Some lemma ->
+                           if is_seen_generated state lemma then
+                             None
+                           else begin
+                             remember_internal_assertion state lemma;
+                             String_log.debug
+                               "straight-line replace preimage propagation for %a"
+                               Term.pp
+                               replace_term;
+                             Some lemma
+                           end)))
+
 let containment_domain_lemma smodel info contains_term haystack needle_text =
   if not (term_in_class haystack info.regex_terms)
      || RA.is_empty info.regex_automaton
@@ -6063,6 +6273,20 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
       };
       {
         candidate_priority = 50;
+        candidate_operator = Op_replace;
+        candidate_label = "straight-line replace preimage propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_replace
+               (replace_preimage_propagation
+                  state
+                  smodel
+                  regex_infos
+                  syntactic_equalities));
+      };
+      {
+        candidate_priority = 55;
         candidate_operator = Op_in_re;
         candidate_label = "regex domain refinement";
         candidate_produce =
@@ -6072,7 +6296,7 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
                (regex_domain_refinement state smodel regex_infos));
       };
       {
-        candidate_priority = 55;
+        candidate_priority = 60;
         candidate_operator = Op_contains;
         candidate_label = "containment domain refinement";
         candidate_produce =

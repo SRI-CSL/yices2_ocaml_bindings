@@ -881,6 +881,49 @@ let test_straight_line_replace_all_preimage_propagation () =
   S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
   assert_check `STATUS_SAT ctx
 
+let test_straight_line_replace_preimage_propagation () =
+  let cc = S.Regex.str "cc" in
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_rep_pre_x" () in
+  let y = S.Term.string_var ~name:"sl_rep_pre_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
+  S.Context.assert_formula ctx (S.Term.in_re x cc);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_rep_pre_direct_x" () in
+  S.Context.assert_formula ctx
+    (S.Term.in_re
+       (S.Term.replace x (S.Term.str "a") (S.Term.str "b"))
+       (S.Regex.str "bb"));
+  S.Context.assert_formula ctx (S.Term.in_re x cc);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_rep_pre_multi_x" () in
+  let y = S.Term.string_var ~name:"sl_rep_pre_multi_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace x (str "ab") (str "c"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "cc"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "abcc"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_rep_pre_first_x" () in
+  let y = S.Term.string_var ~name:"sl_rep_pre_first_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bab"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "baa"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_rep_pre_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_rep_pre_sat_y" () in
+  S.Context.assert_formula ctx S.Term.(x === str "ab");
+  S.Context.assert_formula ctx
+    S.Term.(y === replace x (str "a") (str "b"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
+  assert_check `STATUS_SAT ctx
+
 let test_propagated_regex_length_consequences () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"sl_len_at_x" () in
@@ -1276,6 +1319,7 @@ let test () =
   test_straight_line_at_position_propagation ();
   test_straight_line_at_regex_position_propagation ();
   test_straight_line_replace_all_preimage_propagation ();
+  test_straight_line_replace_preimage_propagation ();
   test_propagated_regex_length_consequences ();
   test_regex_failed_length_enumerates_to_sat ();
   test_regex_periodic_length_refinement ();
