@@ -790,6 +790,60 @@ let test_straight_line_substring_position_propagation () =
     S.Term.(not1 (at x (Arith.int 0) === str "b"));
   assert_check `STATUS_SAT ctx
 
+let test_straight_line_at_position_propagation () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_at_x" () in
+  let c = S.Term.string_var ~name:"sl_at_c" () in
+  S.Context.assert_formula ctx S.Term.(c === at x (Arith.int 1));
+  S.Context.assert_formula ctx (S.Term.in_re c (S.Regex.str "b"));
+  S.Context.assert_formula ctx
+    S.Term.(not1 (at x (Arith.int 1) === str "b"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_at_sat_x" () in
+  let c = S.Term.string_var ~name:"sl_at_sat_c" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx S.Term.(c === at x (Arith.int 1));
+  S.Context.assert_formula ctx (S.Term.in_re c (S.Regex.str "b"));
+  S.Context.assert_formula ctx
+    S.Term.(not1 (at x (Arith.int 0) === str "b"));
+  assert_check `STATUS_SAT ctx
+
+let test_straight_line_at_regex_position_propagation () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_at_range_len_x" () in
+  let c = S.Term.string_var ~name:"sl_at_range_len_c" () in
+  S.Context.assert_formula ctx S.Term.(c === at x (Arith.int 1));
+  S.Context.assert_formula ctx
+    (S.Term.in_re c (S.Regex.range "a" "z"));
+  S.Context.assert_formula ctx
+    S.Term.(Arith.leq (S.Term.len x) (Arith.int 1));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_at_range_inter_x" () in
+  let c = S.Term.string_var ~name:"sl_at_range_inter_c" () in
+  S.Context.assert_formula ctx S.Term.(c === at x (Arith.int 0));
+  S.Context.assert_formula ctx
+    (S.Term.in_re c (S.Regex.range "a" "c"));
+  S.Context.assert_formula ctx
+    (S.Term.in_re x (S.Regex.range "d" "f"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_at_empty_short_x" () in
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 0);
+  S.Context.assert_formula ctx
+    (S.Term.in_re
+       (S.Term.at x (S.Term.Arith.int 3))
+       (S.Regex.opt (S.Regex.str "a")));
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_at_empty_long_x" () in
+  S.Context.assert_formula ctx
+    S.Term.(Arith.geq (S.Term.len x) (Arith.int 2));
+  S.Context.assert_formula ctx
+    (S.Term.in_re (S.Term.at x (S.Term.Arith.int 1)) (S.Regex.str ""));
+  assert_check `STATUS_UNSAT ctx
+
 let test_regex_failed_length_enumerates_to_sat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"regex_star_ge_x" () in
@@ -1139,6 +1193,8 @@ let test () =
   test_straight_line_concat_singleton_propagation ();
   test_straight_line_concat_forward_singleton_propagation ();
   test_straight_line_substring_position_propagation ();
+  test_straight_line_at_position_propagation ();
+  test_straight_line_at_regex_position_propagation ();
   test_regex_failed_length_enumerates_to_sat ();
   test_regex_periodic_length_refinement ();
   test_regex_semilinear_length_refinement ();

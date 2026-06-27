@@ -177,6 +177,24 @@ let test_shape_constructors () =
   assert_accepts fixed "azzz";
   assert_rejects fixed "za";
   assert_rejects fixed "a";
+  let range =
+    shape
+      "fixed_position_regex range"
+      (A.fixed_position_regex ~index:1 (A.Range (Char.code 'a', Char.code 'c')))
+  in
+  assert_accepts range "xa";
+  assert_accepts range "xbc";
+  assert_rejects range "xd";
+  assert_rejects range "x";
+  let optional =
+    shape
+      "fixed_position_regex optional"
+      (A.fixed_position_regex ~index:2 (A.Opt (A.Lit "a")))
+  in
+  assert_accepts optional "";
+  assert_accepts optional "xy";
+  assert_accepts optional "xya";
+  assert_rejects optional "xyz";
   assert (A.fixed_position ~index:(-1) ~scalar:(Char.code 'a') = Error "fixed-position index is negative")
 
 let test_complement_and_difference () =

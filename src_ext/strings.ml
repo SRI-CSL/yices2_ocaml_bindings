@@ -3972,6 +3972,302 @@ let substring_backward_position_propagation state smodel infos equalities =
                       Some lemma
                     end))
 
+let at_position_conclusion source index_value at_term text =
+  if utf8_scalar_length text <> 1 then
+    None
+  else
+    let char = literal text in
+    let source_length_fact =
+      Term.Arith.geq (len source) (Term.Arith.int (index_value + 1))
+    in
+    Some
+      (conjoin
+         [
+           source_length_fact;
+           Term.(at_term === char);
+           Term.(len at_term === Term.Arith.int 1);
+         ])
+
+let fixed_position_source_regex ~index regex =
+  let rec repeat acc n =
+    if n = 0 then List.rev acc else repeat (ReAllChar :: acc) (n - 1)
+  in
+  let fixed =
+    ReConcat (repeat [] index @ [ReInter [regex; ReAllChar]; ReAll])
+  in
+  if regex_accepts regex "" then
+    ReUnion [ReLoop (ReAllChar, 0, index); fixed]
+  else
+    fixed
+
+let literal_source_singleton_domain equalities term =
+  match static_string_value term with
+  | Some text -> Some { singleton_text = text; singleton_premises = [] }
+  | None -> literal_singleton_domain_from_equalities equalities term
+
+let equality_atom_between equalities lhs rhs =
+  equalities
+  |> List.find_map (fun eq ->
+         if (Term.equal lhs eq.lhs && Term.equal rhs eq.rhs)
+            || (Term.equal lhs eq.rhs && Term.equal rhs eq.lhs)
+         then
+           Some eq.atom
+         else
+           None)
+
+let regex_constraint_premises_for_term equalities term constraint_ =
+  if Term.equal term constraint_.regex_string then
+    Some [constraint_.regex_atom]
+  else
+    Option.map
+      (fun eq_atom -> [eq_atom; constraint_.regex_atom])
+      (equality_atom_between equalities term constraint_.regex_string)
+
+let at_regex_position_lemma smodel equalities constraint_ at_term =
+  match reveal_string at_term with
+  | Some (At (source, index)) -> (
+      match
+        literal_source_singleton_domain equalities source,
+        int_value_in_model smodel index
+      with
+      | Some _, _ -> None
+      | None, Some index_value when index_value >= 0 ->
+          begin
+            match regex_constraint_premises_for_term equalities at_term constraint_ with
+            | None -> None
+            | Some premises ->
+                let source_regex =
+                  fixed_position_source_regex
+                    ~index:index_value
+                    constraint_.regex_body
+                in
+                let conclusion = in_re source source_regex in
+                if true_in_model smodel conclusion then
+                  None
+                else
+                  let premises =
+                    unique_terms
+                      (premises @ [Term.(index === Term.Arith.int index_value)])
+                  in
+                  Some
+                    (conjoin
+                       (axioms_for_string_term at_term
+                        @ [imply_all premises conclusion]))
+          end
+      | _ -> None)
+  | _ -> None
+
+let at_regex_position_propagation state smodel infos equalities =
+  infos
+  |> List.find_map (fun info ->
+         let at_terms =
+           info.regex_terms
+           |> List.filter (fun term ->
+                  match reveal_string term with
+                  | Some (At _) -> true
+                  | _ -> false)
+         in
+         info.regex_constraints
+         |> List.find_map (fun constraint_ ->
+                at_terms
+                |> List.find_map (fun at_term ->
+                       match
+                         at_regex_position_lemma
+                           smodel
+                           equalities
+                           constraint_
+                           at_term
+                       with
+                       | None -> None
+                       | Some lemma ->
+                           if is_seen_generated state lemma then
+                             None
+                           else begin
+                             remember_internal_assertion state lemma;
+                             String_log.debug
+                               "straight-line at regex position propagation for %a"
+                               Term.pp
+                               at_term;
+                             Some lemma
+                           end)))
+
+let at_singleton_position_lemma smodel domain_premises at_term =
+  match reveal_string at_term with
+  | Some (At (source, index)) -> (
+      match int_value_in_model smodel index with
+      | Some index_value when index_value >= 0 -> (
+          match domain_premises with
+          | None -> None
+          | Some (text, premises) -> (
+              match at_position_conclusion source index_value at_term text with
+              | None -> None
+              | Some conclusion ->
+                  let premises =
+                    unique_terms
+                      (premises
+                       @ [Term.(index === Term.Arith.int index_value)])
+                  in
+                  Some
+                    (conjoin
+                       (axioms_for_string_term at_term
+                        @ [imply_all premises conclusion]))))
+      | _ -> None)
+  | _ -> None
+
+let singleton_domain_of_regex_constraint equalities term constraint_ =
+  match
+    regex_constraint_premises_for_term equalities term constraint_,
+    compile_regex_body constraint_.regex_body
+  with
+  | Some premises, Ok automaton -> (
+      match singleton_automaton_witness automaton with
+      | Some text -> Some { singleton_text = text; singleton_premises = premises }
+      | None -> None)
+  | _ -> None
+
+let stable_regex_singleton_domain_for_term infos equalities term =
+  infos
+  |> List.find_map (fun info ->
+         if not (term_in_class term info.regex_terms) then
+           None
+         else
+           info.regex_constraints
+           |> List.find_map
+                (singleton_domain_of_regex_constraint equalities term))
+
+let stable_singleton_domain_for_term infos equalities term =
+  match static_string_value term with
+  | Some text -> Some { singleton_text = text; singleton_premises = [] }
+  | None -> (
+      match stable_regex_singleton_domain_for_term infos equalities term with
+      | Some _ as domain -> domain
+      | None -> literal_singleton_domain_from_equalities equalities term)
+
+let at_direct_singleton_domain infos equalities at_term =
+  Option.map
+    (fun domain -> domain.singleton_text, domain.singleton_premises)
+    (stable_singleton_domain_for_term infos equalities at_term)
+
+let at_equality_singleton_domain infos equalities eq result =
+  Option.map
+    (fun domain ->
+       domain.singleton_text, unique_terms (eq.atom :: domain.singleton_premises))
+    (stable_singleton_domain_for_term infos equalities result)
+
+let at_source_singleton_value_lemma smodel equalities at_term =
+  match reveal_string at_term with
+  | Some (At (source, index)) -> (
+      match
+        literal_source_singleton_domain equalities source,
+        int_value_in_model smodel index
+      with
+      | Some domain, Some index_value ->
+          let actual = eval_at_text domain.singleton_text index_value in
+          let conclusion = Term.(at_term === literal actual) in
+          let premises =
+            unique_terms
+              (domain.singleton_premises
+               @ [Term.(index === Term.Arith.int index_value)])
+          in
+          Some
+            (conjoin
+               (axioms_for_string_term at_term
+                @ [imply_all premises conclusion]))
+      | _ -> None)
+  | _ -> None
+
+let at_position_terms terms infos equalities =
+  let info_terms = List.concat_map (fun info -> info.regex_terms) infos in
+  let equality_terms =
+    equalities |> List.concat_map (fun eq -> [eq.lhs; eq.rhs])
+  in
+  unique_terms (terms @ info_terms @ equality_terms)
+
+let at_source_singleton_value_propagation state smodel at_terms equalities =
+  at_terms
+  |> List.find_map (fun term ->
+         match at_source_singleton_value_lemma smodel equalities term with
+         | None -> None
+         | Some lemma ->
+             if is_seen_generated state lemma then
+               None
+             else begin
+               remember_internal_assertion state lemma;
+               String_log.debug
+                 "straight-line at source singleton propagation for %a"
+                 Term.pp
+                 term;
+               Some lemma
+             end)
+
+let at_singleton_position_propagation state smodel terms infos equalities =
+  let at_terms = at_position_terms terms infos equalities in
+  let direct =
+    match
+      at_source_singleton_value_propagation state smodel at_terms equalities
+    with
+    | Some _ as lemma -> lemma
+    | None ->
+        match at_regex_position_propagation state smodel infos equalities with
+        | Some _ as lemma -> lemma
+        | None ->
+            at_terms
+            |> List.find_map (fun term ->
+                   match
+                     at_singleton_position_lemma
+                       smodel
+                       (at_direct_singleton_domain infos equalities term)
+                       term
+                   with
+                   | None -> None
+                   | Some lemma ->
+                       if is_seen_generated state lemma then
+                         None
+                       else begin
+                         remember_internal_assertion state lemma;
+                         String_log.debug
+                           "straight-line at position propagation for %a"
+                           Term.pp
+                           term;
+                         Some lemma
+                       end)
+  in
+  match direct with
+  | Some _ as lemma -> lemma
+  | None ->
+      equalities
+      |> List.find_map (fun eq ->
+             let candidates =
+               [
+                 eq.lhs, eq.rhs;
+                 eq.rhs, eq.lhs;
+               ]
+             in
+             candidates
+             |> List.find_map (fun (result, at_term) ->
+                    match
+                      at_singleton_position_lemma
+                        smodel
+                        (at_equality_singleton_domain
+                           infos
+                           equalities
+                           eq
+                           result)
+                        at_term
+                    with
+                    | None -> None
+                    | Some lemma ->
+                        if is_seen_generated state lemma then
+                          None
+                        else begin
+                          remember_internal_assertion state lemma;
+                          String_log.debug
+                            "straight-line at equality propagation for %a"
+                            Term.pp
+                            at_term;
+                          Some lemma
+                        end))
+
 let containment_domain_lemma smodel info contains_term haystack needle_text =
   if not (term_in_class haystack info.regex_terms)
      || RA.is_empty info.regex_automaton
@@ -5541,6 +5837,21 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
       };
       {
         candidate_priority = 40;
+        candidate_operator = Op_at;
+        candidate_label = "straight-line at position propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_at
+               (at_singleton_position_propagation
+                  state
+                  smodel
+                  terms
+                  regex_infos
+                  syntactic_equalities));
+      };
+      {
+        candidate_priority = 45;
         candidate_operator = Op_in_re;
         candidate_label = "regex domain refinement";
         candidate_produce =
@@ -5550,7 +5861,7 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
                (regex_domain_refinement state smodel regex_infos));
       };
       {
-        candidate_priority = 45;
+        candidate_priority = 50;
         candidate_operator = Op_contains;
         candidate_label = "containment domain refinement";
         candidate_produce =

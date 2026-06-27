@@ -1331,6 +1331,26 @@ let fixed_position ~index ~scalar =
     in
     compile (Concat (List.rev (repeat [] index) @ [Range (scalar, scalar); All]))
 
+let fixed_position_regex ~index regex =
+  if index < 0 then
+    Error "fixed-position index is negative"
+  else
+    let rec repeat acc n =
+      if n = 0 then List.rev acc else repeat (AllChar :: acc) (n - 1)
+    in
+    match compile regex with
+    | Error _ as err -> err
+    | Ok automaton ->
+        let one_char = Inter [regex; AllChar] in
+        let fixed = Concat (repeat [] index @ [one_char; All]) in
+        let source_regex =
+          if accepts automaton "" then
+            Union [Loop (AllChar, 0, index); fixed]
+          else
+            fixed
+        in
+        compile source_regex
+
 let length_domain automaton =
   match automaton.length_domain_cache with
   | Some domain -> domain
