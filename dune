@@ -4,9 +4,11 @@
        scripts/build_vendor_deps.sh)
  (action
   (setenv VENDOR_BUILD_ROOT vendor_build
-   (run %{project_root}/scripts/build_vendor_deps.sh
-        --project-root %{project_root}
-        --prefix vendor_install))))
+   (setenv YICES2_FORCE_LOCAL %{env:YICES2_FORCE_LOCAL=0}
+    (setenv YICES2_SMT2_STATIC %{env:YICES2_SMT2_STATIC=0}
+     (run %{project_root}/scripts/build_vendor_deps.sh
+          --project-root %{project_root}
+          --prefix vendor_install))))))
 
 (alias
  (name vendor_deps)
