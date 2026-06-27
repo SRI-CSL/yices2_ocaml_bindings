@@ -747,6 +747,28 @@ let test_straight_line_concat_singleton_propagation () =
   assert (String.equal (Option.get (S.StringModel.find_string model x)) "a");
   assert (String.equal (Option.get (S.StringModel.find_string model y)) "b")
 
+let test_straight_line_concat_forward_singleton_propagation () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_forward_x" () in
+  let y = S.Term.string_var ~name:"sl_forward_y" () in
+  let z = S.Term.string_var ~name:"sl_forward_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "b"));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  S.Context.assert_formula ctx S.Term.(not1 (z === str "ab"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_forward_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_forward_sat_y" () in
+  let z = S.Term.string_var ~name:"sl_forward_sat_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "b"));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  S.Context.assert_formula ctx S.Term.(not1 (z === str "aa"));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model z)) "ab")
+
 let test_regex_failed_length_enumerates_to_sat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"regex_star_ge_x" () in
@@ -1094,6 +1116,7 @@ let test () =
   test_regex_direct_negative_deferred ();
   test_regex_fixed_length_witness ();
   test_straight_line_concat_singleton_propagation ();
+  test_straight_line_concat_forward_singleton_propagation ();
   test_regex_failed_length_enumerates_to_sat ();
   test_regex_periodic_length_refinement ();
   test_regex_semilinear_length_refinement ();

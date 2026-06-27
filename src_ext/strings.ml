@@ -3779,6 +3779,108 @@ let concat_singleton_propagation state smodel infos equalities =
                                  Some lemma
                                end)))
 
+type singleton_domain = {
+  singleton_text : string;
+  singleton_premises : Term.t list;
+}
+
+let literal_singleton_domain_from_equalities equalities term =
+  equalities
+  |> List.find_map (fun eq ->
+         if Term.equal term eq.lhs then
+           Option.map
+             (fun text -> { singleton_text = text; singleton_premises = [eq.atom] })
+             (static_string_value eq.rhs)
+         else if Term.equal term eq.rhs then
+           Option.map
+             (fun text -> { singleton_text = text; singleton_premises = [eq.atom] })
+             (static_string_value eq.lhs)
+         else
+           None)
+
+let regex_singleton_domain_for_term infos term =
+  infos
+  |> List.find_map (fun info ->
+         if not (term_in_class term info.regex_terms) then
+           None
+         else
+           match singleton_automaton_witness info.regex_automaton with
+           | None -> None
+           | Some text ->
+               Some
+                 {
+                   singleton_text = text;
+                   singleton_premises = info.regex_premises;
+                 })
+
+let singleton_domain_for_term infos equalities term =
+  match static_string_value term with
+  | Some text -> Some { singleton_text = text; singleton_premises = [] }
+  | None -> (
+      match regex_singleton_domain_for_term infos term with
+      | Some _ as domain -> domain
+      | None -> literal_singleton_domain_from_equalities equalities term)
+
+let concat_forward_singleton_propagation_lemma infos equalities eq whole concat_term =
+  match reveal_string concat_term with
+  | Some (Concat parts) -> (
+      match
+        sequence_options
+          (List.map (singleton_domain_for_term infos equalities) parts)
+      with
+      | None -> None
+      | Some domains ->
+          let text =
+            domains
+            |> List.map (fun domain -> domain.singleton_text)
+            |> String.concat ""
+          in
+          begin
+            match static_string_value whole with
+            | Some known when String.equal known text -> None
+            | _ ->
+                let premises =
+                  domains
+                  |> List.concat_map (fun domain -> domain.singleton_premises)
+                  |> List.cons eq.atom
+                  |> unique_terms
+                in
+                Some (imply_all premises Term.(whole === literal text))
+          end)
+  | _ -> None
+
+let concat_forward_singleton_propagation state infos equalities =
+  equalities
+  |> List.find_map (fun eq ->
+         let candidates =
+           [
+             eq.lhs, eq.rhs;
+             eq.rhs, eq.lhs;
+           ]
+         in
+         candidates
+         |> List.find_map (fun (whole, concat_term) ->
+                match
+                  concat_forward_singleton_propagation_lemma
+                    infos
+                    equalities
+                    eq
+                    whole
+                    concat_term
+                with
+                | None -> None
+                | Some lemma ->
+                    if is_seen_generated state lemma then
+                      None
+                    else begin
+                      remember_internal_assertion state lemma;
+                      String_log.debug
+                        "straight-line concat forward singleton propagation for %a"
+                        Term.pp
+                        whole;
+                      Some lemma
+                    end))
+
 let containment_domain_lemma smodel info contains_term haystack needle_text =
   if not (term_in_class haystack info.regex_terms)
      || RA.is_empty info.regex_automaton
@@ -5321,6 +5423,19 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
       };
       {
         candidate_priority = 30;
+        candidate_operator = Op_concat;
+        candidate_label = "straight-line concat forward singleton propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_concat
+               (concat_forward_singleton_propagation
+                  state
+                  regex_infos
+                  syntactic_equalities));
+      };
+      {
+        candidate_priority = 35;
         candidate_operator = Op_in_re;
         candidate_label = "regex domain refinement";
         candidate_produce =
