@@ -1874,6 +1874,94 @@ let scalar_codes s =
   in
   pairs [] boundaries
 
+module ScalarSet = Set.Make(Int)
+
+type character_set =
+  | Characters_top
+  | Characters of ScalarSet.t
+
+let character_range_limit = 512
+
+let character_set_of_text text =
+  Characters
+    (scalar_codes text
+     |> List.fold_left (fun acc code -> ScalarSet.add code acc) ScalarSet.empty)
+
+let character_union lhs rhs =
+  match lhs, rhs with
+  | Characters_top, _ | _, Characters_top -> Characters_top
+  | Characters lhs, Characters rhs -> Characters (ScalarSet.union lhs rhs)
+
+let character_inter lhs rhs =
+  match lhs, rhs with
+  | Characters_top, other | other, Characters_top -> other
+  | Characters lhs, Characters rhs -> Characters (ScalarSet.inter lhs rhs)
+
+let character_unions sets =
+  List.fold_left character_union (Characters ScalarSet.empty) sets
+
+let character_inters sets =
+  List.fold_left character_inter Characters_top sets
+
+let character_set_of_range lo hi =
+  if hi < lo then
+    Characters ScalarSet.empty
+  else if hi - lo > character_range_limit then
+    Characters_top
+  else
+    let rec loop acc code =
+      if code > hi then Characters acc else loop (ScalarSet.add code acc) (code + 1)
+    in
+    loop ScalarSet.empty lo
+
+let rec character_set_of_regex = function
+  | ReEmpty -> Characters ScalarSet.empty
+  | ReLit text -> character_set_of_text text
+  | ReRange (lo, hi) -> character_set_of_range lo hi
+  | ReToRe term -> (
+      match static_string_value term with
+      | Some text -> character_set_of_text text
+      | None -> Characters_top)
+  | ReConcat regexes
+  | ReUnion regexes ->
+      regexes |> List.map character_set_of_regex |> character_unions
+  | ReInter [] -> Characters_top
+  | ReInter regexes ->
+      regexes |> List.map character_set_of_regex |> character_inters
+  | ReStar regex
+  | RePlus regex
+  | ReOpt regex ->
+      character_set_of_regex regex
+  | ReLoop (regex, _, hi) ->
+      if hi = 0 then Characters ScalarSet.empty else character_set_of_regex regex
+  | ReAll | ReAllChar | ReComp _ -> Characters_top
+
+let rec character_set_of_term term =
+  match static_string_value term with
+  | Some text -> character_set_of_text text
+  | None -> (
+      match reveal_string term with
+      | Some (Concat terms) ->
+          terms |> List.map character_set_of_term |> character_unions
+      | Some (Substr (string, _, _))
+      | Some (At (string, _)) ->
+          character_set_of_term string
+      | Some (Replace (haystack, _, replacement))
+      | Some (ReplaceAll (haystack, _, replacement)) ->
+          character_union
+            (character_set_of_term haystack)
+            (character_set_of_term replacement)
+      | Some (Lit _) -> Characters ScalarSet.empty
+      | Some (Len _ | Contains _ | Indexof _ | Prefixof _ | Suffixof _ | InRe _)
+      | None ->
+          Characters_top)
+
+let character_set_excludes_text character_set text =
+  match character_set with
+  | Characters_top -> false
+  | Characters set ->
+      scalar_codes text |> List.exists (fun code -> not (ScalarSet.mem code set))
+
 let rec automata_regex_of_regex = function
   | ReEmpty -> RA.Empty
   | ReAll -> RA.All
@@ -3326,6 +3414,69 @@ let containment_domain_refinement state smodel formulas infos =
                             | None -> None)))
          | _ -> None)
 
+let character_class_set cls =
+  cls
+  |> List.map character_set_of_term
+  |> character_inters
+
+let character_regex_set info =
+  info.regex_constraints
+  |> List.map (fun constraint_ -> character_set_of_regex constraint_.regex_body)
+  |> character_inters
+
+let character_refinement_from_sources state smodel contains_term sources =
+  List.find_map
+    (fun (character_set, premises) ->
+       match reveal_string contains_term with
+       | Some (Contains (_, needle)) -> (
+           match static_string_value needle with
+           | Some needle_text
+             when true_in_model smodel contains_term
+                  && character_set_excludes_text character_set needle_text ->
+               let lemma = imply_all premises (Term.not1 contains_term) in
+               begin
+                 match remember_regex_refinement state smodel lemma with
+                 | Some _ as result ->
+                     String_log.debug
+                       "character abstraction refinement for %a"
+                       Term.pp
+                       contains_term;
+                     result
+                 | None -> None
+               end
+           | _ -> None)
+       | _ -> None)
+    sources
+
+let character_abstraction_refinement state smodel formulas terms equalities infos =
+  let contains_terms = collect_contains_terms formulas in
+  let classes = equality_classes terms equalities in
+  let class_sources haystack =
+    classes
+    |> List.filter (term_in_class haystack)
+    |> List.map (fun cls ->
+           character_class_set cls, equality_premises_for_class equalities cls)
+  in
+  let regex_sources haystack =
+    infos
+    |> List.filter (fun info -> term_in_class haystack info.regex_terms)
+    |> List.map (fun info ->
+           let character_set =
+             character_inter (character_class_set info.regex_terms) (character_regex_set info)
+           in
+           character_set, info.regex_premises)
+  in
+  contains_terms
+  |> List.find_map (fun contains_term ->
+         match reveal_string contains_term with
+         | Some (Contains (haystack, _)) ->
+             let direct_sources = [character_set_of_term haystack, []] in
+             let sources =
+               direct_sources @ class_sources haystack @ regex_sources haystack
+             in
+             character_refinement_from_sources state smodel contains_term sources
+         | _ -> None)
+
 let regex_assignment_hints smodel forced infos =
   List.fold_left
     (fun result info ->
@@ -4360,6 +4511,17 @@ let build_concrete_strings state smodel support =
           | Some lemma -> Concrete_refine (Op_in_re, lemma)
           | None -> (
               match
+                character_abstraction_refinement
+                  state
+                  smodel
+                  formulas
+                  terms
+                  equalities
+                  regex_infos
+              with
+              | Some lemma -> Concrete_refine (Op_contains, lemma)
+              | None -> (
+              match
                 containment_domain_refinement state smodel formulas regex_infos
               with
               | Some lemma -> Concrete_refine (Op_contains, lemma)
@@ -4477,7 +4639,7 @@ let build_concrete_strings state smodel support =
                                                                     blocked
                                                               | Symbolic_none ->
                                                                   Concrete_unknown
-                                                                    reason))))))))))))))
+                                                                    reason)))))))))))))))
 
 let check state smodel =
   if state.stats.active_iterations >= state.refinement_limit then begin

@@ -443,6 +443,56 @@ let test_containment_abstraction () =
   S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
   assert_check `STATUS_SAT ctx
 
+let int_var name =
+  S.Term.new_uninterpreted ~name S.Type.(int ())
+
+let test_character_abstraction () =
+  with_context @@ fun ctx ->
+  let i = int_var "char_substr_i" in
+  let n = int_var "char_substr_n" in
+  S.Context.assert_formula ctx
+    S.Term.(contains (substr (str "abc") i n) (str "z"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"char_class_x" () in
+  let i = int_var "char_class_i" in
+  let n = int_var "char_class_n" in
+  S.Context.assert_formula ctx S.Term.(x === substr (str "abc") i n);
+  S.Context.assert_formula ctx S.Term.(contains x (str "z"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let i = int_var "char_at_i" in
+  S.Context.assert_formula ctx S.Term.(contains (at (str "abc") i) (str "z"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let y = S.Term.string_var ~name:"char_replace_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(contains (replace (str "aaaa") y (str "bb")) (str "c"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let y = S.Term.string_var ~name:"char_replace_all_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(contains (replace_all (str "aaaa") y (str "bb")) (str "c"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let i = int_var "char_concat_i" in
+  let n = int_var "char_concat_n" in
+  let j = int_var "char_concat_j" in
+  let text =
+    S.Term.concat
+      [S.Term.substr (S.Term.str "ab") i n; S.Term.at (S.Term.str "cd") j]
+  in
+  S.Context.assert_formula ctx S.Term.(contains text (str "z"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let i = int_var "char_sat_i" in
+  let n = int_var "char_sat_n" in
+  S.Context.assert_formula ctx S.Term.(i === Arith.int 1);
+  S.Context.assert_formula ctx S.Term.(n === Arith.int 1);
+  S.Context.assert_formula ctx
+    S.Term.(contains (substr (str "abc") i n) (str "b"));
+  assert_check `STATUS_SAT ctx
+
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_regex_x" () in
@@ -895,6 +945,7 @@ let test () =
   test_replace_all_fixed_unsat ();
   test_rewrite_simplification_axioms ();
   test_containment_abstraction ();
+  test_character_abstraction ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();
