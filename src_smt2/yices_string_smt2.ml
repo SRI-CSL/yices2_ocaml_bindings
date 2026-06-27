@@ -285,6 +285,224 @@ let syntax_hooks : SMT2.Session.syntax_hooks = {
     set_logic = string_logic;
   }
 
+module Session = SMT2.Session
+
+type fmf_config = {
+  enabled : bool;
+  max_total_length : int;
+  max_rounds : int;
+  log : bool;
+}
+
+type fmf_split = {
+  prefix : Sexp.t list;
+  suffix : Sexp.t list;
+}
+
+let bool_from_env name =
+  match Sys.getenv_opt name with
+  | None -> false
+  | Some raw ->
+     let raw = String.lowercase_ascii raw in
+     List.mem raw ["1"; "true"; "yes"; "on"]
+
+let nonnegative_env name default =
+  match Sys.getenv_opt name with
+  | None -> default
+  | Some raw -> (
+      match int_of_string_opt raw with
+      | Some n when n >= 0 -> n
+      | _ -> default)
+
+let fmf_config_from_env () =
+  let max_total_length =
+    nonnegative_env "YICES_STRING_FMF_MAX_TOTAL_LENGTH" 8
+  in
+  {
+    enabled = bool_from_env "YICES_STRING_FMF";
+    max_total_length;
+    max_rounds =
+      nonnegative_env
+        "YICES_STRING_FMF_MAX_ROUNDS"
+        (max_total_length + 1);
+    log = bool_from_env "YICES_STRING_FMF_LOG";
+  }
+
+let fmf_log config fmt =
+  Format.kasprintf
+    (fun msg ->
+       if config.log then Format.eprintf "FMF: %s@." msg)
+    fmt
+
+let command_head = function
+  | Sexp.List (Sexp.Atom head :: _) -> Some head
+  | _ -> None
+
+let is_check_sat = function
+  | Sexp.List [Sexp.Atom "check-sat"] -> true
+  | _ -> false
+
+let is_quiet_prefix_command sexp =
+  match command_head sexp with
+  | Some
+      ( "set-logic"
+      | "set-option"
+      | "set-info"
+      | "declare-sort"
+      | "declare-fun"
+      | "declare-const"
+      | "declare-datatypes"
+      | "declare-datatype"
+      | "define-sort"
+      | "define-fun"
+      | "define-funs-rec"
+      | "define-fun-rec"
+      | "assert"
+      | "push"
+      | "pop"
+      | "reset-assertions" ) ->
+     true
+  | _ -> false
+
+let is_quiet_suffix_command sexp =
+  match command_head sexp with
+  | Some "exit" -> true
+  | _ -> false
+
+let split_single_check sexps =
+  let rec scan prefix = function
+    | [] -> None
+    | sexp :: suffix when is_check_sat sexp ->
+       if List.exists is_check_sat suffix then None
+       else Some { prefix = List.rev prefix; suffix }
+    | sexp :: rest -> scan (sexp :: prefix) rest
+  in
+  scan [] sexps
+
+let string_root_name = function
+  | Sexp.List [Sexp.Atom "declare-const"; Sexp.Atom name; Sexp.Atom "String"] ->
+     Some name
+  | Sexp.List
+      [
+        Sexp.Atom "declare-fun";
+        Sexp.Atom name;
+        Sexp.List [];
+        Sexp.Atom "String";
+      ] ->
+     Some name
+  | Sexp.List
+      [
+        Sexp.Atom "define-fun";
+        Sexp.Atom name;
+        Sexp.List [];
+        Sexp.Atom "String";
+        _;
+      ] ->
+     Some name
+  | _ -> None
+
+let unique_strings strings =
+  List.sort_uniq String.compare strings
+
+let string_roots sexps =
+  List.filter_map string_root_name sexps |> unique_strings
+
+let length_bound_assertion roots bound =
+  let length_term name =
+    Sexp.List [Sexp.Atom "str.len"; Sexp.Atom name]
+  in
+  let total =
+    match List.map length_term roots with
+    | [] -> Sexp.Atom "0"
+    | [term] -> term
+    | terms -> Sexp.List (Sexp.Atom "+" :: terms)
+  in
+  Sexp.List
+    [
+      Sexp.Atom "assert";
+      Sexp.List [Sexp.Atom "<="; total; Sexp.Atom (string_of_int bound)];
+    ]
+
+let cleanup_after_bounded_round () =
+  try StringAPI.Global.reset () with _ -> ()
+
+let bounded_status sexps =
+  let session = Session.create ~syntax_hooks 0 in
+  try
+    SMT2.SMT2.process_all session sexps;
+    let status =
+      match StringAPI.Context.of_id 0 with
+      | Some context -> StringAPI.Context.check ~param:session.Session.param context
+      | None -> raise_smt2 "FMF round did not create context 0"
+    in
+    cleanup_after_bounded_round ();
+    status
+  with exn ->
+    cleanup_after_bounded_round ();
+    raise exn
+
+let fmf_applicable config sexps =
+  match split_single_check sexps with
+  | None -> Error "expected exactly one plain check-sat command"
+  | Some split ->
+     if not (List.for_all is_quiet_prefix_command split.prefix) then
+       Error "prefix contains output-producing or unsupported commands"
+     else if not (List.for_all is_quiet_suffix_command split.suffix) then
+       Error "commands after check-sat require ordinary processing"
+     else
+       let roots = string_roots split.prefix in
+       if List.is_empty roots then Error "no root string variables to bound"
+       else if config.max_rounds = 0 then Error "YICES_STRING_FMF_MAX_ROUNDS is 0"
+       else Ok (split, roots)
+
+let process_file_with_fmf config filename =
+  let sexps = SMT2.SMT2.load_file filename in
+  match fmf_applicable config sexps with
+  | Error reason ->
+     fmf_log config "disabled: %s" reason;
+     SMT2.SMT2.process_file ~syntax_hooks filename
+  | Ok ({ prefix; suffix = _ }, roots) ->
+     let last_bound =
+       min config.max_total_length (config.max_rounds - 1)
+     in
+     let rec loop bound =
+       if bound > last_bound then begin
+         fmf_log config
+           "falling back after all bounded rounds through total length %d"
+           last_bound;
+         SMT2.SMT2.process_file ~syntax_hooks filename
+       end else
+         let bounded_sexps =
+           prefix @ [length_bound_assertion roots bound]
+         in
+         match (try Ok (bounded_status bounded_sexps) with exn -> Error exn) with
+         | Error exn ->
+            fmf_log config
+              "bounded round at total length %d raised %s; falling back"
+              bound
+              (Printexc.to_string exn);
+            SMT2.SMT2.process_file ~syntax_hooks filename
+         | Ok `STATUS_SAT ->
+            fmf_log config "bounded sat at total length %d" bound;
+            print_endline "sat"
+         | Ok `STATUS_UNSAT ->
+            fmf_log config "bounded unsat at total length %d" bound;
+            loop (bound + 1)
+         | Ok `STATUS_UNKNOWN ->
+            fmf_log config
+              "bounded round at total length %d returned unknown; falling back"
+              bound;
+            SMT2.SMT2.process_file ~syntax_hooks filename
+         | Ok status ->
+            fmf_log config
+              "bounded round at total length %d returned %a; falling back"
+              bound
+              Yices2.Ext.Types.pp_smt_status
+              status;
+            SMT2.SMT2.process_file ~syntax_hooks filename
+     in
+     loop 0
+
 let () =
   Printexc.record_backtrace true;
   let args = ref [] in
@@ -295,7 +513,11 @@ let () =
   match List.rev !args with
   | [filename] ->
      begin
-       try SMT2.SMT2.process_file ~syntax_hooks filename with
+       try
+         let fmf_config = fmf_config_from_env () in
+         if fmf_config.enabled then process_file_with_fmf fmf_config filename
+         else SMT2.SMT2.process_file ~syntax_hooks filename
+       with
        | Yices2.SMT2.Yices_SMT2_exception msg ->
           Format.eprintf "string SMT2 error: %s@." msg;
           exit 1

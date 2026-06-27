@@ -1,4 +1,4 @@
-.PHONY: default build install uninstall reinstall test test-all test-sigalt-freevar test-string-benchmarks test-string-smtlib-frontier clean smt2 doc with-local-yices
+.PHONY: default build install uninstall reinstall test test-all test-sigalt-freevar test-string-benchmarks test-string-fmf test-string-smtlib-frontier clean smt2 doc with-local-yices
 
 OPAM_SWITCH_PREFIX ?= $(shell opam var prefix 2>/dev/null)
 SIGALT_STRESS_ITERS ?= 20000
@@ -54,7 +54,11 @@ test-all: test test-sigalt-freevar
 test-string-benchmarks:
 	@$(DUNE_ENV) benchmarks/qf_s/run_core.sh
 	@$(DUNE_ENV) benchmarks/qf_s/run_extended.sh
+	@$(DUNE_ENV) benchmarks/qf_s/run_fmf.sh
 	@$(DUNE_ENV) benchmarks/qf_s/smtlib/run_smtlib_slices.sh active
+
+test-string-fmf:
+	@$(DUNE_ENV) benchmarks/qf_s/run_fmf.sh
 
 test-string-smtlib-frontier:
 	@$(DUNE_ENV) benchmarks/qf_s/smtlib/run_smtlib_slices.sh frontier
