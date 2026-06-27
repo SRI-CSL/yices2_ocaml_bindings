@@ -9,6 +9,7 @@ open Types_ext
 module YTypes = Yices2.Ext.Types
 module HTerms = Yices2.Ext.Types.HTerms
 module RA = Regex_automata
+module ST = String_transducer
 
 type string_view =
   | Lit of string
@@ -4708,31 +4709,74 @@ let replace_all_preimage_regex needle replacement regex =
       replace_all_single_scalar_preimage_regex ~needle ~replacement regex
   | _ -> None
 
-let replace_all_preimage_lemma smodel equalities constraint_ replace_term =
+let replace_all_preimage_automaton needle replacement regex =
+  match compile_regex_body regex with
+  | Error reason ->
+      String_log.debug
+        "straight-line replace_all automaton preimage skipped: %s"
+        reason;
+      None
+  | Ok output_automaton -> (
+      match
+        ST.preimage
+          (ST.replace_all ~needle ~replacement)
+          output_automaton
+      with
+      | Ok preimage -> Some preimage
+      | Error reason ->
+          String_log.debug
+            "straight-line replace_all transducer preimage skipped: %s"
+            reason;
+          None)
+
+let replace_all_preimage_lemma smodel infos equalities constraint_ replace_term =
   match reveal_string replace_term with
   | Some (ReplaceAll (haystack, needle, replacement)) -> (
       match static_string_value needle, static_string_value replacement with
       | Some needle_text, Some replacement_text
         when not (String.equal needle_text "") -> (
-          match
-            regex_constraint_premises_for_term equalities replace_term constraint_,
-            replace_all_preimage_regex
-              needle_text
-              replacement_text
-              constraint_.regex_body
-          with
-          | Some premises, Some preimage ->
-              let conclusion =
-                propagated_regex_domain_conclusion haystack preimage
-              in
-              if true_in_model smodel conclusion then
-                None
-              else
-                Some
-                  (conjoin
-                     (axioms_for_string_term replace_term
-                      @ [imply_all (unique_terms premises) conclusion]))
-          | _ -> None)
+          match regex_constraint_premises_for_term equalities replace_term constraint_ with
+          | None -> None
+          | Some premises -> (
+              match
+                replace_all_preimage_regex
+                  needle_text
+                  replacement_text
+                  constraint_.regex_body
+              with
+              | Some preimage ->
+                  let conclusion =
+                    propagated_regex_domain_conclusion haystack preimage
+                  in
+                  if true_in_model smodel conclusion then
+                    None
+                  else
+                    Some
+                      (conjoin
+                         (axioms_for_string_term replace_term
+                          @ [imply_all (unique_terms premises) conclusion]))
+              | None -> (
+                  match
+                    replace_all_preimage_automaton
+                      needle_text
+                      replacement_text
+                      constraint_.regex_body
+                  with
+                  | None -> None
+                  | Some preimage -> (
+                      match
+                        automaton_domain_refinement_lemma
+                          smodel
+                          infos
+                          premises
+                          haystack
+                          preimage
+                      with
+                      | None -> None
+                      | Some lemma ->
+                          Some
+                            (conjoin
+                               (axioms_for_string_term replace_term @ [lemma]))))))
       | _ -> None)
   | _ -> None
 
@@ -4753,13 +4797,14 @@ let replace_all_preimage_propagation state smodel infos equalities =
                        match
                          replace_all_preimage_lemma
                            smodel
+                           infos
                            equalities
                            constraint_
                            replace_term
                        with
                        | None -> None
                        | Some lemma ->
-                           if is_seen_generated state lemma then
+                           if is_seen_generated state lemma || true_in_model smodel lemma then
                              None
                            else begin
                              remember_internal_assertion state lemma;

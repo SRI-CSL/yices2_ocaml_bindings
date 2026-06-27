@@ -42,6 +42,7 @@ val accepts : t -> string -> bool
 val intersect : t -> t -> (t, string) result
 val left_quotient : t -> by:t -> (t, string) result
 val right_quotient : t -> by:t -> (t, string) result
+val replace_all_preimage : needle:string -> replacement:string -> t -> (t, string) result
 val complement : t -> (t, string) result
 val difference : t -> t -> (t, string) result
 val is_empty : t -> bool

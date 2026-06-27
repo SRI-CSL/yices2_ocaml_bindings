@@ -242,6 +242,64 @@ let test_quotients () =
   in
   assert (A.is_empty none)
 
+let test_replace_all_preimage () =
+  let exact_x = compile (A.Lit "x") in
+  let pre_x =
+    shape
+      "replace_all preimage exact"
+      (A.replace_all_preimage ~needle:"ab" ~replacement:"x" exact_x)
+  in
+  assert_accepts pre_x "ab";
+  assert_accepts pre_x "x";
+  assert_rejects pre_x "a";
+  assert_rejects pre_x "abb";
+  let exact_xx = compile (A.Lit "xx") in
+  let pre_xx =
+    shape
+      "replace_all preimage repeated"
+      (A.replace_all_preimage ~needle:"ab" ~replacement:"x" exact_xx)
+  in
+  assert_accepts pre_xx "abab";
+  assert_accepts pre_xx "xab";
+  assert_accepts pre_xx "abx";
+  assert_accepts pre_xx "xx";
+  assert_rejects pre_xx "aba";
+  let empty_replacement =
+    shape
+      "replace_all preimage empty replacement"
+      (A.replace_all_preimage ~needle:"na" ~replacement:"" (compile (A.Lit "ba")))
+  in
+  assert_accepts empty_replacement "banana";
+  assert_accepts empty_replacement "ba";
+  assert_rejects empty_replacement "ban";
+  let inserted_not_reprocessed =
+    shape
+      "replace_all preimage inserted not reprocessed"
+      (A.replace_all_preimage ~needle:"a" ~replacement:"aa" (compile (A.Lit "aa")))
+  in
+  assert_accepts inserted_not_reprocessed "a";
+  assert_rejects inserted_not_reprocessed "aa";
+  assert_rejects inserted_not_reprocessed "aaa";
+  let overlap =
+    shape
+      "replace_all preimage overlapping needle"
+      (A.replace_all_preimage ~needle:"aa" ~replacement:"b" (compile (A.Lit "ba")))
+  in
+  assert_accepts overlap "aaa";
+  assert_rejects overlap "aa";
+  assert_rejects overlap "aaaa";
+  let range_output =
+    shape
+      "replace_all preimage range output"
+      (A.replace_all_preimage
+         ~needle:"ab"
+         ~replacement:"x"
+         (compile (A.Range (Char.code 'm', Char.code 'z'))))
+  in
+  assert_accepts range_output "q";
+  assert_accepts range_output "ab";
+  assert_rejects range_output "a"
+
 let test_shape_constructors () =
   let exact = shape "exact" (A.exact "abc") in
   assert_accepts exact "abc";
@@ -415,6 +473,7 @@ let test () =
   test_empty_intersection ();
   test_length_domain ();
   test_quotients ();
+  test_replace_all_preimage ();
   test_shape_constructors ();
   test_complement_and_difference ();
   test_combined_length_domain ();

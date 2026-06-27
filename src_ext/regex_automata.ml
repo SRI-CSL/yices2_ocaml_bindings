@@ -1040,6 +1040,219 @@ let right_quotient language ~by =
       in
       Ok (make { language_nfa with finals })
 
+let take_list count items =
+  let rec aux acc count items =
+    if count <= 0 then
+      List.rev acc
+    else
+      match items with
+      | [] -> List.rev acc
+      | item :: rest -> aux (item :: acc) (count - 1) rest
+  in
+  aux [] count items
+
+let drop_list count items =
+  let rec aux count items =
+    if count <= 0 then
+      items
+    else
+      match items with
+      | [] -> []
+      | _ :: rest -> aux (count - 1) rest
+  in
+  aux count items
+
+let suffix_of_length length items =
+  drop_list (List.length items - length) items
+
+let longest_suffix_prefix needle items =
+  let max_length = min (List.length needle - 1) (List.length items) in
+  let rec search length =
+    if length <= 0 then
+      0
+    else
+      let suffix = suffix_of_length length items in
+      let prefix = take_list length needle in
+      if suffix = prefix then length else search (length - 1)
+  in
+  search max_length
+
+type replace_all_action = {
+  fixed_output : int list;
+  emits_input : bool;
+  next_prefix_length : int;
+}
+
+let replace_all_action needle replacement prefix_length input =
+  let pending = take_list prefix_length needle in
+  let candidate = pending @ [input] in
+  if candidate = needle then
+    {
+      fixed_output = replacement;
+      emits_input = false;
+      next_prefix_length = 0;
+    }
+  else
+    let next_prefix_length = longest_suffix_prefix needle candidate in
+    let flush_length = List.length candidate - next_prefix_length in
+    let emits_input = flush_length > List.length pending in
+    let fixed_output =
+      if emits_input then
+        pending
+      else
+        take_list flush_length pending
+    in
+    { fixed_output; emits_input; next_prefix_length }
+
+let replace_all_input_intervals needle =
+  let needle_scalars = List.sort_uniq compare needle in
+  let singleton_intervals =
+    needle_scalars
+    |> List.filter valid_scalar
+    |> List.map (fun scalar -> { lo = scalar; hi = scalar })
+  in
+  full_alphabet_partition singleton_intervals
+
+let advance_fixed_output nfa states scalars =
+  List.fold_left
+    (fun states scalar ->
+       if StateSet.is_empty states then StateSet.empty else step nfa states scalar)
+    states
+    scalars
+
+let variable_output_cells nfa states input_interval =
+  outgoing_ranges nfa states
+  |> intersect_intervals [input_interval]
+  |> partition_intervals
+
+module ReplaceAllConfigMap = Map.Make(struct
+    type t = int list * int
+    let compare = compare
+  end)
+
+let replace_all_preimage ~needle ~replacement output =
+  match utf8_scalars needle, utf8_scalars replacement with
+  | Error _ as err, _ | _, (Error _ as err) -> err
+  | Ok [], _ -> Ok output
+  | Ok needle_scalars, Ok replacement_scalars ->
+      let output_nfa = output.nfa in
+      let input_intervals = replace_all_input_intervals needle_scalars in
+      let limit = automata_state_limit () in
+      let table = ref ReplaceAllConfigMap.empty in
+      let next_id = ref 0 in
+      let state_id states prefix_length =
+        let key = state_key states, prefix_length in
+        match ReplaceAllConfigMap.find_opt key !table with
+        | Some id -> Ok (id, false)
+        | None ->
+            let id = !next_id in
+            incr next_id;
+            begin
+              match check_state_limit limit !next_id with
+              | Error _ as err -> err
+              | Ok () ->
+                  table := ReplaceAllConfigMap.add key id !table;
+                  Ok (id, true)
+            end
+      in
+      let start_states = start_closure output_nfa in
+      match state_id start_states 0 with
+      | Error _ as err -> err
+      | Ok (start, _) ->
+          let final_for states prefix_length =
+            let pending = take_list prefix_length needle_scalars in
+            let states = advance_fixed_output output_nfa states pending in
+            not (StateSet.is_empty (StateSet.inter states output_nfa.finals))
+          in
+          let add_target result src label target_states target_prefix =
+            match result with
+            | Error _ as err -> err
+            | Ok (queue, transitions) ->
+                if StateSet.is_empty target_states then
+                  Ok (queue, transitions)
+                else (
+                  match state_id target_states target_prefix with
+                  | Error _ as err -> err
+                  | Ok (dst, is_new) ->
+                      let queue =
+                        if is_new then queue @ [target_states, target_prefix] else queue
+                      in
+                      Ok
+                        ( queue,
+                          { src; label = RangeLabel [label]; dst } :: transitions ))
+          in
+          let transitions_for_interval src states interval prefix_length result =
+            match representative_scalar [interval] with
+            | None -> result
+            | Some input ->
+                let action =
+                  replace_all_action needle_scalars replacement_scalars prefix_length input
+                in
+                let states =
+                  advance_fixed_output output_nfa states action.fixed_output
+                in
+                if action.emits_input then
+                  variable_output_cells output_nfa states interval
+                  |> List.fold_left
+                       (fun result cell ->
+                          match representative_scalar [cell] with
+                          | None -> result
+                          | Some code ->
+                              let target_states = step output_nfa states code in
+                              add_target
+                                result
+                                src
+                                cell
+                                target_states
+                                action.next_prefix_length)
+                       result
+                else
+                  add_target
+                    result
+                    src
+                    interval
+                    states
+                    action.next_prefix_length
+          in
+          let rec explore queue transitions finals =
+            match queue with
+            | [] ->
+                Ok
+                  (make
+                     {
+                       start;
+                       finals;
+                       transitions = List.rev transitions;
+                       state_count = !next_id;
+                     })
+            | (states, prefix_length) :: rest -> (
+                match state_id states prefix_length with
+                | Error _ as err -> err
+                | Ok (src, _) ->
+                    let finals =
+                      if final_for states prefix_length then StateSet.add src finals
+                      else finals
+                    in
+                    match
+                      List.fold_left
+                        (fun result interval ->
+                           match result with
+                           | Error _ as err -> err
+                           | Ok _ ->
+                               transitions_for_interval
+                                 src
+                                 states
+                                 interval
+                                 prefix_length
+                                 result)
+                        (Ok (rest, transitions))
+                        input_intervals
+                    with
+                    | Error _ as err -> err
+                    | Ok (queue, transitions) -> explore queue transitions finals)
+          in
+          explore [start_states, 0] [] StateSet.empty
+
 let finite_union lhs rhs =
   match lhs, rhs with
   | Length_empty, other | other, Length_empty -> other

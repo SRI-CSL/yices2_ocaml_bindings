@@ -963,6 +963,56 @@ let test_straight_line_replace_all_preimage_propagation () =
   S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bb"));
   assert_check `STATUS_SAT ctx
 
+let test_straight_line_replace_all_transducer_preimage () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_trans_multi_needle_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_trans_multi_needle_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "ab") (str "x"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "x"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_trans_direct_x" () in
+  S.Context.assert_formula ctx
+    (S.Term.in_re
+       (S.Term.replace_all x (S.Term.str "ab") (S.Term.str "x"))
+       (S.Regex.str "xx"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "aba"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_trans_multi_repl_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_trans_multi_repl_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "bc"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bc"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "d"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_trans_empty_repl_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_trans_empty_repl_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "na") (str ""));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "ba"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "ban"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_trans_inserted_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_trans_inserted_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "a") (str "aa"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "aa"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "aa"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_ra_trans_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_ra_trans_sat_y" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abx");
+  S.Context.assert_formula ctx
+    S.Term.(y === replace_all x (str "ab") (str "q"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "qx"));
+  assert_check `STATUS_SAT ctx
+
 let test_straight_line_replace_preimage_propagation () =
   let cc = S.Regex.str "cc" in
   with_context @@ fun ctx ->
@@ -1402,6 +1452,7 @@ let test () =
   test_straight_line_at_position_propagation ();
   test_straight_line_at_regex_position_propagation ();
   test_straight_line_replace_all_preimage_propagation ();
+  test_straight_line_replace_all_transducer_preimage ();
   test_straight_line_replace_preimage_propagation ();
   test_propagated_regex_length_consequences ();
   test_regex_failed_length_enumerates_to_sat ();
