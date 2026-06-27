@@ -769,6 +769,27 @@ let test_straight_line_concat_forward_singleton_propagation () =
   let model = S.Context.get_model ctx in
   assert (String.equal (Option.get (S.StringModel.find_string model z)) "ab")
 
+let test_straight_line_substring_position_propagation () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_substr_x" () in
+  let y = S.Term.string_var ~name:"sl_substr_y" () in
+  S.Context.assert_formula ctx
+    S.Term.(y === substr x (Arith.int 1) (Arith.int 2));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bc"));
+  S.Context.assert_formula ctx
+    S.Term.(not1 (at x (Arith.int 2) === str "c"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_substr_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_substr_sat_y" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx
+    S.Term.(y === substr x (Arith.int 1) (Arith.int 2));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "bc"));
+  S.Context.assert_formula ctx
+    S.Term.(not1 (at x (Arith.int 0) === str "b"));
+  assert_check `STATUS_SAT ctx
+
 let test_regex_failed_length_enumerates_to_sat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"regex_star_ge_x" () in
@@ -1117,6 +1138,7 @@ let test () =
   test_regex_fixed_length_witness ();
   test_straight_line_concat_singleton_propagation ();
   test_straight_line_concat_forward_singleton_propagation ();
+  test_straight_line_substring_position_propagation ();
   test_regex_failed_length_enumerates_to_sat ();
   test_regex_periodic_length_refinement ();
   test_regex_semilinear_length_refinement ();

@@ -3881,6 +3881,97 @@ let concat_forward_singleton_propagation state infos equalities =
                       Some lemma
                     end))
 
+let straight_line_position_propagation_limit = 64
+
+let substring_backward_position_lemma smodel infos equalities eq result substr_term =
+  match reveal_string substr_term with
+  | Some (Substr (source, start, length)) -> (
+      match singleton_domain_for_term infos equalities result with
+      | None -> None
+      | Some domain ->
+          let text_length = utf8_scalar_length domain.singleton_text in
+          if text_length = 0
+             || text_length > straight_line_position_propagation_limit
+          then
+            None
+          else
+            match int_value_in_model smodel start, int_value_in_model smodel length with
+            | Some start_value, Some length_value
+              when start_value >= 0 && length_value >= text_length ->
+                let source_length_fact =
+                  Term.Arith.geq
+                    (len source)
+                    (Term.Arith.int (start_value + text_length))
+                in
+                let at_facts =
+                  scalar_codes domain.singleton_text
+                  |> List.mapi (fun offset scalar ->
+                         let index = Term.Arith.int (start_value + offset) in
+                         let char = literal (string_of_scalar_code scalar) in
+                         let at_term = at source index in
+                         ( at_term,
+                           [
+                             Term.(at_term === char);
+                             Term.(len at_term === Term.Arith.int 1);
+                           ] ))
+                in
+                let at_axioms =
+                  at_facts
+                  |> List.concat_map (fun (at_term, _) -> axioms_for_string_term at_term)
+                in
+                let premises =
+                  unique_terms
+                    (eq.atom
+                     :: domain.singleton_premises
+                     @ [
+                         Term.(start === Term.Arith.int start_value);
+                         Term.(length === Term.Arith.int length_value);
+                       ])
+                in
+                let implication =
+                  at_facts
+                  |> List.concat_map snd
+                  |> List.cons source_length_fact
+                  |> conjoin
+                  |> imply_all premises
+                in
+                Some (conjoin (at_axioms @ [implication]))
+            | _ -> None)
+  | _ -> None
+
+let substring_backward_position_propagation state smodel infos equalities =
+  equalities
+  |> List.find_map (fun eq ->
+         let candidates =
+           [
+             eq.lhs, eq.rhs;
+             eq.rhs, eq.lhs;
+           ]
+         in
+         candidates
+         |> List.find_map (fun (result, substr_term) ->
+                match
+                  substring_backward_position_lemma
+                    smodel
+                    infos
+                    equalities
+                    eq
+                    result
+                    substr_term
+                with
+                | None -> None
+                | Some lemma ->
+                    if is_seen_generated state lemma then
+                      None
+                    else begin
+                      remember_internal_assertion state lemma;
+                      String_log.debug
+                        "straight-line substring position propagation for %a"
+                        Term.pp
+                        result;
+                      Some lemma
+                    end))
+
 let containment_domain_lemma smodel info contains_term haystack needle_text =
   if not (term_in_class haystack info.regex_terms)
      || RA.is_empty info.regex_automaton
@@ -5436,6 +5527,20 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
       };
       {
         candidate_priority = 35;
+        candidate_operator = Op_substr;
+        candidate_label = "straight-line substring position propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_substr
+               (substring_backward_position_propagation
+                  state
+                  smodel
+                  regex_infos
+                  syntactic_equalities));
+      };
+      {
+        candidate_priority = 40;
         candidate_operator = Op_in_re;
         candidate_label = "regex domain refinement";
         candidate_produce =
