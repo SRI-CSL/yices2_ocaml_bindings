@@ -2139,6 +2139,7 @@ let eval_suffixof_text suffix string =
   string_ends_with string suffix
 
 module ScalarSet = Set.Make(Int)
+module ScalarMap = Map.Make(Int)
 
 type character_set =
   | Characters_top
@@ -2236,6 +2237,160 @@ let character_set_excludes_text character_set text =
   | Characters_top -> false
   | Characters set ->
       scalar_codes text |> List.exists (fun code -> not (ScalarSet.mem code set))
+
+type character_multiset =
+  | Multiset_top
+  | Multiset_upper of int ScalarMap.t
+
+let multiset_language_limit = 32
+
+let scalar_counts text =
+  scalar_codes text
+  |> List.fold_left
+       (fun acc code ->
+          let old = Option.value ~default:0 (ScalarMap.find_opt code acc) in
+          ScalarMap.add code (old + 1) acc)
+       ScalarMap.empty
+
+let multiset_of_text text =
+  Multiset_upper (scalar_counts text)
+
+let multiset_add lhs rhs =
+  match lhs, rhs with
+  | Multiset_top, _ | _, Multiset_top -> Multiset_top
+  | Multiset_upper lhs, Multiset_upper rhs ->
+      Multiset_upper
+        (ScalarMap.merge
+           (fun _ lhs rhs ->
+              match lhs, rhs with
+              | None, None -> None
+              | Some n, None | None, Some n -> Some n
+              | Some lhs, Some rhs -> Some (lhs + rhs))
+           lhs
+           rhs)
+
+let multiset_union lhs rhs =
+  match lhs, rhs with
+  | Multiset_top, _ | _, Multiset_top -> Multiset_top
+  | Multiset_upper lhs, Multiset_upper rhs ->
+      Multiset_upper
+        (ScalarMap.merge
+           (fun _ lhs rhs ->
+              match lhs, rhs with
+              | None, None -> None
+              | Some n, None | None, Some n -> Some n
+              | Some lhs, Some rhs -> Some (max lhs rhs))
+           lhs
+           rhs)
+
+let multiset_inter lhs rhs =
+  match lhs, rhs with
+  | Multiset_top, other | other, Multiset_top -> other
+  | Multiset_upper lhs, Multiset_upper rhs ->
+      Multiset_upper
+        (ScalarMap.merge
+           (fun _ lhs rhs ->
+              let lhs = Option.value ~default:0 lhs in
+              let rhs = Option.value ~default:0 rhs in
+              let bound = min lhs rhs in
+              if bound = 0 then None else Some bound)
+           lhs
+           rhs)
+
+let multiset_unions = function
+  | [] -> Multiset_upper ScalarMap.empty
+  | first :: rest -> List.fold_left multiset_union first rest
+
+let multiset_inters sets =
+  List.fold_left multiset_inter Multiset_top sets
+
+let multiset_cap_one = function
+  | Multiset_top -> Multiset_top
+  | Multiset_upper map ->
+      Multiset_upper (ScalarMap.map (fun count -> min 1 count) map)
+
+let multiset_scale factor = function
+  | Multiset_top -> Multiset_top
+  | Multiset_upper map ->
+      if factor <= 0 then
+        Multiset_upper ScalarMap.empty
+      else
+        Multiset_upper (ScalarMap.map (( * ) factor) map)
+
+let rec character_multiset_of_regex = function
+  | ReEmpty -> Multiset_upper ScalarMap.empty
+  | ReLit text -> multiset_of_text text
+  | ReConcat regexes ->
+      regexes
+      |> List.map character_multiset_of_regex
+      |> List.fold_left multiset_add (Multiset_upper ScalarMap.empty)
+  | ReUnion regexes ->
+      regexes |> List.map character_multiset_of_regex |> multiset_unions
+  | ReOpt regex ->
+      multiset_union (Multiset_upper ScalarMap.empty) (character_multiset_of_regex regex)
+  | ReLoop (regex, lo, hi) ->
+      if lo < 0 || hi < lo then
+        Multiset_upper ScalarMap.empty
+      else if hi > multiset_language_limit then
+        Multiset_top
+      else
+        multiset_scale hi (character_multiset_of_regex regex)
+  | ReToRe term -> (
+      match static_string_value term with
+      | Some text -> multiset_of_text text
+      | None -> Multiset_top)
+  | ReRange _
+  | ReInter _
+  | ReStar _
+  | RePlus _
+  | ReAll
+  | ReAllChar
+  | ReComp _ -> Multiset_top
+
+let rec character_multiset_of_term term =
+  match static_string_value term with
+  | Some text -> multiset_of_text text
+  | None -> (
+      match reveal_string term with
+      | Some (Concat terms) ->
+          terms
+          |> List.map character_multiset_of_term
+          |> List.fold_left multiset_add (Multiset_upper ScalarMap.empty)
+      | Some (Substr (string, _, _)) ->
+          character_multiset_of_term string
+      | Some (At (string, _)) ->
+          character_multiset_of_term string |> multiset_cap_one
+      | Some (Replace (haystack, _, replacement)) ->
+          multiset_add
+            (character_multiset_of_term haystack)
+            (character_multiset_of_term replacement)
+      | Some (FromCode code) -> (
+          match static_int_value code with
+          | Some code -> multiset_of_text (eval_from_code_value code)
+          | None -> Multiset_top)
+      | Some (Lit _) -> Multiset_upper ScalarMap.empty
+      | Some
+          ( ReplaceAll _
+          | Len _
+          | Contains _
+          | Indexof _
+          | ToCode _
+          | Prefixof _
+          | Suffixof _
+          | InRe _ )
+      | None ->
+          Multiset_top)
+
+let multiset_excludes_text multiset text =
+  match multiset with
+  | Multiset_top -> false
+  | Multiset_upper upper ->
+      let required = scalar_counts text in
+      ScalarMap.exists
+        (fun code required_count ->
+           let upper_count = Option.value ~default:0 (ScalarMap.find_opt code upper) in
+           required_count > upper_count)
+        required
 
 let rec automata_regex_of_regex = function
   | ReEmpty -> RA.Empty
@@ -4759,6 +4914,16 @@ let character_regex_set info =
   |> List.map (fun constraint_ -> character_set_of_regex constraint_.regex_body)
   |> character_inters
 
+let character_class_multiset cls =
+  cls
+  |> List.map character_multiset_of_term
+  |> multiset_inters
+
+let character_regex_multiset info =
+  info.regex_constraints
+  |> List.map (fun constraint_ -> character_multiset_of_regex constraint_.regex_body)
+  |> multiset_inters
+
 let character_refinement_from_sources state smodel contains_term sources =
   List.find_map
     (fun (character_set, premises) ->
@@ -4774,6 +4939,30 @@ let character_refinement_from_sources state smodel contains_term sources =
                  | Some _ as result ->
                      String_log.debug
                        "character abstraction refinement for %a"
+                       Term.pp
+                       contains_term;
+                     result
+                 | None -> None
+               end
+           | _ -> None)
+       | _ -> None)
+    sources
+
+let multiset_refinement_from_sources state smodel contains_term sources =
+  List.find_map
+    (fun (multiset, premises) ->
+       match reveal_string contains_term with
+       | Some (Contains (_, needle)) -> (
+           match static_string_value needle with
+           | Some needle_text
+             when true_in_model smodel contains_term
+                  && multiset_excludes_text multiset needle_text ->
+               let lemma = imply_all premises (Term.not1 contains_term) in
+               begin
+                 match remember_regex_refinement state smodel lemma with
+                 | Some _ as result ->
+                     String_log.debug
+                       "bounded multiset abstraction refinement for %a"
                        Term.pp
                        contains_term;
                      result
@@ -4801,6 +4990,23 @@ let character_abstraction_refinement state smodel formulas terms equalities info
            in
            character_set, info.regex_premises)
   in
+  let multiset_class_sources haystack =
+    classes
+    |> List.filter (term_in_class haystack)
+    |> List.map (fun cls ->
+           character_class_multiset cls, equality_premises_for_class equalities cls)
+  in
+  let multiset_regex_sources haystack =
+    infos
+    |> List.filter (fun info -> term_in_class haystack info.regex_terms)
+    |> List.map (fun info ->
+           let multiset =
+             multiset_inter
+               (character_class_multiset info.regex_terms)
+               (character_regex_multiset info)
+           in
+           multiset, info.regex_premises)
+  in
   contains_terms
   |> List.find_map (fun contains_term ->
          match reveal_string contains_term with
@@ -4809,7 +5015,24 @@ let character_abstraction_refinement state smodel formulas terms equalities info
              let sources =
                direct_sources @ class_sources haystack @ regex_sources haystack
              in
-             character_refinement_from_sources state smodel contains_term sources
+             begin
+               match character_refinement_from_sources state smodel contains_term sources with
+               | Some _ as lemma -> lemma
+               | None ->
+                   let direct_multiset_sources =
+                     [character_multiset_of_term haystack, []]
+                   in
+                   let multiset_sources =
+                     direct_multiset_sources
+                     @ multiset_class_sources haystack
+                     @ multiset_regex_sources haystack
+                   in
+                   multiset_refinement_from_sources
+                     state
+                     smodel
+                     contains_term
+                     multiset_sources
+             end
          | _ -> None)
 
 let regex_assignment_hints smodel forced infos =

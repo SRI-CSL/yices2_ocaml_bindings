@@ -518,6 +518,37 @@ let test_character_abstraction () =
   S.Context.assert_formula ctx S.Term.(n === Arith.int 1);
   S.Context.assert_formula ctx
     S.Term.(contains (substr (str "abc") i n) (str "b"));
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let i = int_var "multiset_substr_i" in
+  let n = int_var "multiset_substr_n" in
+  S.Context.assert_formula ctx
+    S.Term.(contains (substr (str "ab") i n) (str "aa"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let i = int_var "multiset_at_i" in
+  S.Context.assert_formula ctx S.Term.(contains (at (str "aa") i) (str "aa"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let i = int_var "multiset_concat_i" in
+  let n = int_var "multiset_concat_n" in
+  let j = int_var "multiset_concat_j" in
+  let text =
+    S.Term.concat
+      [S.Term.substr (S.Term.str "ab") i n; S.Term.at (S.Term.str "cd") j]
+  in
+  S.Context.assert_formula ctx S.Term.(contains text (str "aa"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"multiset_regex_x" () in
+  let domain = S.Regex.union [S.Regex.str "ab"; S.Regex.str "bc"] in
+  S.Context.assert_formula ctx (S.Term.in_re x domain);
+  S.Context.assert_formula ctx S.Term.(contains x (str "bb"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"multiset_regex_sat_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "aa"));
+  S.Context.assert_formula ctx S.Term.(contains x (str "aa"));
   assert_check `STATUS_SAT ctx
 
 let test_code_operators () =
