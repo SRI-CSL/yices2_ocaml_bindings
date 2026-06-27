@@ -556,6 +556,7 @@ type t = {
   mutable frames : Term.t list list;
   mutable internal_frames : Term.t list list;
   generated : unit HTerms.t;
+  generated_rewrites : unit HTerms.t;
   generated_contains_splits : unit HTerms.t;
   generated_symbolic_reductions : unit HTerms.t;
   witnesses : Term.t HWitness.t;
@@ -576,6 +577,7 @@ let public_terms state =
 
 let reset_generated state =
   HTerms.reset state.generated;
+  HTerms.reset state.generated_rewrites;
   HTerms.reset state.generated_contains_splits;
   HTerms.reset state.generated_symbolic_reductions
 
@@ -704,6 +706,7 @@ let malloc ?config () =
     frames = [[]];
     internal_frames = [[]];
     generated = Global.hTerms_create 257;
+    generated_rewrites = Global.hTerms_create 257;
     generated_contains_splits = Global.hTerms_create 257;
     generated_symbolic_reductions = Global.hTerms_create 257;
     witnesses = HWitness.create 257;
@@ -825,6 +828,148 @@ let eval_replace_all_text haystack needle replacement =
     in
     loop 0;
     Buffer.contents output
+
+let string_starts_with text prefix =
+  let len_text = String.length text in
+  let len_prefix = String.length prefix in
+  len_prefix <= len_text && String.equal (String.sub text 0 len_prefix) prefix
+
+let string_ends_with text suffix =
+  let len_text = String.length text in
+  let len_suffix = String.length suffix in
+  len_suffix <= len_text
+  && String.equal (String.sub text (len_text - len_suffix) len_suffix) suffix
+
+let q_to_int q =
+  if Z.equal (Q.den q) Z.one then
+    try Some (Z.to_int (Q.num q)) with Z.Overflow -> None
+  else
+    None
+
+let static_int_value term =
+  try
+    let Term tstruct = Term.reveal term in
+    match tstruct with
+    | A0 _ -> (
+        match Term.const_value tstruct with
+        | `Rational q -> q_to_int q
+        | _ -> None)
+    | _ -> None
+  with _ -> None
+
+let utf8_scalar_boundaries s =
+  let len = String.length s in
+  let byte i = Char.code s.[i] in
+  let continuation i =
+    i < len && byte i land 0xC0 = 0x80
+  in
+  let rec loop acc i =
+    if i = len then List.rev (len :: acc)
+    else
+      let next =
+        let b0 = byte i in
+        if b0 <= 0x7F then i + 1
+        else if b0 >= 0xC2 && b0 <= 0xDF && continuation (i + 1) then i + 2
+        else if b0 = 0xE0
+                && i + 2 < len
+                && byte (i + 1) >= 0xA0 && byte (i + 1) <= 0xBF
+                && continuation (i + 2)
+        then i + 3
+        else if ((b0 >= 0xE1 && b0 <= 0xEC) || (b0 >= 0xEE && b0 <= 0xEF))
+                && continuation (i + 1) && continuation (i + 2)
+        then i + 3
+        else if b0 = 0xED
+                && i + 2 < len
+                && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x9F
+                && continuation (i + 2)
+        then i + 3
+        else if b0 = 0xF0
+                && i + 3 < len
+                && byte (i + 1) >= 0x90 && byte (i + 1) <= 0xBF
+                && continuation (i + 2)
+                && continuation (i + 3)
+        then i + 4
+        else if b0 >= 0xF1 && b0 <= 0xF3
+                && continuation (i + 1)
+                && continuation (i + 2)
+                && continuation (i + 3)
+        then i + 4
+        else if b0 = 0xF4
+                && i + 3 < len
+                && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x8F
+                && continuation (i + 2)
+                && continuation (i + 3)
+        then i + 4
+        else raise_invalid_utf8 s i
+      in
+      loop (i :: acc) next
+  in
+  loop [] 0
+
+let scalar_length_from_boundaries boundaries =
+  List.length boundaries - 1
+
+let list_nth_opt list index =
+  if index < 0 then None else List.nth_opt list index
+
+let substring_by_scalars s start length =
+  if start < 0 || length <= 0 then ""
+  else
+    let boundaries = utf8_scalar_boundaries s in
+    let scalar_len = scalar_length_from_boundaries boundaries in
+    if start >= scalar_len then ""
+    else
+      let stop = min scalar_len (start + length) in
+      match list_nth_opt boundaries start, list_nth_opt boundaries stop with
+      | Some start_byte, Some stop_byte ->
+          String.sub s start_byte (stop_byte - start_byte)
+      | _ -> ""
+
+let scalar_index_of_byte s byte_index =
+  let boundaries = utf8_scalar_boundaries s in
+  let rec loop index = function
+    | [] -> None
+    | boundary :: tail ->
+        if boundary = byte_index then Some index
+        else if boundary > byte_index then None
+        else loop (index + 1) tail
+  in
+  loop 0 boundaries
+
+let eval_contains_text haystack needle =
+  match find_substring_from haystack needle 0 with
+  | Some _ -> true
+  | None -> false
+
+let eval_indexof_text haystack needle start =
+  let boundaries = utf8_scalar_boundaries haystack in
+  let scalar_len = scalar_length_from_boundaries boundaries in
+  if start < 0 || start > scalar_len then -1
+  else if String.equal needle "" then start
+  else
+    match list_nth_opt boundaries start with
+    | None -> -1
+    | Some start_byte -> (
+        match find_substring_from haystack needle start_byte with
+        | None -> -1
+        | Some byte_index ->
+            Option.value ~default:(-1) (scalar_index_of_byte haystack byte_index))
+
+let eval_replace_text haystack needle replacement =
+  if String.equal needle "" then replacement ^ haystack
+  else
+    match find_substring_from haystack needle 0 with
+    | None -> haystack
+    | Some start ->
+        let prefix = String.sub haystack 0 start in
+        let suffix_start = start + String.length needle in
+        let suffix =
+          String.sub haystack suffix_start (String.length haystack - suffix_start)
+        in
+        prefix ^ replacement ^ suffix
+
+let eval_at_text string index =
+  substring_by_scalars string index 1
 
 let rec regex_string_terms acc = function
   | ReToRe term -> scan_term acc term
@@ -986,6 +1131,243 @@ let imply_all premises conclusion =
   match premises with
   | [] -> conclusion
   | _ -> Term.(conjoin premises ==> conclusion)
+
+let bool_value_axiom term value =
+  if value then term else Term.not1 term
+
+let bounded_by_length term upper =
+  Term.Arith.leq (len term) upper
+
+let one () = Term.Arith.int 1
+
+let minus_one () = Term.Arith.int (-1)
+
+let rewrite_axioms_for_term term =
+  let empty = literal "" in
+  match reveal_string term with
+  | Some (Substr (string, start, length_term)) ->
+      let length_axioms =
+        [
+          bounded_by_length term (len string);
+        ]
+      in
+      let static_length_axioms =
+        match static_int_value length_term with
+        | Some n when n <= 0 -> [Term.(term === empty)]
+        | Some n -> [Term.Arith.leq (len term) (Term.Arith.int n)]
+        | None -> []
+      in
+      let static_start_axioms =
+        match static_int_value start with
+        | Some n when n < 0 -> [Term.(term === empty)]
+        | _ -> []
+      in
+      let ground_axioms =
+        match
+          static_string_value string,
+          static_int_value start,
+          static_int_value length_term
+        with
+        | Some text, Some start, Some length ->
+            [Term.(term === literal (substring_by_scalars text start length))]
+        | _ -> []
+      in
+      length_axioms @ static_length_axioms @ static_start_axioms @ ground_axioms
+  | Some (Contains (haystack, needle)) ->
+      let length_axioms =
+        [
+          Term.(term ==> Term.Arith.leq (len needle) (len haystack));
+          Term.(
+            Term.Arith.gt (len needle) (len haystack) ==> Term.not1 term);
+        ]
+      in
+      let static_axioms =
+        match static_string_value haystack, static_string_value needle with
+        | _, Some "" -> [term]
+        | Some "", _ -> [Term.iff term Term.(needle === empty)]
+        | Some haystack, Some needle ->
+            [bool_value_axiom term (eval_contains_text haystack needle)]
+        | _ -> []
+      in
+      length_axioms @ static_axioms
+  | Some (Prefixof (prefix, string)) ->
+      let length_axioms =
+        [Term.(term ==> Term.Arith.leq (len prefix) (len string))]
+      in
+      let static_axioms =
+        match static_string_value prefix, static_string_value string with
+        | Some "", _ -> [term]
+        | _, Some "" -> [Term.iff term Term.(prefix === empty)]
+        | Some prefix, Some string ->
+            [bool_value_axiom term (string_starts_with string prefix)]
+        | _ -> []
+      in
+      length_axioms @ static_axioms
+  | Some (Suffixof (suffix, string)) ->
+      let length_axioms =
+        [Term.(term ==> Term.Arith.leq (len suffix) (len string))]
+      in
+      let static_axioms =
+        match static_string_value suffix, static_string_value string with
+        | Some "", _ -> [term]
+        | _, Some "" -> [Term.iff term Term.(suffix === empty)]
+        | Some suffix, Some string ->
+            [bool_value_axiom term (string_ends_with string suffix)]
+        | _ -> []
+      in
+      length_axioms @ static_axioms
+  | Some (Indexof (haystack, needle, start)) ->
+      let bounds =
+        [
+          disjoin
+            [
+              Term.(term === minus_one ());
+              conjoin
+                [
+                  Term.Arith.geq term (Term.Arith.zero ());
+                  Term.Arith.leq term (len haystack);
+                ];
+            ];
+        ]
+      in
+      let static_axioms =
+        match
+          static_string_value haystack,
+          static_string_value needle,
+          static_int_value start
+        with
+        | Some haystack, Some needle, Some start ->
+            [Term.(term === Term.Arith.int (eval_indexof_text haystack needle start))]
+        | _, _, Some start when start < 0 -> [Term.(term === minus_one ())]
+        | Some haystack, Some needle, _
+          when not (String.equal needle "")
+               && utf8_scalar_length needle > utf8_scalar_length haystack ->
+            [Term.(term === minus_one ())]
+        | _ -> []
+      in
+      bounds @ static_axioms
+  | Some (Replace (haystack, needle, replacement)) ->
+      let static_axioms =
+        match
+          static_string_value haystack,
+          static_string_value needle,
+          static_string_value replacement
+        with
+        | Some haystack, Some needle, Some replacement ->
+            [
+              Term.(
+                term === literal (eval_replace_text haystack needle replacement));
+            ]
+        | _, Some "", _ ->
+            let empty_replace = concat [replacement; haystack] in
+            axioms_for_string_term empty_replace @ [Term.(term === empty_replace)]
+        | _, Some needle, Some replacement when String.equal needle replacement ->
+            [Term.(term === haystack)]
+        | _ -> []
+      in
+      let length_axioms =
+        match static_string_value needle, static_string_value replacement with
+        | Some needle, Some replacement
+          when not (String.equal needle "")
+               && utf8_scalar_length needle = utf8_scalar_length replacement ->
+            [Term.(len term === len haystack)]
+        | _ -> []
+      in
+      static_axioms @ length_axioms
+  | Some (ReplaceAll _) ->
+      []
+  | Some (At (string, index)) ->
+      let one = one () in
+      let base_axioms = [Term.Arith.leq (len term) one] in
+      let in_bounds =
+        conjoin
+          [
+            Term.Arith.geq index (Term.Arith.zero ());
+            Term.Arith.lt index (len string);
+          ]
+      in
+      let length_axioms =
+        [Term.(in_bounds ==> (len term === one))]
+      in
+      let static_axioms =
+        match static_string_value string, static_int_value index with
+        | Some string, Some index ->
+            [Term.(term === literal (eval_at_text string index))]
+        | _, Some index when index < 0 -> [Term.(term === empty)]
+        | _ -> []
+      in
+      base_axioms @ length_axioms @ static_axioms
+  | Some (Lit _ | Concat _ | Len _ | InRe _) | None -> []
+
+let rec regex_extension_terms acc = function
+  | ReToRe term -> collect_extension_terms acc term
+  | ReConcat regexes
+  | ReUnion regexes
+  | ReInter regexes ->
+      List.fold_left regex_extension_terms acc regexes
+  | ReStar regex
+  | ReComp regex
+  | RePlus regex
+  | ReOpt regex
+  | ReLoop (regex, _, _) ->
+      regex_extension_terms acc regex
+  | ReEmpty | ReAll | ReAllChar | ReLit _ | ReRange _ -> acc
+
+and collect_extension_terms acc term =
+  let acc =
+    match reveal_string term with
+    | Some (Lit _) | None -> acc
+    | Some (InRe (_, regex)) ->
+        regex_extension_terms (StringTermSet.add term acc) regex
+    | Some _ -> StringTermSet.add term acc
+  in
+  let Term tstruct = Term.reveal term in
+  collect_extension_children acc tstruct
+
+and collect_extension_children : type a.
+    StringTermSet.t -> a YTypes.termstruct -> StringTermSet.t =
+  fun acc -> function
+  | A0 _ -> acc
+  | A1 (_, t) -> collect_extension_terms acc t
+  | A2 (_, t1, t2) ->
+      collect_extension_terms (collect_extension_terms acc t1) t2
+  | Astar (_, terms) -> List.fold_left collect_extension_terms acc terms
+  | ITE (c, tb, eb) ->
+      List.fold_left collect_extension_terms acc [c; tb; eb]
+  | App (f, args) ->
+      List.fold_left collect_extension_terms (collect_extension_terms acc f) args
+  | Bindings { vars; body; _ } ->
+      List.fold_left collect_extension_terms (collect_extension_terms acc body) vars
+  | Update { array; index; value } ->
+      List.fold_left
+        collect_extension_terms
+        (collect_extension_terms (collect_extension_terms acc array) value)
+        index
+  | Projection (_, _, t) -> collect_extension_terms acc t
+  | BV_Sum terms ->
+      List.fold_left
+        (fun acc (_, term) ->
+           Option.map_or ~default:acc (collect_extension_terms acc) term)
+        acc
+        terms
+  | Sum terms
+  | FF_Sum terms ->
+      List.fold_left
+        (fun acc (_, term) ->
+           Option.map_or ~default:acc (collect_extension_terms acc) term)
+        acc
+        terms
+  | Product (_, terms) ->
+      List.fold_left
+        (fun acc (term, _) -> collect_extension_terms acc term)
+        acc
+        terms
+
+let is_seen_rewrite state term =
+  if HTerms.mem state.generated_rewrites term then true
+  else (
+    HTerms.add state.generated_rewrites term ();
+    false)
 
 let find_witness state key =
   try Some (HWitness.find state.witnesses key) with Not_found -> None
@@ -1298,11 +1680,13 @@ let replace_all_split_reduction state eq haystack needle replacement result =
 let translate_assertion (_ctx : Context.t) state formula =
   remember_assertion state formula;
   let string_terms = scan_term StringTermSet.empty formula in
+  let extension_terms = collect_extension_terms StringTermSet.empty formula in
   String_log.debug
-    "registered %d string term(s) from assertion %a"
+    "registered %d string term(s), %d extension term(s) from assertion %a"
     (StringTermSet.cardinal string_terms)
+    (StringTermSet.cardinal extension_terms)
     Term.pp formula;
-  let axioms =
+  let string_axioms =
     StringTermSet.fold
       (fun term axioms ->
          if is_seen_generated state term then axioms
@@ -1310,7 +1694,15 @@ let translate_assertion (_ctx : Context.t) state formula =
       string_terms
       []
   in
-  List.rev axioms @ [formula]
+  let rewrite_axioms =
+    StringTermSet.fold
+      (fun term axioms ->
+         if is_seen_rewrite state term then axioms
+         else List.rev_append (rewrite_axioms_for_term term) axioms)
+      extension_terms
+      []
+  in
+  List.rev string_axioms @ List.rev rewrite_axioms @ [formula]
 
 let translate_assumption (_ctx : Context.t) _state formula =
   formula
@@ -1375,23 +1767,6 @@ let force_assignment assignments term text =
       in
       Ok ((term, text) :: assignments)
 
-let string_starts_with text prefix =
-  let len_text = String.length text in
-  let len_prefix = String.length prefix in
-  len_prefix <= len_text && String.equal (String.sub text 0 len_prefix) prefix
-
-let string_ends_with text suffix =
-  let len_text = String.length text in
-  let len_suffix = String.length suffix in
-  len_suffix <= len_text
-  && String.equal (String.sub text (len_text - len_suffix) len_suffix) suffix
-
-let q_to_int q =
-  if Z.equal (Q.den q) Z.one then
-    try Some (Z.to_int (Q.num q)) with Z.Overflow -> None
-  else
-    None
-
 let int_value_in_model smodel term =
   try
     match ModelValue.reveal (SModel.get_value smodel term) with
@@ -1404,125 +1779,11 @@ let string_length_in_model smodel term =
   | Some n when n >= 0 -> Some n
   | _ -> None
 
-let utf8_scalar_boundaries s =
-  let len = String.length s in
-  let byte i = Char.code s.[i] in
-  let continuation i =
-    i < len && byte i land 0xC0 = 0x80
-  in
-  let rec loop acc i =
-    if i = len then List.rev (len :: acc)
-    else
-      let next =
-        let b0 = byte i in
-        if b0 <= 0x7F then i + 1
-        else if b0 >= 0xC2 && b0 <= 0xDF && continuation (i + 1) then i + 2
-        else if b0 = 0xE0
-                && i + 2 < len
-                && byte (i + 1) >= 0xA0 && byte (i + 1) <= 0xBF
-                && continuation (i + 2)
-        then i + 3
-        else if ((b0 >= 0xE1 && b0 <= 0xEC) || (b0 >= 0xEE && b0 <= 0xEF))
-                && continuation (i + 1) && continuation (i + 2)
-        then i + 3
-        else if b0 = 0xED
-                && i + 2 < len
-                && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x9F
-                && continuation (i + 2)
-        then i + 3
-        else if b0 = 0xF0
-                && i + 3 < len
-                && byte (i + 1) >= 0x90 && byte (i + 1) <= 0xBF
-                && continuation (i + 2)
-                && continuation (i + 3)
-        then i + 4
-        else if b0 >= 0xF1 && b0 <= 0xF3
-                && continuation (i + 1)
-                && continuation (i + 2)
-                && continuation (i + 3)
-        then i + 4
-        else if b0 = 0xF4
-                && i + 3 < len
-                && byte (i + 1) >= 0x80 && byte (i + 1) <= 0x8F
-                && continuation (i + 2)
-                && continuation (i + 3)
-        then i + 4
-        else raise_invalid_utf8 s i
-      in
-      loop (i :: acc) next
-  in
-  loop [] 0
-
-let scalar_length_from_boundaries boundaries =
-  List.length boundaries - 1
-
-let list_nth_opt list index =
-  if index < 0 then None else List.nth_opt list index
-
-let substring_by_scalars s start length =
-  if start < 0 || length <= 0 then ""
-  else
-    let boundaries = utf8_scalar_boundaries s in
-    let scalar_len = scalar_length_from_boundaries boundaries in
-    if start >= scalar_len then ""
-    else
-      let stop = min scalar_len (start + length) in
-      match list_nth_opt boundaries start, list_nth_opt boundaries stop with
-      | Some start_byte, Some stop_byte ->
-          String.sub s start_byte (stop_byte - start_byte)
-      | _ -> ""
-
-let scalar_index_of_byte s byte_index =
-  let boundaries = utf8_scalar_boundaries s in
-  let rec loop index = function
-    | [] -> None
-    | boundary :: tail ->
-        if boundary = byte_index then Some index
-        else if boundary > byte_index then None
-        else loop (index + 1) tail
-  in
-  loop 0 boundaries
-
-let eval_contains_text haystack needle =
-  match find_substring_from haystack needle 0 with
-  | Some _ -> true
-  | None -> false
-
-let eval_indexof_text haystack needle start =
-  let boundaries = utf8_scalar_boundaries haystack in
-  let scalar_len = scalar_length_from_boundaries boundaries in
-  if start < 0 || start > scalar_len then -1
-  else if String.equal needle "" then start
-  else
-    match list_nth_opt boundaries start with
-    | None -> -1
-    | Some start_byte -> (
-        match find_substring_from haystack needle start_byte with
-        | None -> -1
-        | Some byte_index ->
-            Option.value ~default:(-1) (scalar_index_of_byte haystack byte_index))
-
-let eval_replace_text haystack needle replacement =
-  if String.equal needle "" then replacement ^ haystack
-  else
-    match find_substring_from haystack needle 0 with
-    | None -> haystack
-    | Some start ->
-        let prefix = String.sub haystack 0 start in
-        let suffix_start = start + String.length needle in
-        let suffix =
-          String.sub haystack suffix_start (String.length haystack - suffix_start)
-        in
-        prefix ^ replacement ^ suffix
-
 let eval_prefixof_text prefix string =
   string_starts_with string prefix
 
 let eval_suffixof_text suffix string =
   string_ends_with string suffix
-
-let eval_at_text string index =
-  substring_by_scalars string index 1
 
 let scalar_codes s =
   let boundaries = utf8_scalar_boundaries s in

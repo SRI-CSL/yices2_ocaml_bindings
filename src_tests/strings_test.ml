@@ -362,6 +362,46 @@ let test_replace_all_fixed_unsat () =
     S.Term.(replace_all x (str "a") (str "b") === str "aba");
   assert_check `STATUS_UNSAT ctx
 
+let test_rewrite_simplification_axioms () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_contains_empty_x" () in
+  S.Context.assert_formula ctx S.Term.(not1 (contains x (str "")));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_empty_contains_x" () in
+  S.Context.assert_formula ctx S.Term.(contains (str "") x);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_empty_prefix_x" () in
+  S.Context.assert_formula ctx S.Term.(not1 (prefixof (str "") x));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_empty_suffix_x" () in
+  S.Context.assert_formula ctx S.Term.(not1 (suffixof (str "") x));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_substr_negative_x" () in
+  S.Context.assert_formula ctx
+    S.Term.(not1 (substr x (Arith.int (-1)) (Arith.int 2) === str ""));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_indexof_negative_x" () in
+  S.Context.assert_formula ctx
+    S.Term.(not1 (indexof x (str "a") (Arith.int (-1)) === Arith.int (-1)));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_replace_empty_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx
+    S.Term.(replace x (str "") (str "p") === str "pabc");
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"rewrite_at_negative_x" () in
+  S.Context.assert_formula ctx
+    S.Term.(not1 (at x (Arith.int (-1)) === str ""));
+  assert_check `STATUS_UNSAT ctx
+
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_regex_x" () in
@@ -812,6 +852,7 @@ let test () =
   test_replace_all_ground_semantics ();
   test_replace_all_symbolic_witness_sat ();
   test_replace_all_fixed_unsat ();
+  test_rewrite_simplification_axioms ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();
