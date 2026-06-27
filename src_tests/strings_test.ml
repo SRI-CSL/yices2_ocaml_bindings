@@ -402,6 +402,47 @@ let test_rewrite_simplification_axioms () =
     S.Term.(not1 (at x (Arith.int (-1)) === str ""));
   assert_check `STATUS_UNSAT ctx
 
+let test_containment_abstraction () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"containment_prefix_x" () in
+  let y = S.Term.string_var ~name:"containment_prefix_y" () in
+  S.Context.assert_formula ctx S.Term.(prefixof y x);
+  S.Context.assert_formula ctx S.Term.(not1 (contains x y));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"containment_suffix_x" () in
+  let y = S.Term.string_var ~name:"containment_suffix_y" () in
+  S.Context.assert_formula ctx S.Term.(suffixof y x);
+  S.Context.assert_formula ctx S.Term.(not1 (contains x y));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"containment_concat_x" () in
+  let y = S.Term.string_var ~name:"containment_concat_y" () in
+  S.Context.assert_formula ctx S.Term.(x === concat [str "p"; y; str "q"]);
+  S.Context.assert_formula ctx S.Term.(not1 (contains x y));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"containment_regex_forces_x" () in
+  let contains_z =
+    S.Regex.concat [S.Regex.all; S.Regex.str "z"; S.Regex.all]
+  in
+  S.Context.assert_formula ctx (S.Term.in_re x contains_z);
+  S.Context.assert_formula ctx S.Term.(not1 (contains x (str "z")));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"containment_regex_excludes_x" () in
+  S.Context.assert_formula ctx
+    (S.Term.in_re x (S.Regex.star (S.Regex.range "a" "c")));
+  S.Context.assert_formula ctx S.Term.(contains x (str "z"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"containment_regex_sat_x" () in
+  S.Context.assert_formula ctx
+    (S.Term.in_re x (S.Regex.star (S.Regex.range "a" "c")));
+  S.Context.assert_formula ctx S.Term.(not1 (contains x (str "z")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_SAT ctx
+
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_regex_x" () in
@@ -853,6 +894,7 @@ let test () =
   test_replace_all_symbolic_witness_sat ();
   test_replace_all_fixed_unsat ();
   test_rewrite_simplification_axioms ();
+  test_containment_abstraction ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();

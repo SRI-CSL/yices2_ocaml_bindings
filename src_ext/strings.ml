@@ -1194,6 +1194,9 @@ let rewrite_axioms_for_term term =
       let length_axioms =
         [Term.(term ==> Term.Arith.leq (len prefix) (len string))]
       in
+      let containment_axioms =
+        [Term.(term ==> contains string prefix)]
+      in
       let static_axioms =
         match static_string_value prefix, static_string_value string with
         | Some "", _ -> [term]
@@ -1202,10 +1205,13 @@ let rewrite_axioms_for_term term =
             [bool_value_axiom term (string_starts_with string prefix)]
         | _ -> []
       in
-      length_axioms @ static_axioms
+      length_axioms @ containment_axioms @ static_axioms
   | Some (Suffixof (suffix, string)) ->
       let length_axioms =
         [Term.(term ==> Term.Arith.leq (len suffix) (len string))]
+      in
+      let containment_axioms =
+        [Term.(term ==> contains string suffix)]
       in
       let static_axioms =
         match static_string_value suffix, static_string_value string with
@@ -1215,7 +1221,7 @@ let rewrite_axioms_for_term term =
             [bool_value_axiom term (string_ends_with string suffix)]
         | _ -> []
       in
-      length_axioms @ static_axioms
+      length_axioms @ containment_axioms @ static_axioms
   | Some (Indexof (haystack, needle, start)) ->
       let bounds =
         [
@@ -1368,6 +1374,65 @@ let is_seen_rewrite state term =
   else (
     HTerms.add state.generated_rewrites term ();
     false)
+
+let concat_part_can_add_containment part =
+  match static_string_value part with
+  | Some "" -> false
+  | _ -> true
+
+let concat_containment_axioms atom whole concat_term =
+  match reveal_string concat_term with
+  | Some (Concat parts) ->
+      parts
+      |> List.filter concat_part_can_add_containment
+      |> List.sort_uniq ~cmp:Term.compare
+      |> List.map (fun part -> Term.(atom ==> contains whole part))
+  | _ -> []
+
+let containment_axioms_from_equality atom lhs rhs =
+  if is_string_type (Term.type_of_term lhs) && is_string_type (Term.type_of_term rhs) then
+    concat_containment_axioms atom lhs rhs
+    @ concat_containment_axioms atom rhs lhs
+  else
+    []
+
+let containment_axioms_from_assertion formula =
+  let rec aux acc term =
+    let Term tstruct = Term.reveal term in
+    let acc =
+      match tstruct with
+      | A2 (`YICES_EQ_TERM, lhs, rhs) ->
+          List.rev_append (containment_axioms_from_equality term lhs rhs) acc
+      | _ -> acc
+    in
+    fold_children acc tstruct
+  and fold_children : type a. Term.t list -> a YTypes.termstruct -> Term.t list =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc
+          terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc
+          terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  aux [] formula |> List.sort_uniq ~cmp:Term.compare
 
 let find_witness state key =
   try Some (HWitness.find state.witnesses key) with Not_found -> None
@@ -1702,7 +1767,8 @@ let translate_assertion (_ctx : Context.t) state formula =
       extension_terms
       []
   in
-  List.rev string_axioms @ List.rev rewrite_axioms @ [formula]
+  let containment_axioms = containment_axioms_from_assertion formula in
+  List.rev string_axioms @ List.rev rewrite_axioms @ containment_axioms @ [formula]
 
 let translate_assumption (_ctx : Context.t) _state formula =
   formula
@@ -3186,6 +3252,80 @@ let regex_domain_refinement state smodel infos =
           | Some _ as lemma -> lemma
           | None -> regex_failed_length_refinement state smodel infos))
 
+let containment_domain_lemma smodel info contains_term haystack needle_text =
+  if not (term_in_class haystack info.regex_terms)
+     || RA.is_empty info.regex_automaton
+  then
+    None
+  else
+    match RA.contains needle_text with
+    | Error reason ->
+        String_log.debug
+          "containment abstraction skipped for %a: %s"
+          Term.pp
+          contains_term
+          reason;
+        None
+    | Ok contains_automaton ->
+        let contains_true = true_in_model smodel contains_term in
+        let contains_false = true_in_model smodel (Term.not1 contains_term) in
+        if contains_true then
+          match RA.intersect info.regex_automaton contains_automaton with
+          | Ok intersection when RA.is_empty intersection ->
+              Some (imply_all info.regex_premises (Term.not1 contains_term))
+          | Ok _ -> None
+          | Error reason ->
+              String_log.debug
+                "containment abstraction intersection skipped for %a: %s"
+                Term.pp
+                contains_term
+                reason;
+              None
+        else if contains_false then
+          match RA.difference info.regex_automaton contains_automaton with
+          | Ok difference when RA.is_empty difference ->
+              Some (imply_all info.regex_premises contains_term)
+          | Ok _ -> None
+          | Error reason ->
+              String_log.debug
+                "containment abstraction difference skipped for %a: %s"
+                Term.pp
+                contains_term
+                reason;
+              None
+        else
+          None
+
+let containment_domain_refinement state smodel formulas infos =
+  collect_contains_terms formulas
+  |> List.find_map (fun contains_term ->
+         match reveal_string contains_term with
+         | Some (Contains (haystack, needle)) -> (
+             match static_string_value needle with
+             | None -> None
+             | Some needle_text ->
+                 infos
+                 |> List.find_map (fun info ->
+                        match
+                          containment_domain_lemma
+                            smodel
+                            info
+                            contains_term
+                            haystack
+                            needle_text
+                        with
+                        | None -> None
+                        | Some lemma -> (
+                            match remember_regex_refinement state smodel lemma with
+                            | Some _ as result ->
+                                String_log.debug
+                                  "containment abstraction refinement for %a"
+                                  Term.pp
+                                  contains_term;
+                                result
+                            | None -> None)))
+         | _ -> None)
+
 let regex_assignment_hints smodel forced infos =
   List.fold_left
     (fun result info ->
@@ -4218,7 +4358,12 @@ let build_concrete_strings state smodel support =
       | Ok regex_infos -> (
           match regex_domain_refinement state smodel regex_infos with
           | Some lemma -> Concrete_refine (Op_in_re, lemma)
-          | None ->
+          | None -> (
+              match
+                containment_domain_refinement state smodel formulas regex_infos
+              with
+              | Some lemma -> Concrete_refine (Op_contains, lemma)
+              | None ->
                   let concat_forced =
                     List.filter_map concat_literal_assignment equalities
                   in
@@ -4332,7 +4477,7 @@ let build_concrete_strings state smodel support =
                                                                     blocked
                                                               | Symbolic_none ->
                                                                   Concrete_unknown
-                                                                    reason)))))))))))))
+                                                                    reason))))))))))))))
 
 let check state smodel =
   if state.stats.active_iterations >= state.refinement_limit then begin
