@@ -234,6 +234,14 @@ let parse_term : type a.
                 let* needle = parse env needle in
                 let* replacement = parse env replacement in
                 return (S.Term.replace_all haystack needle replacement))
+          | "str.to_code", [string] ->
+             Some
+               (let* string = parse env string in
+                return (S.Term.to_code string))
+          | "str.from_code", [code] ->
+             Some
+               (let* code = parse env code in
+                return (S.Term.from_code code))
           | "str.prefixof", [prefix; string] ->
              Some
                (let* prefix = parse env prefix in
@@ -260,6 +268,8 @@ let parse_term : type a.
             | "str.indexof"
             | "str.replace"
             | "str.replace_all"
+            | "str.to_code"
+            | "str.from_code"
             | "str.prefixof"
             | "str.suffixof"
             | "str.at"

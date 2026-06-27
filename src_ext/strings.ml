@@ -19,6 +19,8 @@ type string_view =
   | Indexof of Term.t * Term.t * Term.t
   | Replace of Term.t * Term.t * Term.t
   | ReplaceAll of Term.t * Term.t * Term.t
+  | ToCode of Term.t
+  | FromCode of Term.t
   | Prefixof of Term.t * Term.t
   | Suffixof of Term.t * Term.t
   | At of Term.t * Term.t
@@ -53,6 +55,8 @@ let contains_symbol_ref = ref None
 let indexof_symbol_ref = ref None
 let replace_symbol_ref = ref None
 let replace_all_symbol_ref = ref None
+let to_code_symbol_ref = ref None
+let from_code_symbol_ref = ref None
 let prefixof_symbol_ref = ref None
 let suffixof_symbol_ref = ref None
 let at_symbol_ref = ref None
@@ -114,6 +118,8 @@ let () =
       indexof_symbol_ref := None;
       replace_symbol_ref := None;
       replace_all_symbol_ref := None;
+      to_code_symbol_ref := None;
+      from_code_symbol_ref := None;
       prefixof_symbol_ref := None;
       suffixof_symbol_ref := None;
       at_symbol_ref := None;
@@ -125,6 +131,36 @@ let () =
 let raise_invalid_utf8 s i =
   Yices2.High.ExceptionsErrorHandling.raise_bindings_error
     "invalid UTF-8 string literal at byte offset %d in %S" i s
+
+let unicode_max = 0x10FFFF
+let surrogate_lo = 0xD800
+let surrogate_hi = 0xDFFF
+
+let valid_scalar_code code =
+  0 <= code
+  && code <= unicode_max
+  && not (surrogate_lo <= code && code <= surrogate_hi)
+
+let string_of_scalar_code code =
+  if not (valid_scalar_code code) then
+    invalid_arg "string_of_scalar_code: invalid Unicode scalar";
+  let buffer = Buffer.create 4 in
+  if code <= 0x7F then
+    Buffer.add_char buffer (Char.chr code)
+  else if code <= 0x7FF then begin
+    Buffer.add_char buffer (Char.chr (0xC0 lor (code lsr 6)));
+    Buffer.add_char buffer (Char.chr (0x80 lor (code land 0x3F)))
+  end else if code <= 0xFFFF then begin
+    Buffer.add_char buffer (Char.chr (0xE0 lor (code lsr 12)));
+    Buffer.add_char buffer (Char.chr (0x80 lor ((code lsr 6) land 0x3F)));
+    Buffer.add_char buffer (Char.chr (0x80 lor (code land 0x3F)))
+  end else begin
+    Buffer.add_char buffer (Char.chr (0xF0 lor (code lsr 18)));
+    Buffer.add_char buffer (Char.chr (0x80 lor ((code lsr 12) land 0x3F)));
+    Buffer.add_char buffer (Char.chr (0x80 lor ((code lsr 6) land 0x3F)));
+    Buffer.add_char buffer (Char.chr (0x80 lor (code land 0x3F)))
+  end;
+  Buffer.contents buffer
 
 let utf8_scalar_length s =
   let len = String.length s in
@@ -252,6 +288,18 @@ let replace_all_symbol () =
     replace_all_symbol_ref
     "__yices_string_replace_all"
     Type.(func [string_type (); string_type (); string_type ()] (string_type ()))
+
+let to_code_symbol () =
+  cached_symbol
+    to_code_symbol_ref
+    "__yices_string_to_code"
+    Type.(func [string_type ()] (int ()))
+
+let from_code_symbol () =
+  cached_symbol
+    from_code_symbol_ref
+    "__yices_string_from_code"
+    Type.(func [int ()] (string_type ()))
 
 let prefixof_symbol () =
   cached_symbol
@@ -385,6 +433,16 @@ let replace_all haystack needle replacement =
   in
   record_view term (ReplaceAll (haystack, needle, replacement))
 
+let to_code string =
+  check_string_term string;
+  let term = Term.application (to_code_symbol ()) [string] in
+  record_view term (ToCode string)
+
+let from_code code =
+  check_int_term code;
+  let term = Term.application (from_code_symbol ()) [code] in
+  record_view term (FromCode code)
+
 let prefixof prefix string =
   check_string_term prefix;
   check_string_term string;
@@ -510,6 +568,8 @@ type refinement_operator =
   | Op_indexof
   | Op_replace
   | Op_replace_all
+  | Op_to_code
+  | Op_from_code
   | Op_prefixof
   | Op_suffixof
   | Op_at
@@ -522,6 +582,8 @@ let refinement_operator_name = function
   | Op_indexof -> "indexof"
   | Op_replace -> "replace"
   | Op_replace_all -> "replace_all"
+  | Op_to_code -> "to_code"
+  | Op_from_code -> "from_code"
   | Op_prefixof -> "prefixof"
   | Op_suffixof -> "suffixof"
   | Op_at -> "at"
@@ -533,6 +595,8 @@ let refinement_operator_of_view = function
   | Indexof _ -> Some Op_indexof
   | Replace _ -> Some Op_replace
   | ReplaceAll _ -> Some Op_replace_all
+  | ToCode _ -> Some Op_to_code
+  | FromCode _ -> Some Op_from_code
   | Prefixof _ -> Some Op_prefixof
   | Suffixof _ -> Some Op_suffixof
   | At _ -> Some Op_at
@@ -971,6 +1035,37 @@ let eval_replace_text haystack needle replacement =
 let eval_at_text string index =
   substring_by_scalars string index 1
 
+let scalar_codes s =
+  let boundaries = utf8_scalar_boundaries s in
+  let codepoint start stop =
+    let b0 = Char.code s.[start] in
+    if stop - start = 1 then b0
+    else if stop - start = 2 then
+      ((b0 land 0x1F) lsl 6) lor (Char.code s.[start + 1] land 0x3F)
+    else if stop - start = 3 then
+      ((b0 land 0x0F) lsl 12)
+      lor ((Char.code s.[start + 1] land 0x3F) lsl 6)
+      lor (Char.code s.[start + 2] land 0x3F)
+    else
+      ((b0 land 0x07) lsl 18)
+      lor ((Char.code s.[start + 1] land 0x3F) lsl 12)
+      lor ((Char.code s.[start + 2] land 0x3F) lsl 6)
+      lor (Char.code s.[start + 3] land 0x3F)
+  in
+  let rec pairs acc = function
+    | start :: (stop :: _ as tail) -> pairs (codepoint start stop :: acc) tail
+    | _ -> List.rev acc
+  in
+  pairs [] boundaries
+
+let eval_to_code_text text =
+  match scalar_codes text with
+  | [code] -> code
+  | _ -> -1
+
+let eval_from_code_value code =
+  if valid_scalar_code code then string_of_scalar_code code else ""
+
 let rec regex_string_terms acc = function
   | ReToRe term -> scan_term acc term
   | ReConcat regexes
@@ -1007,6 +1102,8 @@ and scan_term acc term =
         List.fold_left scan_term acc [haystack; needle; replacement]
     | Some (ReplaceAll (haystack, needle, replacement)) ->
         List.fold_left scan_term acc [haystack; needle; replacement]
+    | Some (ToCode string) -> scan_term acc string
+    | Some (FromCode code) -> scan_term acc code
     | Some (At (string, index)) ->
         List.fold_left scan_term acc [string; index]
     | Some (InRe (string, regex)) -> regex_string_terms (scan_term acc string) regex
@@ -1115,7 +1212,46 @@ let axioms_for_string_term term =
         content_axioms @ length_axioms)
     | _ -> []
   in
+  let from_code_axiom =
+    match reveal_string term with
+    | Some (FromCode code) -> (
+        let valid_guard =
+          Term.andN
+            [
+              Term.Arith.geq code (Term.Arith.zero ());
+              Term.Arith.leq code (Term.Arith.int unicode_max);
+              Term.orN
+                [
+                  Term.Arith.lt code (Term.Arith.int surrogate_lo);
+                  Term.Arith.gt code (Term.Arith.int surrogate_hi);
+                ];
+            ]
+        in
+        let invalid_guard =
+          Term.orN
+            [
+              Term.Arith.lt code (Term.Arith.zero ());
+              Term.Arith.gt code (Term.Arith.int unicode_max);
+              Term.andN
+                [
+                  Term.Arith.geq code (Term.Arith.int surrogate_lo);
+                  Term.Arith.leq code (Term.Arith.int surrogate_hi);
+                ];
+            ]
+        in
+        let guarded_axioms =
+          [
+            Term.(valid_guard ==> (length === Term.Arith.int 1));
+            Term.(invalid_guard ==> (term === empty));
+          ]
+        in
+        match static_int_value code with
+        | Some code -> Term.(term === literal (eval_from_code_value code)) :: guarded_axioms
+        | None -> guarded_axioms)
+    | _ -> []
+  in
   empty_axiom @ common @ literal_axiom @ concat_axiom @ replace_all_axiom
+  @ from_code_axiom
 
 let conjoin = function
   | [] -> Term.true0 ()
@@ -1282,6 +1418,40 @@ let rewrite_axioms_for_term term =
       static_axioms @ length_axioms
   | Some (ReplaceAll _) ->
       []
+  | Some (ToCode string) ->
+      let valid_singleton =
+        Term.(len string === Term.Arith.int 1)
+      in
+      let singleton_axioms =
+        [
+          Term.(
+            valid_singleton
+            ==> conjoin
+                  [
+                    Term.Arith.geq term (Term.Arith.zero ());
+                    Term.Arith.leq term (Term.Arith.int unicode_max);
+                    disjoin
+                      [
+                        Term.Arith.lt term (Term.Arith.int surrogate_lo);
+                        Term.Arith.gt term (Term.Arith.int surrogate_hi);
+                      ];
+                  ]);
+          Term.(Term.not1 valid_singleton ==> (term === minus_one ()));
+        ]
+      in
+      let static_axioms =
+        match static_string_value string with
+        | Some text -> [Term.(term === Term.Arith.int (eval_to_code_text text))]
+        | None -> []
+      in
+      singleton_axioms @ static_axioms
+  | Some (FromCode code) ->
+      let static_axioms =
+        match static_int_value code with
+        | Some code -> [Term.(term === literal (eval_from_code_value code))]
+        | None -> []
+      in
+      static_axioms
   | Some (At (string, index)) ->
       let one = one () in
       let base_axioms = [Term.Arith.leq (len term) one] in
@@ -1851,29 +2021,6 @@ let eval_prefixof_text prefix string =
 let eval_suffixof_text suffix string =
   string_ends_with string suffix
 
-let scalar_codes s =
-  let boundaries = utf8_scalar_boundaries s in
-  let codepoint start stop =
-    let b0 = Char.code s.[start] in
-    if stop - start = 1 then b0
-    else if stop - start = 2 then
-      ((b0 land 0x1F) lsl 6) lor (Char.code s.[start + 1] land 0x3F)
-    else if stop - start = 3 then
-      ((b0 land 0x0F) lsl 12)
-      lor ((Char.code s.[start + 1] land 0x3F) lsl 6)
-      lor (Char.code s.[start + 2] land 0x3F)
-    else
-      ((b0 land 0x07) lsl 18)
-      lor ((Char.code s.[start + 1] land 0x3F) lsl 12)
-      lor ((Char.code s.[start + 2] land 0x3F) lsl 6)
-      lor (Char.code s.[start + 3] land 0x3F)
-  in
-  let rec pairs acc = function
-    | start :: (stop :: _ as tail) -> pairs (codepoint start stop :: acc) tail
-    | _ -> List.rev acc
-  in
-  pairs [] boundaries
-
 module ScalarSet = Set.Make(Int)
 
 type character_set =
@@ -1951,8 +2098,19 @@ let rec character_set_of_term term =
           character_union
             (character_set_of_term haystack)
             (character_set_of_term replacement)
+      | Some (FromCode code) -> (
+          match static_int_value code with
+          | Some code -> character_set_of_text (eval_from_code_value code)
+          | None -> Characters_top)
       | Some (Lit _) -> Characters ScalarSet.empty
-      | Some (Len _ | Contains _ | Indexof _ | Prefixof _ | Suffixof _ | InRe _)
+      | Some
+          ( Len _
+          | Contains _
+          | Indexof _
+          | ToCode _
+          | Prefixof _
+          | Suffixof _
+          | InRe _ )
       | None ->
           Characters_top)
 
@@ -3546,6 +3704,10 @@ let rec string_value smodel assignments term =
       | Some haystack, Some needle, Some replacement ->
           Some (eval_replace_all_text haystack needle replacement)
       | _ -> None)
+  | Some (FromCode code) -> (
+      match int_value smodel assignments code with
+      | Some code -> Some (eval_from_code_value code)
+      | None -> None)
   | Some (At (string, index)) -> (
       match string_value smodel assignments string, int_value smodel assignments index with
       | Some string, Some index -> Some (eval_at_text string index)
@@ -3569,6 +3731,10 @@ and int_value smodel assignments term =
       | Some haystack, Some needle, Some start ->
           Some (eval_indexof_text haystack needle start)
       | _ -> None)
+  | Some (ToCode string) -> (
+      match string_value smodel assignments string with
+      | Some string -> Some (eval_to_code_text string)
+      | None -> None)
   | _ -> int_value_in_model smodel term
 
 and bool_value smodel assignments term =
@@ -4227,7 +4393,7 @@ let validate_lengths smodel assignments =
 
 let is_stage3_view = function
   | Substr _ | Contains _ | Indexof _ | Replace _ | ReplaceAll _ | Prefixof _
-  | Suffixof _ | At _ | InRe _ -> true
+  | Suffixof _ | At _ | ToCode _ | FromCode _ | InRe _ -> true
   | Lit _ | Concat _ | Len _ -> false
 
 let rec contains_stage3_view term =
@@ -4382,6 +4548,8 @@ let stage3_args = function
   | Replace (haystack, needle, replacement) -> [haystack; needle; replacement]
   | ReplaceAll (haystack, needle, replacement) ->
       [haystack; needle; replacement]
+  | ToCode string -> [string]
+  | FromCode code -> [code]
   | At (string, index) -> [string; index]
   | InRe (string, regex) -> string :: regex_argument_terms regex
   | Lit _ | Concat _ | Len _ -> []
@@ -4763,6 +4931,10 @@ let pp_term fmt term =
   | Some (ReplaceAll (haystack, needle, replacement)) ->
       Format.fprintf fmt "@[<2>(str.replace_all@ %a@ %a@ %a)@]"
         Term.pp haystack Term.pp needle Term.pp replacement
+  | Some (ToCode string) ->
+      Format.fprintf fmt "@[<2>(str.to_code@ %a)@]" Term.pp string
+  | Some (FromCode code) ->
+      Format.fprintf fmt "@[<2>(str.from_code@ %a)@]" Term.pp code
   | Some (Prefixof (prefix, string)) ->
       Format.fprintf fmt "@[<2>(str.prefixof@ %a@ %a)@]"
         Term.pp prefix Term.pp string
@@ -4825,6 +4997,10 @@ let rec term_to_sexp ?smt2arrays term =
           term_to_sexp ?smt2arrays needle;
           term_to_sexp ?smt2arrays replacement;
         ]
+  | Some (ToCode string) ->
+      Sexp.List [Sexp.Atom "str.to_code"; term_to_sexp ?smt2arrays string]
+  | Some (FromCode code) ->
+      Sexp.List [Sexp.Atom "str.from_code"; term_to_sexp ?smt2arrays code]
   | Some (Prefixof (prefix, string)) ->
       Sexp.List
         [
@@ -4950,6 +5126,8 @@ module Term = struct
   let indexof = indexof
   let replace = replace
   let replace_all = replace_all
+  let to_code = to_code
+  let from_code = from_code
   let prefixof = prefixof
   let suffixof = suffixof
   let at = at

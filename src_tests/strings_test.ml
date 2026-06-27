@@ -493,6 +493,49 @@ let test_character_abstraction () =
     S.Term.(contains (substr (str "abc") i n) (str "b"));
   assert_check `STATUS_SAT ctx
 
+let test_code_operators () =
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx S.Term.(to_code (str "A") === Arith.int 65);
+  S.Context.assert_formula ctx S.Term.(to_code (str "") === Arith.int (-1));
+  S.Context.assert_formula ctx S.Term.(to_code (str "ab") === Arith.int (-1));
+  S.Context.assert_formula ctx S.Term.(from_code (Arith.int 65) === str "A");
+  S.Context.assert_formula ctx S.Term.(from_code (Arith.int (-1)) === str "");
+  S.Context.assert_formula ctx S.Term.(from_code (Arith.int 0xD800) === str "");
+  S.Context.assert_formula ctx S.Term.(from_code (Arith.int 0x110000) === str "");
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"to_code_len_x" () in
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  S.Context.assert_formula ctx S.Term.(not1 (to_code x === Arith.int (-1)));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"to_code_range_x" () in
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  S.Context.assert_formula ctx S.Term.(Arith.lt (to_code x) (Arith.int 0));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"to_code_surrogate_x" () in
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  S.Context.assert_formula ctx
+    S.Term.(
+      Arith.geq (to_code x) (Arith.int 0xD800)
+      &&& Arith.leq (to_code x) (Arith.int 0xDFFF));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let c = int_var "from_code_valid_c" in
+  S.Context.assert_formula ctx S.Term.(c === Arith.int 65);
+  S.Context.assert_formula ctx S.Term.(S.Term.len (from_code c) === Arith.int 0);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let c = int_var "from_code_invalid_c" in
+  S.Context.assert_formula ctx S.Term.(c === Arith.int (-1));
+  S.Context.assert_formula ctx S.Term.(not1 (from_code c === str ""));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  S.Context.assert_formula ctx
+    S.Term.(not1 (to_code (from_code (Arith.int 65)) === Arith.int 65));
+  assert_check `STATUS_UNSAT ctx
+
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_regex_x" () in
@@ -946,6 +989,7 @@ let test () =
   test_rewrite_simplification_axioms ();
   test_containment_abstraction ();
   test_character_abstraction ();
+  test_code_operators ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();
