@@ -186,6 +186,62 @@ let shape name result =
   | Ok automaton -> automaton
   | Error msg -> failwith (name ^ ": " ^ msg)
 
+let test_quotients () =
+  let abcd = compile (A.Lit "abcd") in
+  let ab = compile (A.Lit "ab") in
+  let cd = compile (A.Lit "cd") in
+  let left = shape "left quotient" (A.left_quotient abcd ~by:ab) in
+  assert_accepts left "cd";
+  assert_rejects left "abcd";
+  assert_rejects left "";
+  let right = shape "right quotient" (A.right_quotient abcd ~by:cd) in
+  assert_accepts right "ab";
+  assert_rejects right "abcd";
+  assert_rejects right "";
+  let suffixes =
+    shape
+      "left quotient union"
+      (A.left_quotient
+         (compile (A.Union [A.Lit "ax"; A.Lit "by"]))
+         ~by:(compile (A.Union [A.Lit "a"; A.Lit "b"])))
+  in
+  assert_accepts suffixes "x";
+  assert_accepts suffixes "y";
+  assert_rejects suffixes "a";
+  let prefixes =
+    shape
+      "right quotient union"
+      (A.right_quotient
+         (compile (A.Union [A.Lit "xa"; A.Lit "yb"]))
+         ~by:(compile (A.Union [A.Lit "a"; A.Lit "b"])))
+  in
+  assert_accepts prefixes "x";
+  assert_accepts prefixes "y";
+  assert_rejects prefixes "a";
+  let epsilon_left =
+    shape "left quotient epsilon" (A.left_quotient abcd ~by:(compile (A.Lit "")))
+  in
+  assert_accepts epsilon_left "abcd";
+  assert_rejects epsilon_left "bcd";
+  let epsilon_right =
+    shape "right quotient epsilon" (A.right_quotient abcd ~by:(compile (A.Lit "")))
+  in
+  assert_accepts epsilon_right "abcd";
+  assert_rejects epsilon_right "abc";
+  let range_suffix =
+    shape
+      "left quotient range suffix"
+      (A.left_quotient
+         (compile (A.Concat [A.Range (Char.code 'a', Char.code 'c'); A.Lit "d"]))
+         ~by:(compile (A.Range (Char.code 'a', Char.code 'c'))))
+  in
+  assert_accepts range_suffix "d";
+  assert_rejects range_suffix "ad";
+  let none =
+    shape "left quotient empty" (A.left_quotient abcd ~by:(compile (A.Lit "z")))
+  in
+  assert (A.is_empty none)
+
 let test_shape_constructors () =
   let exact = shape "exact" (A.exact "abc") in
   assert_accepts exact "abc";
@@ -358,6 +414,7 @@ let test () =
   test_intersection ();
   test_empty_intersection ();
   test_length_domain ();
+  test_quotients ();
   test_shape_constructors ();
   test_complement_and_difference ();
   test_combined_length_domain ();

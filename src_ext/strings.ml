@@ -3985,6 +3985,156 @@ let singleton_domain_for_term infos equalities term =
       | Some _ as domain -> domain
       | None -> literal_singleton_domain_from_equalities equalities term)
 
+type term_automaton_domain = {
+  term_domain_automaton : RA.t;
+  term_domain_premises : Term.t list;
+}
+
+let regex_info_for_term infos term =
+  infos |> List.find_opt (fun info -> term_in_class term info.regex_terms)
+
+let automaton_domain_for_term infos equalities term =
+  match static_string_value term with
+  | Some text ->
+      RA.exact text
+      |> Result.to_option
+      |> Option.map (fun automaton ->
+             { term_domain_automaton = automaton; term_domain_premises = [] })
+  | None -> (
+      match regex_info_for_term infos term with
+      | Some info ->
+          Some
+            {
+              term_domain_automaton = info.regex_automaton;
+              term_domain_premises = info.regex_premises;
+            }
+      | None ->
+          Option.bind
+            (literal_singleton_domain_from_equalities equalities term)
+            (fun domain ->
+               RA.exact domain.singleton_text
+               |> Result.to_option
+               |> Option.map (fun automaton ->
+                      {
+                        term_domain_automaton = automaton;
+                        term_domain_premises = domain.singleton_premises;
+                      })))
+
+let automaton_domain_conclusion smodel term automaton =
+  if RA.is_empty automaton then
+    Some (Term.false0 ())
+  else
+    match static_string_value term with
+    | Some text when not (RA.accepts automaton text) -> Some (Term.false0 ())
+    | _ -> (
+        match singleton_automaton_witness automaton with
+        | Some text ->
+            let conclusion = Term.(term === literal text) in
+            if true_in_model smodel conclusion then None else Some conclusion
+        | None -> (
+            match length_domain_formula (len term) (RA.length_domain automaton) with
+            | Some (_, length_fact) when not (true_in_model smodel length_fact) ->
+                Some length_fact
+            | Some _ | None -> None))
+
+let automaton_domain_refinement_lemma smodel infos base_premises term automaton =
+  let base_premises = unique_terms base_premises in
+  let try_domain premises automaton =
+    Option.map
+      (fun conclusion -> imply_all (unique_terms premises) conclusion)
+      (automaton_domain_conclusion smodel term automaton)
+  in
+  match regex_info_for_term infos term with
+  | Some info -> (
+      match RA.intersect automaton info.regex_automaton with
+      | Error reason ->
+          String_log.debug
+            "straight-line automaton-domain intersection skipped: %s"
+            reason;
+          try_domain base_premises automaton
+      | Ok combined ->
+          let premises = base_premises @ info.regex_premises in
+          begin
+            match try_domain premises combined with
+            | Some _ as result -> result
+            | None -> try_domain base_premises automaton
+          end)
+  | None -> try_domain base_premises automaton
+
+let concat_quotient_propagation_lemma smodel infos equalities eq whole concat_term =
+  let output_info = regex_info_for_term infos whole in
+  match output_info, reveal_string concat_term with
+  | Some output_info, Some (Concat [left; right]) ->
+      let make_lemma side_domain target quotient_result =
+        match quotient_result with
+        | Error reason ->
+            String_log.debug
+              "straight-line concat quotient skipped: %s"
+              reason;
+            None
+        | Ok quotient ->
+            let premises =
+              eq.atom :: output_info.regex_premises @ side_domain.term_domain_premises
+            in
+            automaton_domain_refinement_lemma smodel infos premises target quotient
+      in
+      let left_lemma =
+        match automaton_domain_for_term infos equalities left with
+        | Some left_domain ->
+            make_lemma
+              left_domain
+              right
+              (RA.left_quotient
+                 output_info.regex_automaton
+                 ~by:left_domain.term_domain_automaton)
+        | None -> None
+      in
+      begin
+        match left_lemma with
+        | Some _ as result -> result
+        | None -> (
+            match automaton_domain_for_term infos equalities right with
+            | Some right_domain ->
+                make_lemma
+                  right_domain
+                  left
+                  (RA.right_quotient
+                     output_info.regex_automaton
+                     ~by:right_domain.term_domain_automaton)
+            | None -> None)
+      end
+  | _ -> None
+
+let concat_quotient_propagation state smodel infos equalities =
+  equalities
+  |> List.find_map (fun eq ->
+         [
+           eq.lhs, eq.rhs;
+           eq.rhs, eq.lhs;
+         ]
+         |> List.find_map (fun (whole, concat_term) ->
+                match
+                  concat_quotient_propagation_lemma
+                    smodel
+                    infos
+                    equalities
+                    eq
+                    whole
+                    concat_term
+                with
+                | None -> None
+                | Some lemma ->
+                    if is_seen_generated state lemma || true_in_model smodel lemma then
+                      None
+                    else begin
+                      remember_internal_assertion state lemma;
+                      String_log.debug
+                        "straight-line concat quotient propagation for %a"
+                        Term.pp
+                        whole;
+                      Some lemma
+                    end))
+
 let concat_forward_singleton_propagation_lemma infos equalities eq whole concat_term =
   match reveal_string concat_term with
   | Some (Concat parts) -> (
@@ -6448,6 +6598,20 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
                Op_concat
                (concat_forward_singleton_propagation
                   state
+                  regex_infos
+                  syntactic_equalities));
+      };
+      {
+        candidate_priority = 32;
+        candidate_operator = Op_concat;
+        candidate_label = "straight-line concat quotient propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_concat
+               (concat_quotient_propagation
+                  state
+                  smodel
                   regex_infos
                   syntactic_equalities));
       };

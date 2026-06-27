@@ -1,0 +1,10 @@
+; EXPECT: sat
+(set-logic QF_S)
+(declare-const x String)
+(declare-const y String)
+(declare-const z String)
+(assert (str.in_re x (re.range "a" "c")))
+(assert (str.in_re z (re.++ (re.range "a" "c") (re.range "d" "f"))))
+(assert (= z (str.++ x y)))
+(assert (str.in_re y (re.range "d" "f")))
+(check-sat)

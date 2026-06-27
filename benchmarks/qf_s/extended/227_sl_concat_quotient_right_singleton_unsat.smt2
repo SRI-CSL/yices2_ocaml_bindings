@@ -1,0 +1,10 @@
+; EXPECT: unsat
+(set-logic QF_S)
+(declare-const x String)
+(declare-const y String)
+(declare-const z String)
+(assert (str.in_re y (re.range "a" "c")))
+(assert (str.in_re z (re.++ (str.to_re "d") (re.range "a" "c"))))
+(assert (= z (str.++ x y)))
+(assert (not (= x "d")))
+(check-sat)

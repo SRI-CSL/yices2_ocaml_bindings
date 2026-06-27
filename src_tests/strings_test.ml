@@ -800,6 +800,57 @@ let test_straight_line_concat_forward_singleton_propagation () =
   let model = S.Context.get_model ctx in
   assert (String.equal (Option.get (S.StringModel.find_string model z)) "ab")
 
+let test_straight_line_concat_quotient_propagation () =
+  let ac = S.Regex.range "a" "c" in
+  let df = S.Regex.range "d" "f" in
+  let digits = S.Regex.range "0" "9" in
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_quot_left_x" () in
+  let y = S.Term.string_var ~name:"sl_quot_left_y" () in
+  let z = S.Term.string_var ~name:"sl_quot_left_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re x ac);
+  S.Context.assert_formula ctx (S.Term.in_re z (S.Regex.concat [ac; S.Regex.str "d"]));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  S.Context.assert_formula ctx S.Term.(not1 (y === str "d"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_quot_right_x" () in
+  let y = S.Term.string_var ~name:"sl_quot_right_y" () in
+  let z = S.Term.string_var ~name:"sl_quot_right_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re y ac);
+  S.Context.assert_formula ctx (S.Term.in_re z (S.Regex.concat [S.Regex.str "d"; ac]));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  S.Context.assert_formula ctx S.Term.(not1 (x === str "d"));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_quot_inter_x" () in
+  let y = S.Term.string_var ~name:"sl_quot_inter_y" () in
+  let z = S.Term.string_var ~name:"sl_quot_inter_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re x ac);
+  S.Context.assert_formula ctx (S.Term.in_re y ac);
+  S.Context.assert_formula ctx (S.Term.in_re z (S.Regex.concat [ac; df]));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_quot_len_x" () in
+  let y = S.Term.string_var ~name:"sl_quot_len_y" () in
+  let z = S.Term.string_var ~name:"sl_quot_len_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re x ac);
+  S.Context.assert_formula ctx
+    (S.Term.in_re z (S.Regex.concat [ac; digits; digits]));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  S.Context.assert_formula ctx S.Term.(S.Term.len y === Arith.int 1);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"sl_quot_sat_x" () in
+  let y = S.Term.string_var ~name:"sl_quot_sat_y" () in
+  let z = S.Term.string_var ~name:"sl_quot_sat_z" () in
+  S.Context.assert_formula ctx (S.Term.in_re x ac);
+  S.Context.assert_formula ctx (S.Term.in_re y df);
+  S.Context.assert_formula ctx (S.Term.in_re z (S.Regex.concat [ac; df]));
+  S.Context.assert_formula ctx S.Term.(z === concat [x; y]);
+  assert_check `STATUS_SAT ctx
+
 let test_straight_line_substring_position_propagation () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"sl_substr_x" () in
@@ -1346,6 +1397,7 @@ let test () =
   test_regex_fixed_length_witness ();
   test_straight_line_concat_singleton_propagation ();
   test_straight_line_concat_forward_singleton_propagation ();
+  test_straight_line_concat_quotient_propagation ();
   test_straight_line_substring_position_propagation ();
   test_straight_line_at_position_propagation ();
   test_straight_line_at_regex_position_propagation ();

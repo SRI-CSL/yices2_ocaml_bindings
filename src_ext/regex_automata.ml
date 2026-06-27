@@ -859,6 +859,187 @@ let difference lhs rhs =
   | Error _ as err -> err
   | Ok complement_rhs -> intersect lhs complement_rhs
 
+let add_product_pair limit pair queue seen =
+  if PairSet.mem pair seen then
+    Ok (queue, seen)
+  else
+    let next_count = PairSet.cardinal seen + 1 in
+    match check_state_limit limit next_count with
+    | Error _ as err -> err
+    | Ok () -> Ok (pair :: queue, PairSet.add pair seen)
+
+let product_successors lhs rhs (lstate, rstate) =
+  let ltrans = state_transitions lhs lstate in
+  let rtrans = state_transitions rhs rstate in
+  let left_eps =
+    ltrans
+    |> List.filter_map (function
+      | { label = Eps; dst; _ } -> Some (dst, rstate)
+      | { label = RangeLabel _; _ } -> None)
+  in
+  let right_eps =
+    rtrans
+    |> List.filter_map (function
+      | { label = Eps; dst; _ } -> Some (lstate, dst)
+      | { label = RangeLabel _; _ } -> None)
+  in
+  let consuming =
+    ltrans
+    |> List.concat_map (fun ltransition ->
+           match ltransition.label with
+           | Eps -> []
+           | RangeLabel _ ->
+               rtrans
+               |> List.filter_map (fun rtransition ->
+                      match label_intersection ltransition.label rtransition.label with
+                      | None | Some Eps -> None
+                      | Some (RangeLabel _) -> Some (ltransition.dst, rtransition.dst)))
+  in
+  left_eps @ right_eps @ consuming
+
+let product_predecessors lhs rhs (lstate, rstate) =
+  let incoming nfa state =
+    List.filter (fun transition -> transition.dst = state) nfa.transitions
+  in
+  let ltrans = incoming lhs lstate in
+  let rtrans = incoming rhs rstate in
+  let left_eps =
+    ltrans
+    |> List.filter_map (function
+      | { label = Eps; src; _ } -> Some (src, rstate)
+      | { label = RangeLabel _; _ } -> None)
+  in
+  let right_eps =
+    rtrans
+    |> List.filter_map (function
+      | { label = Eps; src; _ } -> Some (lstate, src)
+      | { label = RangeLabel _; _ } -> None)
+  in
+  let consuming =
+    ltrans
+    |> List.concat_map (fun ltransition ->
+           match ltransition.label with
+           | Eps -> []
+           | RangeLabel _ ->
+               rtrans
+               |> List.filter_map (fun rtransition ->
+                      match label_intersection ltransition.label rtransition.label with
+                      | None | Some Eps -> None
+                      | Some (RangeLabel _) -> Some (ltransition.src, rtransition.src)))
+  in
+  left_eps @ right_eps @ consuming
+
+let product_reachable lhs rhs =
+  let limit = automata_state_limit () in
+  let rec explore seen = function
+    | [] -> Ok seen
+    | pair :: rest ->
+        let successors = product_successors lhs rhs pair in
+        begin
+          match
+            List.fold_left
+              (fun result successor ->
+                 match result with
+                 | Error _ as err -> err
+                 | Ok (queue, seen) ->
+                     add_product_pair limit successor queue seen)
+              (Ok (rest, seen))
+              successors
+          with
+          | Error _ as err -> err
+          | Ok (queue, seen) -> explore seen queue
+        end
+  in
+  let start_pair = lhs.start, rhs.start in
+  explore (PairSet.singleton start_pair) [start_pair]
+
+let product_coreachable lhs rhs goals =
+  let limit = automata_state_limit () in
+  let rec explore seen = function
+    | [] -> Ok seen
+    | pair :: rest ->
+        let predecessors = product_predecessors lhs rhs pair in
+        begin
+          match
+            List.fold_left
+              (fun result predecessor ->
+                 match result with
+                 | Error _ as err -> err
+                 | Ok (queue, seen) ->
+                     add_product_pair limit predecessor queue seen)
+              (Ok (rest, seen))
+              predecessors
+          with
+          | Error _ as err -> err
+          | Ok (queue, seen) -> explore seen queue
+        end
+  in
+  explore goals (PairSet.elements goals)
+
+let nfa_with_extra_start nfa starts =
+  if StateSet.is_empty starts then
+    empty_nfa
+  else
+    let start = nfa.state_count in
+    {
+      start;
+      finals = nfa.finals;
+      transitions =
+        nfa.transitions
+        @ StateSet.fold
+            (fun dst acc -> { src = start; label = Eps; dst } :: acc)
+            starts
+            [];
+      state_count = nfa.state_count + 1;
+    }
+
+let left_quotient language ~by =
+  let by_nfa = by.nfa in
+  let language_nfa = language.nfa in
+  match product_reachable by_nfa language_nfa with
+  | Error _ as err -> err
+  | Ok reachable ->
+      let starts =
+        PairSet.fold
+          (fun (by_state, language_state) acc ->
+             if StateSet.mem by_state by_nfa.finals then
+               StateSet.add language_state acc
+             else
+               acc)
+          reachable
+          StateSet.empty
+      in
+      Ok (make (nfa_with_extra_start language_nfa starts))
+
+let right_quotient language ~by =
+  let by_nfa = by.nfa in
+  let language_nfa = language.nfa in
+  let goals =
+    StateSet.fold
+      (fun by_final acc ->
+         StateSet.fold
+           (fun language_final acc ->
+              PairSet.add (by_final, language_final) acc)
+           language_nfa.finals
+           acc)
+      by_nfa.finals
+      PairSet.empty
+  in
+  match product_coreachable by_nfa language_nfa goals with
+  | Error _ as err -> err
+  | Ok coreachable ->
+      let finals =
+        PairSet.fold
+          (fun (by_state, language_state) acc ->
+             if by_state = by_nfa.start then
+               StateSet.add language_state acc
+             else
+               acc)
+          coreachable
+          StateSet.empty
+      in
+      Ok (make { language_nfa with finals })
+
 let finite_union lhs rhs =
   match lhs, rhs with
   | Length_empty, other | other, Length_empty -> other
