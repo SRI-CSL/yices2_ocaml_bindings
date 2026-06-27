@@ -624,6 +624,8 @@ type t = {
   generated_contains_splits : unit HTerms.t;
   generated_symbolic_reductions : unit HTerms.t;
   witnesses : Term.t HWitness.t;
+  witness_aliases : Term.t HWitness.t;
+  failed_witnesses : unit HWitness.t;
   mutable last_unknown : string option;
   mutable last_strings : (Term.t * string) list;
   mutable next_witness_id : int;
@@ -778,6 +780,8 @@ let malloc ?config () =
     generated_contains_splits = Global.hTerms_create 257;
     generated_symbolic_reductions = Global.hTerms_create 257;
     witnesses = HWitness.create 257;
+    witness_aliases = HWitness.create 257;
+    failed_witnesses = HWitness.create 257;
     last_unknown = None;
     last_strings = [];
     next_witness_id = 0;
@@ -794,6 +798,8 @@ let reset state =
   state.last_strings <- [];
   state.next_witness_id <- 0;
   HWitness.clear state.witnesses;
+  HWitness.clear state.witness_aliases;
+  HWitness.clear state.failed_witnesses;
   reset_stats state.stats;
   reset_generated state
 
@@ -810,6 +816,8 @@ let pop state =
   | Some frames, Some internal_frames ->
       state.frames <- frames;
       state.internal_frames <- internal_frames;
+      HWitness.clear state.witness_aliases;
+      HWitness.clear state.failed_witnesses;
       reset_generated state
   | _ ->
       Yices2.High.ExceptionsErrorHandling.raise_bindings_error
@@ -1608,8 +1616,98 @@ let containment_axioms_from_assertion formula =
   in
   aux [] formula |> List.sort_uniq ~cmp:Term.compare
 
+let rec normalized_witness_string_term term =
+  match reveal_string term with
+  | Some (Concat parts) ->
+      normalize_witness_concat_parts parts
+  | Some (Lit text) -> literal text
+  | _ -> term
+
+and normalize_witness_concat_parts parts =
+  let flush_literal acc literal_acc =
+    match literal_acc with
+    | "" -> acc
+    | text -> literal text :: acc
+  in
+  let rec collect acc literal_acc = function
+    | [] ->
+        flush_literal acc literal_acc
+        |> List.rev
+        |> concat
+    | part :: tail -> (
+        match reveal_string (normalized_witness_string_term part) with
+        | Some (Lit text) -> collect acc (literal_acc ^ text) tail
+        | Some (Concat nested) -> collect acc literal_acc (nested @ tail)
+        | _ ->
+            let acc = flush_literal acc literal_acc in
+            collect (normalized_witness_string_term part :: acc) "" tail)
+  in
+  collect [] "" parts
+
+let normalize_witness_key = function
+  | ContainsPrefix (haystack, needle) ->
+      ContainsPrefix
+        (normalized_witness_string_term haystack, normalized_witness_string_term needle)
+  | ContainsSuffix (haystack, needle) ->
+      ContainsSuffix
+        (normalized_witness_string_term haystack, normalized_witness_string_term needle)
+  | SubstrPrefix (string, start, length) ->
+      SubstrPrefix (normalized_witness_string_term string, start, length)
+  | SubstrSuffix (string, start, length) ->
+      SubstrSuffix (normalized_witness_string_term string, start, length)
+  | IndexofPrefix (haystack, needle, start) ->
+      IndexofPrefix
+        (normalized_witness_string_term haystack, normalized_witness_string_term needle, start)
+  | IndexofSuffix (haystack, needle, start) ->
+      IndexofSuffix
+        (normalized_witness_string_term haystack, normalized_witness_string_term needle, start)
+  | ReplacePrefix (haystack, needle, replacement) ->
+      ReplacePrefix
+        ( normalized_witness_string_term haystack,
+          normalized_witness_string_term needle,
+          normalized_witness_string_term replacement )
+  | ReplaceSuffix (haystack, needle, replacement) ->
+      ReplaceSuffix
+        ( normalized_witness_string_term haystack,
+          normalized_witness_string_term needle,
+          normalized_witness_string_term replacement )
+  | ReplaceAllPrefix (haystack, needle, replacement) ->
+      ReplaceAllPrefix
+        ( normalized_witness_string_term haystack,
+          normalized_witness_string_term needle,
+          normalized_witness_string_term replacement )
+  | ReplaceAllSuffix (haystack, needle, replacement) ->
+      ReplaceAllSuffix
+        ( normalized_witness_string_term haystack,
+          normalized_witness_string_term needle,
+          normalized_witness_string_term replacement )
+
 let find_witness state key =
-  try Some (HWitness.find state.witnesses key) with Not_found -> None
+  let key = normalize_witness_key key in
+  if HWitness.mem state.failed_witnesses key then
+    None
+  else
+    match HWitness.find_opt state.witness_aliases key with
+    | Some term -> Some term
+    | None -> HWitness.find_opt state.witnesses key
+
+let remember_witness_alias state key term =
+  let key = normalize_witness_key key in
+  if not (HWitness.mem state.failed_witnesses key)
+     && Option.is_none (HWitness.find_opt state.witness_aliases key)
+  then begin
+    HWitness.replace state.witness_aliases key term;
+    String_log.debug
+      "Stage 3 seeded %s witness alias %a"
+      (witness_key_name key)
+      Term.pp
+      term
+  end
+
+let mark_failed_witness state key =
+  let key = normalize_witness_key key in
+  HWitness.replace state.failed_witnesses key ();
+  HWitness.remove state.witness_aliases key
 
 let fresh_witness_name state key =
   let id = state.next_witness_id in
@@ -1617,6 +1715,7 @@ let fresh_witness_name state key =
   Format.sprintf "__yices_string_%s_%d" (witness_key_name key) id
 
 let witness_for_key state created_this_round key =
+  let key = normalize_witness_key key in
   match find_witness state key with
   | Some term ->
       String_log.info
@@ -1626,18 +1725,21 @@ let witness_for_key state created_this_round key =
         term;
       Ok (term, created_this_round)
   | None ->
-      if state.stats.generated_witnesses >= state.witness_limit then
+      if state.stats.generated_witnesses >= state.witness_limit then begin
+        mark_failed_witness state key;
         Error
           (Format.asprintf
              "Stage 3 witness limit %d prevents creating %s witness"
              state.witness_limit
              (witness_key_name key))
-      else if created_this_round >= state.witness_round_limit then
+      end else if created_this_round >= state.witness_round_limit then begin
+        mark_failed_witness state key;
         Error
           (Format.asprintf
              "Stage 3 per-round witness limit %d prevents creating %s witness"
              state.witness_round_limit
              (witness_key_name key))
+      end
       else
         let name = fresh_witness_name state key in
         let term = Term.new_uninterpreted ~name (string_type ()) in
@@ -4044,6 +4146,254 @@ let split_text_on_first text needle =
         let suffix = String.sub text stop (String.length text - stop) in
         Some (prefix, suffix)
 
+let split_text_at_byte text needle start_byte =
+  let stop = start_byte + String.length needle in
+  if start_byte < 0 || stop > String.length text then
+    None
+  else
+    Some
+      ( String.sub text 0 start_byte,
+        String.sub text stop (String.length text - stop) )
+
+let split_text_at_scalar text needle start_scalar =
+  let boundaries = utf8_scalar_boundaries text in
+  match list_nth_opt boundaries start_scalar with
+  | None -> None
+  | Some start_byte -> split_text_at_byte text needle start_byte
+
+let remember_witness_pair_alias state prefix_key suffix_key prefix suffix =
+  remember_witness_alias state prefix_key prefix;
+  remember_witness_alias state suffix_key suffix
+
+let remember_literal_witness_pair state prefix_key suffix_key prefix suffix =
+  remember_witness_pair_alias
+    state
+    prefix_key
+    suffix_key
+    (literal prefix)
+    (literal suffix)
+
+let split_concat_around value_of needle parts =
+  let normalized_needle = normalized_witness_string_term needle in
+  let static_run_split prefix remaining needle_text =
+    let rec consume consumed_text = function
+      | suffix when String.equal consumed_text needle_text ->
+          Some (concat (List.rev prefix), concat suffix)
+      | [] -> None
+      | part :: suffix -> (
+          match value_of part with
+          | None -> None
+          | Some text ->
+              let consumed_text = consumed_text ^ text in
+              if string_starts_with needle_text consumed_text then
+                consume consumed_text suffix
+              else
+                None)
+    in
+    if String.equal needle_text "" then
+      Some (concat (List.rev prefix), concat remaining)
+    else
+      consume "" remaining
+  in
+  let rec aux prefix = function
+    | [] -> None
+    | part :: suffix as remaining ->
+        if Term.equal (normalized_witness_string_term part) normalized_needle then
+          Some (concat (List.rev prefix), concat suffix)
+        else
+          match value_of normalized_needle with
+          | Some needle_text -> (
+              match static_run_split prefix remaining needle_text with
+              | Some _ as split -> split
+              | None -> aux (part :: prefix) suffix)
+          | None -> aux (part :: prefix) suffix
+  in
+  aux [] parts
+
+let seed_contains_concat_alias state value_of haystack needle eq =
+  let normalized_haystack = normalized_witness_string_term haystack in
+  let one_direction whole split =
+    if not (Term.equal (normalized_witness_string_term whole) normalized_haystack) then
+      ()
+    else
+      match reveal_string split with
+      | Some (Concat parts) -> (
+          match split_concat_around value_of needle parts with
+          | None -> ()
+          | Some (prefix, suffix) ->
+              remember_witness_pair_alias
+                state
+                (ContainsPrefix (haystack, needle))
+                (ContainsSuffix (haystack, needle))
+                prefix
+                suffix)
+      | _ -> ()
+  in
+  one_direction eq.lhs eq.rhs;
+  one_direction eq.rhs eq.lhs
+
+let equality_static_value_lookup equalities =
+  let terms =
+    List.fold_left
+      (fun acc eq -> StringTermSet.add eq.lhs (StringTermSet.add eq.rhs acc))
+      StringTermSet.empty
+      equalities
+    |> StringTermSet.elements
+  in
+  let classes = equality_classes terms equalities in
+  fun term ->
+    match static_string_value term with
+    | Some _ as value -> value
+    | None ->
+        classes
+        |> List.find_opt (List.exists (Term.equal term))
+        |> Option.flat_map (fun cls ->
+               cls
+               |> List.filter_map static_string_value
+               |> List.sort_uniq ~cmp:String.compare
+               |> function
+               | [value] -> Some value
+               | _ -> None)
+
+let seed_contains_literal_witness state smodel value_of equalities contains_term =
+  match reveal_string contains_term with
+  | Some (Contains (haystack, needle)) when true_in_model smodel contains_term ->
+      begin
+        match value_of haystack, value_of needle with
+        | Some haystack_text, Some needle_text -> (
+            match split_text_on_first haystack_text needle_text with
+            | None -> ()
+            | Some (prefix, suffix) ->
+                remember_literal_witness_pair
+                  state
+                  (ContainsPrefix (haystack, needle))
+                  (ContainsSuffix (haystack, needle))
+                  prefix
+                  suffix)
+        | _ -> ()
+      end;
+      List.iter (seed_contains_concat_alias state value_of haystack needle) equalities
+  | _ -> ()
+
+let seed_substr_literal_witness state string start length result =
+  match
+    static_string_value string,
+    static_int_value start,
+    static_int_value length,
+    static_string_value result
+  with
+  | Some text, Some start_value, Some length_value, Some result_text
+    when start_value >= 0 && length_value > 0 ->
+      let scalar_len = utf8_scalar_length text in
+      if start_value < scalar_len then
+        let actual = substring_by_scalars text start_value length_value in
+        if String.equal actual result_text then
+          let actual_len = utf8_scalar_length actual in
+          let suffix_start = start_value + actual_len in
+          let suffix_len = scalar_len - suffix_start in
+          remember_literal_witness_pair
+            state
+            (SubstrPrefix (string, start, length))
+            (SubstrSuffix (string, start, length))
+            (substring_by_scalars text 0 start_value)
+            (substring_by_scalars text suffix_start suffix_len)
+  | _ -> ()
+
+let seed_indexof_literal_witness state haystack needle start result =
+  match
+    static_string_value haystack,
+    static_string_value needle,
+    static_int_value start,
+    static_int_value result
+  with
+  | Some haystack_text, Some needle_text, Some start_value, Some result_value
+    when result_value >= 0 && not (String.equal needle_text "") ->
+      if eval_indexof_text haystack_text needle_text start_value = result_value then
+        begin
+          match split_text_at_scalar haystack_text needle_text result_value with
+          | None -> ()
+          | Some (prefix, suffix) ->
+              remember_literal_witness_pair
+                state
+                (IndexofPrefix (haystack, needle, start))
+                (IndexofSuffix (haystack, needle, start))
+                prefix
+                suffix
+        end
+  | _ -> ()
+
+let seed_replace_literal_witness state haystack needle replacement result =
+  match
+    static_string_value haystack,
+    static_string_value needle,
+    static_string_value replacement,
+    static_string_value result
+  with
+  | Some haystack_text, Some needle_text, Some replacement_text, Some result_text
+    when not (String.equal needle_text "")
+         && String.equal
+              (eval_replace_text haystack_text needle_text replacement_text)
+              result_text -> (
+      match find_substring_from haystack_text needle_text 0 with
+      | None -> ()
+      | Some start_byte -> (
+          match split_text_at_byte haystack_text needle_text start_byte with
+          | None -> ()
+          | Some (prefix, suffix) ->
+              remember_literal_witness_pair
+                state
+                (ReplacePrefix (haystack, needle, replacement))
+                (ReplaceSuffix (haystack, needle, replacement))
+                prefix
+                suffix))
+  | _ -> ()
+
+let seed_replace_all_literal_witness state haystack needle replacement result =
+  match
+    static_string_value haystack,
+    static_string_value needle,
+    static_string_value replacement,
+    static_string_value result
+  with
+  | Some haystack_text, Some needle_text, Some replacement_text, Some result_text
+    when not (String.equal needle_text "")
+         && String.equal
+              (eval_replace_all_text haystack_text needle_text replacement_text)
+              result_text -> (
+      match find_substring_from haystack_text needle_text 0 with
+      | None -> ()
+      | Some start_byte -> (
+          match split_text_at_byte haystack_text needle_text start_byte with
+          | None -> ()
+          | Some (prefix, suffix) ->
+              remember_literal_witness_pair
+                state
+                (ReplaceAllPrefix (haystack, needle, replacement))
+                (ReplaceAllSuffix (haystack, needle, replacement))
+                prefix
+                suffix))
+  | _ -> ()
+
+let seed_stage3_literal_witness state = function
+  | Reduce_substr (_, string, start, length, result) ->
+      seed_substr_literal_witness state string start length result
+  | Reduce_indexof (_, haystack, needle, start, result) ->
+      seed_indexof_literal_witness state haystack needle start result
+  | Reduce_replace (_, haystack, needle, replacement, result) ->
+      seed_replace_literal_witness state haystack needle replacement result
+  | Reduce_replace_all (_, haystack, needle, replacement, result) ->
+      seed_replace_all_literal_witness state haystack needle replacement result
+
+let seed_witness_aliases state smodel formulas equalities =
+  HWitness.clear state.witness_aliases;
+  HWitness.clear state.failed_witnesses;
+  let value_of = equality_static_value_lookup equalities in
+  collect_contains_terms formulas
+  |> List.iter (seed_contains_literal_witness state smodel value_of equalities);
+  collect_true_stage3_equalities smodel formulas
+  |> List.filter_map stage3_equality_reduction_of_eq
+  |> List.iter (seed_stage3_literal_witness state)
+
 let complete_substr_reduction
     state smodel fixed_terms assignments eq string start length result =
   if not (HTerms.mem state.generated_symbolic_reductions eq.atom)
@@ -4888,6 +5238,7 @@ let build_concrete_strings state smodel support =
   in
   let equalities = collect_true_equalities smodel formulas in
   let fixed_terms = fixed_string_terms equalities in
+  seed_witness_aliases state smodel formulas equalities;
   match regex_class_infos smodel formulas terms equalities with
   | Error reason -> Concrete_unknown reason
   | Ok regex_infos -> (

@@ -550,6 +550,30 @@ let test_reduction_prioritization () =
     S.Term.(result === replace_all x needle replacement);
   assert_check `STATUS_UNSAT ctx
 
+let test_witness_sharing_aliases () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"witness_alias_x" () in
+  let p = S.Term.string_var ~name:"witness_alias_p" () in
+  let s = S.Term.string_var ~name:"witness_alias_s" () in
+  let needle = S.Term.concat [S.Term.str "b"; S.Term.str "c"] in
+  let split = S.Term.concat [p; S.Term.concat [S.Term.str "b"; S.Term.str "c"]; s] in
+  S.Context.assert_formula ctx S.Term.(x === split);
+  S.Context.assert_formula ctx S.Term.(p === str "a");
+  S.Context.assert_formula ctx S.Term.(s === str "d");
+  S.Context.assert_formula ctx S.Term.(contains x needle);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "abcd");
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"literal_seed_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abcd");
+  S.Context.assert_formula ctx S.Term.(substr x (Arith.int 1) (Arith.int 2) === str "bc");
+  S.Context.assert_formula ctx S.Term.(indexof x (str "bc") (Arith.int 0) === Arith.int 1);
+  S.Context.assert_formula ctx S.Term.(replace x (str "bc") (str "XY") === str "aXYd");
+  S.Context.assert_formula ctx
+    S.Term.(replace_all x (str "b") (str "B") === str "aBcd");
+  assert_check `STATUS_SAT ctx
+
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_regex_x" () in
@@ -1005,6 +1029,7 @@ let test () =
   test_character_abstraction ();
   test_code_operators ();
   test_reduction_prioritization ();
+  test_witness_sharing_aliases ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();

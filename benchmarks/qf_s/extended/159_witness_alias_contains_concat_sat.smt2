@@ -1,0 +1,10 @@
+; EXPECT: sat
+(set-logic QF_S)
+(declare-const x String)
+(declare-const p String)
+(declare-const s String)
+(assert (= x (str.++ p "bc" s)))
+(assert (= p "a"))
+(assert (= s "d"))
+(assert (str.contains x (str.++ "b" "c")))
+(check-sat)
