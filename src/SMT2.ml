@@ -50,9 +50,162 @@ module type Variables = sig
   val find            : t -> string -> term
 end
 
+module type PARSER_API = sig
+  module Type : sig
+    type t = Ext.WithExceptionsErrorHandling.Type.t
+    val bool : unit -> t
+    val int : unit -> t
+    val real : unit -> t
+    val bv : int -> t
+    val tuple : t list -> t
+    val func : t list -> t -> t
+    val new_uninterpreted : ?name:string -> ?card:int -> unit -> t
+    module Names : sig
+      val set : t -> string -> unit
+    end
+  end
+
+  module Term : sig
+    type t = Ext.WithExceptionsErrorHandling.Term.t
+    val pp : Format.formatter -> t -> unit
+    val is_good : t -> bool
+    val true0 : unit -> t
+    val false0 : unit -> t
+    val not1 : t -> t
+    val implies : t -> t -> t
+    val andN : t list -> t
+    val ( !& ) : t list -> t
+    val orN : t list -> t
+    val xorN : t list -> t
+    val eq : t -> t -> t
+    val distinct : t list -> t
+    val ite : t -> t -> t -> t
+    val tuple : t list -> t
+    val select : int -> t -> t
+    val update : t -> t list -> t -> t
+    val application : t -> t list -> t
+    val constant : Type.t -> id:int -> t
+    val new_uninterpreted : ?name:string -> Type.t -> t
+    val new_variable : Type.t -> t
+    val forall : t list -> t -> t
+    val exists : t list -> t -> t
+    val lambda : t list -> t -> t
+    module Names : sig
+      val set : t -> string -> unit
+    end
+    module Arith : sig
+      val parse_float : string -> t
+      val parse_rational : string -> t
+      val neg : t -> t
+      val sub : t -> t -> t
+      val add : t -> t -> t
+      val mul : t -> t -> t
+      val idiv : t -> t -> t
+      val division : t -> t -> t
+      val ( %. ) : t -> t -> t
+      val abs : t -> t
+      val leq : t -> t -> t
+      val lt : t -> t -> t
+      val geq : t -> t -> t
+      val gt : t -> t -> t
+      val floor : t -> t
+      val is_int_atom : t -> t
+    end
+    module BV : sig
+      val parse_bvbin : string -> t
+      val parse_bvhex : string -> t
+      val bvconcat : t list -> t
+      val bvand : t list -> t
+      val bvor : t list -> t
+      val bvsum : t list -> t
+      val bvproduct : t list -> t
+      val bvdiv : t -> t -> t
+      val bvrem : t -> t -> t
+      val bvshl : t -> t -> t
+      val bvlshr : t -> t -> t
+      val bvnot : t -> t
+      val bvneg : t -> t
+      val bvlt : t -> t -> t
+      val bvnand : t -> t -> t
+      val bvnor : t -> t -> t
+      val bvxor : t list -> t
+      val bvxnor : t -> t -> t
+      val redand : t -> t
+      val bvsub : t -> t -> t
+      val bvsdiv : t -> t -> t
+      val bvsrem : t -> t -> t
+      val bvsmod : t -> t -> t
+      val bvashr : t -> t -> t
+      val bvle : t -> t -> t
+      val bvgt : t -> t -> t
+      val bvge : t -> t -> t
+      val bvslt : t -> t -> t
+      val bvsle : t -> t -> t
+      val bvsgt : t -> t -> t
+      val bvsge : t -> t -> t
+      val bvextract : t -> int -> int -> t
+      val bvrepeat : t -> int -> t
+      val zero_extend : t -> int -> t
+      val sign_extend : t -> int -> t
+      val rotate_left : t -> int -> t
+      val rotate_right : t -> int -> t
+      val bvconst_uint64 : width:int -> Unsigned.ULong.t -> t
+    end
+  end
+  module Config : module type of Ext.WithExceptionsErrorHandling.Config
+  module Param : module type of Ext.WithExceptionsErrorHandling.Param
+  module ModelValue : sig
+    type t
+    val pp : Format.formatter -> t -> unit
+  end
+
+  module PP : sig
+    val term_string : ?display:Types.display -> Term.t -> string
+  end
+
+  module Global : sig
+    val version : string
+    val init : unit -> unit
+    val exit : unit -> unit
+    val reset : unit -> unit
+  end
+
+  module SModel : sig
+    type t
+    val from_map : ?support:Term.t list -> (Term.t * Term.t) list -> t
+    val get_value : t -> Term.t -> ModelValue.t
+    val get_value_as_term : t -> Term.t -> Term.t option
+    val to_sexp :
+      smt2arrays:([ `Curry | `Tuple ] * (Term.t -> bool)) option -> t -> Sexp.t
+  end
+
+  module Context : sig
+    type t
+    val of_id : int -> t option
+    val malloc : ?config:Config.t -> unit -> t
+    val default_param : t -> Param.t -> unit
+    val push : t -> unit
+    val pop : t -> unit
+    val reset : t -> unit
+    val pp : Format.formatter -> t -> unit
+    val assert_formula : t -> Term.t -> unit
+    val assert_formulas : t -> Term.t list -> unit
+    val check :
+      ?param:Param.t ->
+      ?assumptions:Term.t list ->
+      ?smodel:SModel.t ->
+      ?as_inequalities:bool ->
+      ?hints:Term.t list ->
+      t -> Ext.Types.smt_status
+    val get_model : ?keep_subst:bool -> ?support:Term.t list -> t -> SModel.t
+    val get_unsat_core : t -> Term.t list
+    val get_model_interpolant : t -> Term.t
+  end
+end
+
 module type API = sig
 
-  module Ext : Ext_types.API
+  module Ext : PARSER_API
   open Ext
   module StringHashtbl : CCHashtbl.S with type key = string
   module VarMap : CCHashtbl.S with type key = string
@@ -66,7 +219,14 @@ module type API = sig
     (* val to_SMT2 : ?smt2arrays:[ `Curry | `Tuple ] -> env -> string *)
 
     (** Mutable session state for parsing and evaluation. *)
-    type t = {
+    type syntax_hooks = {
+        parse_type : Type.t VarMap.t -> Sexp.t -> Type.t option;
+        parse_term :
+          'a. (t -> Sexp.t -> (Term.t, 'a) Cont.t) ->
+          t -> Sexp.t -> ((Term.t, 'a) Cont.t) option;
+        set_logic : string -> Config.t -> bool;
+      }
+    and t = {
         verbosity : int;
         param     : Param.t;
         infos     : string StringHashtbl.t;
@@ -75,10 +235,12 @@ module type API = sig
         variables : Variables.t;
         model     : SModel.t option ref;
         smt2functions : unit HTerms.t;
+        syntax_hooks : syntax_hooks;
       }
 
     val set_logic: (?logic:string -> Config.t -> unit)
-    val create   : int -> t
+    val no_syntax_hooks : syntax_hooks
+    val create   : ?syntax_hooks:syntax_hooks -> int -> t
     val exit : t -> unit
 
   end
@@ -86,7 +248,7 @@ module type API = sig
   module ParseType : sig
     type t = (Type.t, Type.t) Cont.t
     val atom  : Type.t VarMap.t -> string -> t
-    val parse : Type.t VarMap.t -> Sexp.t -> t
+    val parse : ?syntax_hooks:Session.syntax_hooks -> Type.t VarMap.t -> Sexp.t -> t
   end
 
   module ParseTerm : sig
@@ -110,7 +272,7 @@ module type API = sig
   module SMT2 : sig
     val load_file    : string -> Sexp.t list
     val process_all  : Session.t -> Sexp.t list -> unit
-    val process_file : ?verbosity:int -> string -> unit
+    val process_file : ?syntax_hooks:Session.syntax_hooks -> ?verbosity:int -> string -> unit
   end
 
 end
@@ -120,7 +282,7 @@ exception Yices_SMT2_exception of string
 let raise_smt2 a =
   Format.ksprintf ~f:(fun s -> raise(Yices_SMT2_exception s)) a
 
-module Make(Ext : Ext_types.API) = struct
+module Make_parser(Ext : PARSER_API) = struct
 
   open Ext
   module StringHashtbl = StringHashtbl
@@ -152,7 +314,14 @@ module Make(Ext : Ext_types.API) = struct
 
   module Session = struct
 
-    type t = {
+    type syntax_hooks = {
+        parse_type : Type.t VarMap.t -> Sexp.t -> Type.t option;
+        parse_term :
+          'a. (t -> Sexp.t -> (Term.t, 'a) Cont.t) ->
+          t -> Sexp.t -> ((Term.t, 'a) Cont.t) option;
+        set_logic : string -> Config.t -> bool;
+      }
+    and t = {
         verbosity : int;
         param     : Param.t;
         infos     : string StringHashtbl.t;
@@ -161,6 +330,7 @@ module Make(Ext : Ext_types.API) = struct
         variables : Variables.t;
         model     : SModel.t option ref;
         smt2functions : unit HTerms.t;
+        syntax_hooks : syntax_hooks;
       }
 
     let set_logic ?logic config =
@@ -173,7 +343,13 @@ module Make(Ext : Ext_types.API) = struct
          Config.set config ~name:"model-interpolation" ~value:"true"
       | Some logic  -> Config.default config ~logic
 
-    let create verbosity =
+    let no_syntax_hooks = {
+        parse_type = (fun _ _ -> None);
+        parse_term = (fun _ _ _ -> None);
+        set_logic = (fun _ _ -> false);
+      }
+
+    let create ?(syntax_hooks=no_syntax_hooks) verbosity =
       print verbosity 1 "Now initialising Yices version %s@," Global.version;
       Global.init();
       print verbosity 1 "Init done@,";
@@ -185,7 +361,8 @@ module Make(Ext : Ext_types.API) = struct
         types     = VarMap.create 10;
         variables = Variables.init();
         model     = ref None;
-        smt2functions = Global.hTerms_create 10;
+        smt2functions = HTerms.create 10;
+        syntax_hooks;
       }
 
     let exit session =
@@ -206,28 +383,36 @@ module Make(Ext : Ext_types.API) = struct
                | "Real"    -> Type.real()
                | _ -> raise(Yices_SMT2_exception("ParseType.atom does not understand: "^s)))
 
-    let rec parse types : Sexp.t -> (Type.t,Type.t) Cont.t = function
+    let rec parse ?syntax_hooks types sexp =
+      match
+        match syntax_hooks with
+        | None -> None
+        | Some hooks -> hooks.Session.parse_type types sexp
+      with
+      | Some typ -> return typ
+      | None ->
+      match sexp with
       | Atom s -> atom types s
       | List l as sexp ->
          match l with
          | (Atom "Fun"::(_::_ as l))
          | (Atom "Array"::(_::_ as l)) ->
-            let* l = parse_list types l in
+            let* l = parse_list ?syntax_hooks types l in
             let codom, dom = List.(l |> rev |> hd_tl) in
             return(Type.func (List.rev dom) codom)
          | [_;Atom "BitVec"; Atom size] ->
             return(Type.bv (int_of_string size))
          | (Atom "Tuple")::l
            | (Atom "tuple")::l ->
-            let* l = parse_list types l in
+            let* l = parse_list ?syntax_hooks types l in
             return(Type.tuple l)
          | _ ->
             raise(Yices_SMT2_exception("ParseType.parse does not understand: "^Sexp.to_string sexp))
-    and parse_list types = function
+    and parse_list ?syntax_hooks types = function
       | [] -> return []
       | hd::tl ->
-         let* hd = parse types hd in
-         let* tl = parse_list types tl in
+         let* hd = parse ?syntax_hooks types hd in
+         let* tl = parse_list ?syntax_hooks types tl in
          return(hd::tl)
 
   end
@@ -318,6 +503,9 @@ module Make(Ext : Ext_types.API) = struct
 
     and parse env sexp =
       try
+      match env.syntax_hooks.parse_term parse_rec env sexp with
+      | Some term -> term
+      | None ->
       match sexp with
       | Atom s -> atom env s
       | List l as sexp ->
@@ -351,7 +539,7 @@ module Make(Ext : Ext_types.API) = struct
               | "exists", [List vs; body] ->
                let reg_var sexp = match sexp with
                  | List[Atom var_string; typ] ->
-                    let ytyp = ParseType.parse env.types typ |> get in
+                    let ytyp = ParseType.parse ~syntax_hooks:env.syntax_hooks env.types typ |> get in
                     let term = Term.new_variable ytyp in
                     (var_string,term)
                  | _ -> raise (Yices_SMT2_exception "not a good sorted variable")
@@ -448,7 +636,7 @@ module Make(Ext : Ext_types.API) = struct
             | "bvsge",  [x; y] -> binary env BV.bvsge x y
             (* Constants *)
             | "_", [Atom "Const"; Atom i; typ] ->
-               let typ = ParseType.parse env.types typ |> get in
+               let typ = ParseType.parse ~syntax_hooks:env.syntax_hooks env.types typ |> get in
                return(Term.constant typ ~id:(int_of_string i))
             | "_", [Atom s; Atom x] when String.length s >= 2 && String.equal (String.sub s 0 2) "bv" ->
                let width = int_of_string x in
@@ -557,6 +745,7 @@ module Make(Ext : Ext_types.API) = struct
          (match Context.check context ~param:session.param with
           | `STATUS_SAT   -> print 0 "sat@,"
           | `STATUS_UNSAT -> print 0 "unsat@,"
+          | `STATUS_UNKNOWN -> print 0 "unknown@,"
           | status -> print 0 "%a@," Types.pp_smt_status status)
 
       | "check-sat-assuming", l  ->
@@ -564,6 +753,7 @@ module Make(Ext : Ext_types.API) = struct
          (match Context.check ~assumptions ~param:session.param context with
           | `STATUS_SAT   -> print 0 "sat@,"
           | `STATUS_UNSAT -> print 0 "unsat@,"
+          | `STATUS_UNKNOWN -> print 0 "unknown@,"
           | status -> print 0 "%a@," Types.pp_smt_status status)
 
       | "get-value", [List terms] ->
@@ -612,6 +802,7 @@ module Make(Ext : Ext_types.API) = struct
          (match status with
           | `STATUS_SAT   -> print 0 "sat@,"
           | `STATUS_UNSAT -> print 0 "unsat@,"
+          | `STATUS_UNKNOWN -> print 0 "unknown@,"
           | _ -> print 0 "%a@," Types.pp_smt_status status)
     
       | "get-unsat-model-interpolant", [] ->
@@ -635,7 +826,7 @@ module Make(Ext : Ext_types.API) = struct
             let config = Config.malloc () in
             StringHashtbl.iter (fun name value -> Config.set config ~name ~value)
               session.options;
-            set_logic ~logic config;
+            if not (session.syntax_hooks.set_logic logic config) then set_logic ~logic config;
             let ctx = Context.malloc ~config () in
             Context.default_param ctx session.param
 
@@ -667,9 +858,13 @@ module Make(Ext : Ext_types.API) = struct
 
          | "declare-fun", [Atom var; List domain; codomain] ->
             let domain =
-              List.map (fun x -> ParseType.parse session.types x |> get) domain
+              List.map
+                (fun x -> ParseType.parse ~syntax_hooks:session.syntax_hooks session.types x |> get)
+                domain
             in
-            let codomain = ParseType.parse session.types codomain |> get in
+            let codomain =
+              ParseType.parse ~syntax_hooks:session.syntax_hooks session.types codomain |> get
+            in
             let ytype = match domain with
               | []   -> codomain
               | _::_ -> Type.func domain codomain
@@ -679,7 +874,7 @@ module Make(Ext : Ext_types.API) = struct
             Variables.permanently_add session.variables var yvar
 
          | "declare-const", [Atom var; typ] ->
-            let ytype = ParseType.parse session.types typ |> get in
+            let ytype = ParseType.parse ~syntax_hooks:session.syntax_hooks session.types typ |> get in
             let yvar = Term.new_uninterpreted ~name:var ytype in 
             Variables.permanently_add session.variables var yvar
 
@@ -690,7 +885,7 @@ module Make(Ext : Ext_types.API) = struct
             raise_smt2 "Yices does not support %s" head
 
          | "define-sort", [Atom var; List []; body] ->
-            let ytype = ParseType.parse session.types body |> get in
+            let ytype = ParseType.parse ~syntax_hooks:session.syntax_hooks session.types body |> get in
             VarMap.add session.types var ytype;
             Type.Names.set ytype var
                
@@ -698,7 +893,7 @@ module Make(Ext : Ext_types.API) = struct
             let parse_pair (subst,bindings,domain) pair =
               match pair with
               | List [Atom var_string; typ] ->
-                 let vartyp = ParseType.parse session.types typ |> get in
+                 let vartyp = ParseType.parse ~syntax_hooks:session.syntax_hooks session.types typ |> get in
                  let var = Term.new_variable vartyp in
                  (var_string, var)::subst, var::bindings, vartyp::domain
               | sexp ->
@@ -746,21 +941,70 @@ module Make(Ext : Ext_types.API) = struct
 
   module SMT2 = struct
 
+    let smt2_string_literal_tag = "__yices_smt2_string_hex"
+
+    let hex_digit n =
+      Char.chr (if n < 10 then Char.code '0' + n else Char.code 'a' + n - 10)
+
+    let add_hex_byte buf c =
+      let code = Char.code c in
+      Buffer.add_char buf (hex_digit (code lsr 4));
+      Buffer.add_char buf (hex_digit (code land 0xF))
+
+    let encode_smt2_quoted_tokens bytes =
+      let len = Bytes.length bytes in
+      let out = Buffer.create len in
+      let rec scan i =
+        if i >= len then ()
+        else
+          match Bytes.get bytes i with
+          | '|' ->
+             Buffer.add_char out '"';
+             scan_bar_symbol (i + 1)
+          | '"' ->
+             Buffer.add_char out '(';
+             Buffer.add_string out smt2_string_literal_tag;
+             Buffer.add_char out ' ';
+             Buffer.add_char out '"';
+             let next = scan_string_literal (i + 1) in
+             Buffer.add_char out '"';
+             Buffer.add_char out ')';
+             scan next
+          | c ->
+             Buffer.add_char out c;
+             scan (i + 1)
+      and scan_bar_symbol i =
+        if i >= len then raise_smt2 "unterminated quoted symbol";
+        match Bytes.get bytes i with
+        | '|' ->
+           Buffer.add_char out '"';
+           scan (i + 1)
+        | '"' ->
+           Buffer.add_char out '|';
+           scan_bar_symbol (i + 1)
+        | c ->
+           Buffer.add_char out c;
+           scan_bar_symbol (i + 1)
+      and scan_string_literal i =
+        if i >= len then raise_smt2 "unterminated string literal";
+        match Bytes.get bytes i with
+        | '"' when i + 1 < len && Char.equal (Bytes.get bytes (i + 1)) '"' ->
+           add_hex_byte out '"';
+           add_hex_byte out '"';
+           scan_string_literal (i + 2)
+        | '"' -> i + 1
+        | c ->
+           add_hex_byte out c;
+           scan_string_literal (i + 1)
+      in
+      scan 0;
+      Buffer.contents out
+
     let load_file filename = 
       let ic = open_in filename in
       let bytes = IO.read_all_bytes ic in
       close_in ic;
-      let is_in_string = ref false in
-      let is_escaped = ref false in
-      let aux i = function
-        | _ when !is_escaped -> is_escaped := false; ()
-        | '\\' -> is_escaped := true; ()
-        | '|' -> is_in_string := not !is_in_string; Bytes.set bytes i '"'
-        | '"' when !is_in_string -> Bytes.set bytes i '|'
-        | _ -> ()
-      in
-      let () = Bytes.iteri aux bytes in
-      let str = bytes |> Bytes.unsafe_to_string in
+      let str = encode_smt2_quoted_tokens bytes in
       let rec parse ?parse_pos accu =
         match Sexp.parse ?parse_pos str with
         | Done(sexp, parse_pos) -> parse ~parse_pos (sexp::accu)
@@ -775,9 +1019,9 @@ module Make(Ext : Ext_types.API) = struct
       in
       List.iter aux l
 
-    let process_file ?(verbosity=0) filename =
+    let process_file ?(syntax_hooks=Session.no_syntax_hooks) ?(verbosity=0) filename =
       let l = load_file filename in
-      let session = Session.create verbosity in
+      let session = Session.create ~syntax_hooks verbosity in
       print session.verbosity 0 "@[<v>";
       print verbosity 1 "Loading sexps done: %i of them were found.@," (List.length l);
       process_all session l;
@@ -785,3 +1029,5 @@ module Make(Ext : Ext_types.API) = struct
 
   end
 end
+
+module Make(Ext : Ext_types.API) = Make_parser(Ext)

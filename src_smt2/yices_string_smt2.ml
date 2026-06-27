@@ -1,364 +1,275 @@
-module S = Extensions.Strings
-module Y = Yices2.Ext.WithExceptionsErrorHandling
+open Sexplib
 
-exception String_smt2_error of string
+module S = Extensions.Strings
+module Escaping = Extensions.String_smt2_escaping
+module Base = Yices2.Ext.WithExceptionsErrorHandling
+
+module StringAPI = struct
+  include Base
+
+  module Type = S.Type
+  module Term = S.Term
+  module Context = S.Context
+
+  module SModel = struct
+    type t = S.StringModel.t
+
+    let from_map ?support bindings =
+      { S.StringModel.base = Base.SModel.from_map ?support bindings; strings = [] }
+
+    let get_value model term =
+      Base.SModel.get_value model.S.StringModel.base term
+
+    let get_value_as_term model term =
+      match S.StringModel.find_string model term with
+      | Some text -> Some (S.Term.str text)
+      | None -> Base.SModel.get_value_as_term model.S.StringModel.base term
+
+    let to_sexp ~smt2arrays model =
+      let string_bindings =
+        List.map
+          (fun (term, text) ->
+             Sexp.List
+               [
+                 Sexp.Atom ":=";
+                 S.Term.to_sexp ?smt2arrays term;
+                 Sexp.Atom (Format.sprintf "%S" text);
+               ])
+          model.S.StringModel.strings
+      in
+      let base_bindings =
+        match Base.SModel.to_sexp ~smt2arrays model.S.StringModel.base with
+        | Sexp.List (Sexp.Atom "model" :: bindings) -> bindings
+        | sexp -> [sexp]
+      in
+      Sexp.List (Sexp.Atom "model" :: string_bindings @ base_bindings)
+  end
+end
+
+module SMT2 = Yices2.SMT2.Make_parser(StringAPI)
+module Cont = Yices2.SMT2.Cont
 
 let raise_smt2 fmt =
-  Format.ksprintf (fun msg -> raise (String_smt2_error msg)) fmt
+  Format.ksprintf (fun msg -> raise (Yices2.SMT2.Yices_SMT2_exception msg)) fmt
 
-type sexp =
-  | Atom of string
-  | StringLit of string
-  | List of sexp list
-
-let pp_status fmt = function
-  | `STATUS_SAT -> Format.fprintf fmt "sat"
-  | `STATUS_UNSAT -> Format.fprintf fmt "unsat"
-  | `STATUS_UNKNOWN -> Format.fprintf fmt "unknown"
-  | status -> Yices2.Ext.Types.pp_smt_status fmt status
-
-let load_file filename =
-  let ic = open_in filename in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ic)
-    (fun () -> really_input_string ic (in_channel_length ic))
-
-let parse_sexps input =
-  let len = String.length input in
-  let pos = ref 0 in
-  let peek () =
-    if !pos < len then Some input.[!pos] else None
-  in
-  let bump () =
-    let c = input.[!pos] in
-    incr pos;
-    c
-  in
-  let rec skip () =
-    match peek () with
-    | Some (' ' | '\n' | '\r' | '\t') ->
-        incr pos;
-        skip ()
-    | Some ';' ->
-        while !pos < len && input.[!pos] <> '\n' do
-          incr pos
-        done;
-        skip ()
-    | _ -> ()
-  in
-  let parse_string () =
-    let buf = Buffer.create 16 in
-    let rec loop () =
-      if !pos >= len then raise_smt2 "unterminated string literal";
-      match bump () with
-      | '"' ->
-          begin
-            match peek () with
-            | Some '"' ->
-                incr pos;
-                Buffer.add_char buf '"';
-                loop ()
-            | _ -> Buffer.contents buf
-          end
-      | c ->
-          Buffer.add_char buf c;
-          loop ()
-    in
-    loop ()
-  in
-  let parse_atom first =
-    let buf = Buffer.create 16 in
-    Buffer.add_char buf first;
-    let rec loop () =
-      match peek () with
-      | Some (' ' | '\n' | '\r' | '\t' | '(' | ')' | ';') | None ->
-          Buffer.contents buf
-      | Some c ->
-          incr pos;
-          Buffer.add_char buf c;
-          loop ()
-    in
-    loop ()
-  in
-  let rec parse_one () =
-    skip ();
-    match peek () with
-    | None -> raise_smt2 "unexpected end of input"
-    | Some '(' ->
-        incr pos;
-        let rec list acc =
-          skip ();
-          match peek () with
-          | Some ')' ->
-              incr pos;
-              List (List.rev acc)
-          | None -> raise_smt2 "unterminated list"
-          | _ -> list (parse_one () :: acc)
-        in
-        list []
-    | Some ')' -> raise_smt2 "unexpected ')'"
-    | Some '"' ->
-        incr pos;
-        StringLit (parse_string ())
-    | Some c ->
-        incr pos;
-        Atom (parse_atom c)
-  in
-  let rec all acc =
-    skip ();
-    if !pos >= len then List.rev acc
-    else all (parse_one () :: acc)
-  in
-  all []
-
-type session = {
-  vars : (string, S.Term.t) Hashtbl.t;
-  types : (string, S.Type.t) Hashtbl.t;
-  mutable ctx : S.Context.t option;
-}
-
-let create_session () =
-  { vars = Hashtbl.create 32; types = Hashtbl.create 8; ctx = None }
-
-let context session =
-  match session.ctx with
-  | Some ctx -> ctx
-  | None ->
-      let ctx = S.Context.malloc () in
-      session.ctx <- Some ctx;
-      ctx
-
-let reset_context session =
-  session.ctx <- Some (S.Context.malloc ())
-
-let rec parse_type session = function
-  | Atom "String" -> S.Type.string ()
-  | Atom "Bool" -> S.Type.bool ()
-  | Atom "Int" -> S.Type.int ()
-  | Atom "Real" -> S.Type.real ()
-  | Atom name when Hashtbl.mem session.types name -> Hashtbl.find session.types name
-  | List [Atom "_"; Atom "BitVec"; Atom width] -> S.Type.bv (int_of_string width)
-  | sexp -> raise_smt2 "unsupported type %s" (sexp_to_string sexp)
-
-and sexp_to_string = function
-  | Atom s -> s
-  | StringLit s -> Format.sprintf "%S" s
-  | List l -> "(" ^ String.concat " " (List.map sexp_to_string l) ^ ")"
-
-let is_int_atom s =
-  match int_of_string_opt s with
-  | Some _ -> true
-  | None -> false
-
-let parse_int_atom s =
-  match int_of_string_opt s with
-  | Some n -> S.Term.Arith.int n
-  | None -> raise_smt2 "expected integer constant, got %s" s
+let sexp_to_string = Sexp.to_string_hum
 
 let parse_nonnegative_int_atom s =
   match int_of_string_opt s with
   | Some n when n >= 0 -> n
   | Some _ | None -> raise_smt2 "expected non-negative integer constant, got %s" s
 
-let chain op = function
-  | [] | [_] -> raise_smt2 "chainable operator expects at least two arguments"
-  | first :: rest ->
-      let rec aux acc last = function
-        | [] -> S.Term.andN (List.rev acc)
-        | term :: tail -> aux (op last term :: acc) term tail
-      in
-      aux [] first rest
+let decode_string_literal sexp =
+  match sexp with
+  | Sexp.List [Sexp.Atom tag; Sexp.Atom hex] when String.equal tag Escaping.literal_tag ->
+     begin
+       match Escaping.decode_hex_literal_content hex with
+       | Ok text -> Some text
+       | Error msg -> raise_smt2 "%s" msg
+     end
+  | _ -> None
 
-let rec parse_term session = function
-  | StringLit s -> S.Term.str s
-  | Atom "true" -> S.Term.true0 ()
-  | Atom "false" -> S.Term.false0 ()
-  | Atom s when Hashtbl.mem session.vars s -> Hashtbl.find session.vars s
-  | Atom s when is_int_atom s -> parse_int_atom s
-  | Atom s -> raise_smt2 "unknown symbol %s" s
-  | List (Atom head :: args) ->
-      begin
-        match head, args with
-        | "str.++", args ->
-            S.Term.concat (List.map (parse_term session) args)
-        | "str.len", [arg] ->
-            S.Term.len (parse_term session arg)
-        | "str.substr", [string; start; length] ->
-            S.Term.substr
-              (parse_term session string)
-              (parse_term session start)
-              (parse_term session length)
-        | "str.contains", [haystack; needle] ->
-            S.Term.contains (parse_term session haystack) (parse_term session needle)
-        | "str.indexof", [haystack; needle; start] ->
-            S.Term.indexof
-              (parse_term session haystack)
-              (parse_term session needle)
-              (parse_term session start)
-        | "str.replace", [haystack; needle; replacement] ->
-            S.Term.replace
-              (parse_term session haystack)
-              (parse_term session needle)
-              (parse_term session replacement)
-        | "str.prefixof", [prefix; string] ->
-            S.Term.prefixof (parse_term session prefix) (parse_term session string)
-        | "str.suffixof", [suffix; string] ->
-            S.Term.suffixof (parse_term session suffix) (parse_term session string)
-        | "str.at", [string; index] ->
-            S.Term.at (parse_term session string) (parse_term session index)
-        | "str.in_re", [string; regex] ->
-            S.Term.in_re (parse_term session string) (parse_regex session regex)
-        | "=", args ->
-            chain S.Term.eq (List.map (parse_term session) args)
-        | "distinct", args ->
-            S.Term.distinct (List.map (parse_term session) args)
-        | "not", [arg] ->
-            S.Term.not1 (parse_term session arg)
-        | "and", args ->
-            S.Term.andN (List.map (parse_term session) args)
-        | "or", args ->
-            S.Term.orN (List.map (parse_term session) args)
-        | "=>", [lhs; rhs] ->
-            S.Term.implies (parse_term session lhs) (parse_term session rhs)
-        | "+", args ->
-            begin
-              match List.map (parse_term session) args with
-              | [] -> S.Term.Arith.zero ()
-              | first :: rest -> List.fold_left S.Term.Arith.add first rest
-            end
-        | "-", [arg] ->
-            S.Term.Arith.neg (parse_term session arg)
-        | "-", first :: rest ->
-            List.fold_left
-              S.Term.Arith.sub
-              (parse_term session first)
-              (List.map (parse_term session) rest)
-        | "<=", args ->
-            chain S.Term.Arith.leq (List.map (parse_term session) args)
-        | "<", args ->
-            chain S.Term.Arith.lt (List.map (parse_term session) args)
-        | ">=", args ->
-            chain S.Term.Arith.geq (List.map (parse_term session) args)
-        | ">", args ->
-            chain S.Term.Arith.gt (List.map (parse_term session) args)
-        | _, _ when Hashtbl.mem session.vars head ->
-            let f = Hashtbl.find session.vars head in
-            S.Term.application f (List.map (parse_term session) args)
-        | _ ->
-            raise_smt2 "unsupported term %s" (sexp_to_string (List (Atom head :: args)))
-      end
-  | List [] -> raise_smt2 "empty term"
-  | List (head :: args) ->
-      let f = parse_term session head in
-      S.Term.application f (List.map (parse_term session) args)
+let required_string_literal sexp =
+  match decode_string_literal sexp with
+  | Some text -> text
+  | None -> raise_smt2 "expected string literal, got %s" (sexp_to_string sexp)
 
-and parse_regex session = function
-  | Atom "re.none" -> S.Regex.empty
-  | Atom "re.all" -> S.Regex.all
-  | Atom "re.allchar" -> S.Regex.all_char
-  | List [Atom "str.to_re"; StringLit text] -> S.Regex.str text
-  | List (Atom "re.++" :: regexes) ->
-      S.Regex.concat (List.map (parse_regex session) regexes)
-  | List (Atom "re.union" :: regexes) ->
-      S.Regex.union (List.map (parse_regex session) regexes)
-  | List [Atom "re.*"; regex] ->
-      S.Regex.star (parse_regex session regex)
-  | List (Atom "re.inter" :: regexes) ->
-      S.Regex.inter (List.map (parse_regex session) regexes)
-  | List [Atom "re.comp"; regex] ->
-      S.Regex.comp (parse_regex session regex)
-  | List [Atom "re.+"; regex] ->
-      S.Regex.plus (parse_regex session regex)
-  | List [Atom "re.opt"; regex] ->
-      S.Regex.opt (parse_regex session regex)
-  | List [List [Atom "_"; Atom "re.loop"; Atom lo; Atom hi]; regex] ->
-      S.Regex.loop
-        ~lo:(parse_nonnegative_int_atom lo)
-        ~hi:(parse_nonnegative_int_atom hi)
-        (parse_regex session regex)
-  | List [Atom "re.range"; StringLit lo; StringLit hi] ->
-      S.Regex.range lo hi
-  | sexp ->
-      raise_smt2 "unsupported regex %s" (sexp_to_string sexp)
+let parse_type types sexp =
+  match sexp with
+  | Sexp.Atom "String" -> Some (S.Type.string ())
+  | _ ->
+     ignore types;
+     None
 
-let print_model session =
-  let ctx = context session in
-  let support =
-    Hashtbl.to_seq_values session.vars
-    |> Seq.filter (fun term -> S.Type.is_string (S.Term.type_of_term term))
-    |> List.of_seq
-  in
-  let model = S.Context.get_model ~support ctx in
-  let pp_binding fmt (term, text) =
-    let name =
-      if S.Term.Names.has_name term then S.Term.Names.to_name term
-      else Format.asprintf "%a" S.Term.pp term
-    in
-    Format.fprintf fmt "(define-fun %s () String %S)" name text
-  in
-  Format.printf "(@[<v>%a@])@."
-    (Format.pp_print_list ~pp_sep:Format.pp_print_cut pp_binding)
-    model.S.StringModel.strings
+type yices_logic = {
+  logic : string;
+  force_mcsat : bool;
+}
 
-let parse_instruction session = function
-  | List (Atom "set-info" :: _) ->
-      ()
-  | List (Atom "set-option" :: _) ->
-      ()
-  | List [Atom "set-logic"; Atom _logic] ->
-      reset_context session
-  | List [Atom "reset"] ->
-      Y.Global.reset ();
-      session.ctx <- None;
-      Hashtbl.clear session.vars;
-      Hashtbl.clear session.types
-  | List [Atom "push"; Atom n] ->
-      for _ = 1 to int_of_string n do
-        S.Context.push (context session)
-      done
-  | List [Atom "pop"; Atom n] ->
-      for _ = 1 to int_of_string n do
-        S.Context.pop (context session)
-      done
-  | List [Atom "declare-sort"; Atom name; Atom "0"] ->
-      Hashtbl.replace session.types name (S.Type.new_uninterpreted ~name ())
-  | List [Atom "declare-const"; Atom name; typ] ->
-      let term = S.Term.new_uninterpreted ~name (parse_type session typ) in
-      Hashtbl.replace session.vars name term
-  | List [Atom "declare-fun"; Atom name; List domain; codom] ->
-      let domain = List.map (parse_type session) domain in
-      let codom = parse_type session codom in
-      let typ = match domain with
-        | [] -> codom
-        | _ -> S.Type.func domain codom
-      in
-      let term = S.Term.new_uninterpreted ~name typ in
-      Hashtbl.replace session.vars name term
-  | List [Atom "assert"; formula] ->
-      S.Context.assert_formula (context session) (parse_term session formula)
-  | List [Atom "check-sat"] ->
-      let status = S.Context.check (context session) in
-      Format.printf "%a@." pp_status status
-  | List [Atom "get-model"] ->
-      print_model session
-  | List [Atom "exit"] ->
-      ()
-  | sexp ->
-      raise_smt2 "unsupported command %s" (sexp_to_string sexp)
+let apply_yices_logic config { logic; force_mcsat } =
+  Base.Config.default ~logic config;
+  if force_mcsat then
+    Base.Config.set config ~name:"solver-type" ~value:"mcsat"
 
-let process_file filename =
-  Printexc.record_backtrace true;
-  Y.Global.init ();
-  let session = create_session () in
-  Fun.protect
-    ~finally:(fun () -> Y.Global.exit ())
-    (fun () ->
-       filename
-       |> load_file
-       |> parse_sexps
-       |> List.iter (parse_instruction session))
+let yices_logic_for_string_logic = function
+  (* Pure strings and strings with linear integer arithmetic still need UF+LIA:
+     string operators are abstracted with uninterpreted symbols and lengths. *)
+  | "QF_S"
+  | "QF_SLIA" ->
+     Some { logic = "QF_UFLIA"; force_mcsat = false }
+
+  (* Nonlinear integer arithmetic requires MCSAT in the underlying context. *)
+  | "QF_SNIA" ->
+     Some { logic = "QF_UFNIA"; force_mcsat = true }
+
+  (* Strings always introduce integer length constraints, so real fragments use
+     mixed integer/real arithmetic rather than a pure LRA/NRA logic. *)
+  | "QF_SLRA"
+  | "QF_SLIRA"
+  | "QF_SLRIA" ->
+     Some { logic = "QF_UFLIRA"; force_mcsat = false }
+  | "QF_SNRA"
+  | "QF_SNIRA"
+  | "QF_SNRIA" ->
+     Some { logic = "QF_UFNIRA"; force_mcsat = true }
+
+  (* Arrays plus strings plus LIA fits a Yices-supported array/UF/LIA logic.
+     Other array/BV/string combinations fall back to ALL below. *)
+  | "QF_SALIA" ->
+     Some { logic = "QF_AUFLIA"; force_mcsat = false }
+
+  (* Yices has no precise SMT-LIB logic for UF+BV+LIA, which is what strings
+     plus bitvectors require after length abstraction. *)
+  | "QF_SBV"
+  | "QF_SUFBV"
+  | "QF_SABV"
+  | "QF_SAUFBV" ->
+     Some { logic = "ALL"; force_mcsat = false }
+
+  | _ -> None
+
+let string_logic logic config =
+  match yices_logic_for_string_logic logic with
+  | Some yices_logic ->
+     apply_yices_logic config yices_logic;
+     true
+  | None -> false
+
+let rec parse_regex : type a.
+  (SMT2.Session.t -> Sexp.t -> (S.Term.t, a) Cont.t) ->
+  SMT2.Session.t -> Sexp.t -> (S.regex, a) Cont.t =
+  fun parse env sexp ->
+  let open Cont in
+  match sexp with
+  | Sexp.Atom "re.none" -> return S.Regex.empty
+  | Sexp.Atom "re.all" -> return S.Regex.all
+  | Sexp.Atom "re.allchar" -> return S.Regex.all_char
+  | Sexp.List [Sexp.Atom "str.to_re"; term] ->
+     begin
+       match decode_string_literal term with
+       | Some text -> return (S.Regex.str text)
+       | None ->
+          let* term = parse env term in
+          return (S.Regex.to_re term)
+     end
+  | Sexp.List (Sexp.Atom "re.++" :: regexes) ->
+     let* regexes = Cont.map (parse_regex parse env) regexes in
+     return (S.Regex.concat regexes)
+  | Sexp.List (Sexp.Atom "re.union" :: regexes) ->
+     let* regexes = Cont.map (parse_regex parse env) regexes in
+     return (S.Regex.union regexes)
+  | Sexp.List [Sexp.Atom "re.*"; regex] ->
+     let* regex = parse_regex parse env regex in
+     return (S.Regex.star regex)
+  | Sexp.List (Sexp.Atom "re.inter" :: regexes) ->
+     let* regexes = Cont.map (parse_regex parse env) regexes in
+     return (S.Regex.inter regexes)
+  | Sexp.List [Sexp.Atom "re.comp"; regex] ->
+     let* regex = parse_regex parse env regex in
+     return (S.Regex.comp regex)
+  | Sexp.List [Sexp.Atom "re.+"; regex] ->
+     let* regex = parse_regex parse env regex in
+     return (S.Regex.plus regex)
+  | Sexp.List [Sexp.Atom "re.opt"; regex] ->
+     let* regex = parse_regex parse env regex in
+     return (S.Regex.opt regex)
+  | Sexp.List [Sexp.List [Sexp.Atom "_"; Sexp.Atom "re.loop"; Sexp.Atom lo; Sexp.Atom hi]; regex] ->
+     let* regex = parse_regex parse env regex in
+     return
+       (S.Regex.loop
+          ~lo:(parse_nonnegative_int_atom lo)
+          ~hi:(parse_nonnegative_int_atom hi)
+          regex)
+  | Sexp.List [Sexp.Atom "re.range"; lo; hi] ->
+     return (S.Regex.range (required_string_literal lo) (required_string_literal hi))
+  | _ ->
+     raise_smt2 "unsupported regex %s" (sexp_to_string sexp)
+
+let parse_term : type a.
+  (SMT2.Session.t -> Sexp.t -> (S.Term.t, a) Cont.t) ->
+  SMT2.Session.t -> Sexp.t -> ((S.Term.t, a) Cont.t) option =
+  fun parse env sexp ->
+  let open Cont in
+  match decode_string_literal sexp with
+  | Some text -> Some (return (S.Term.str text))
+  | None ->
+     match sexp with
+     | Sexp.List (Sexp.Atom head :: args) ->
+        begin
+          match head, args with
+          | "str.++", args ->
+             Some
+               (let* args = Cont.map (parse env) args in
+                return (S.Term.concat args))
+          | "str.len", [arg] ->
+             Some
+               (let* arg = parse env arg in
+                return (S.Term.len arg))
+          | "str.substr", [string; start; length] ->
+             Some
+               (let* string = parse env string in
+                let* start = parse env start in
+                let* length = parse env length in
+                return (S.Term.substr string start length))
+          | "str.contains", [haystack; needle] ->
+             Some
+               (let* haystack = parse env haystack in
+                let* needle = parse env needle in
+                return (S.Term.contains haystack needle))
+          | "str.indexof", [haystack; needle; start] ->
+             Some
+               (let* haystack = parse env haystack in
+                let* needle = parse env needle in
+                let* start = parse env start in
+                return (S.Term.indexof haystack needle start))
+          | "str.replace", [haystack; needle; replacement] ->
+             Some
+               (let* haystack = parse env haystack in
+                let* needle = parse env needle in
+                let* replacement = parse env replacement in
+                return (S.Term.replace haystack needle replacement))
+          | "str.prefixof", [prefix; string] ->
+             Some
+               (let* prefix = parse env prefix in
+                let* string = parse env string in
+                return (S.Term.prefixof prefix string))
+          | "str.suffixof", [suffix; string] ->
+             Some
+               (let* suffix = parse env suffix in
+                let* string = parse env string in
+                return (S.Term.suffixof suffix string))
+          | "str.at", [string; index] ->
+             Some
+               (let* string = parse env string in
+                let* index = parse env index in
+                return (S.Term.at string index))
+          | "str.in_re", [string; regex] ->
+             Some
+               (let* string = parse env string in
+                let* regex = parse_regex parse env regex in
+                return (S.Term.in_re string regex))
+          | ( "str.len"
+            | "str.substr"
+            | "str.contains"
+            | "str.indexof"
+            | "str.replace"
+            | "str.prefixof"
+            | "str.suffixof"
+            | "str.at"
+            | "str.in_re" ), _ ->
+             raise_smt2 "wrong arity for %s in %s" head (sexp_to_string sexp)
+          | _ -> None
+        end
+     | _ -> None
+
+let syntax_hooks : SMT2.Session.syntax_hooks = {
+    parse_type;
+    parse_term;
+    set_logic = string_logic;
+  }
 
 let () =
+  Printexc.record_backtrace true;
   let args = ref [] in
   let description =
     "Executable for SMT-LIB string benchmarks. One filename as argument."
@@ -366,14 +277,14 @@ let () =
   Arg.parse [] (fun arg -> args := arg :: !args) description;
   match List.rev !args with
   | [filename] ->
-      begin
-        try process_file filename with
-        | String_smt2_error msg ->
-            Format.eprintf "string SMT2 error: %s@." msg;
-            exit 1
-        | Yices2.High.ExceptionsErrorHandling.YicesException (_, report) as exc ->
-            Format.eprintf "%a@." Yices2.Ext.Types.pp_error_report report;
-            raise exc
-      end
+     begin
+       try SMT2.SMT2.process_file ~syntax_hooks filename with
+       | Yices2.SMT2.Yices_SMT2_exception msg ->
+          Format.eprintf "string SMT2 error: %s@." msg;
+          exit 1
+       | Yices2.High.ExceptionsErrorHandling.YicesException (_, report) as exc ->
+          Format.eprintf "%a@." Yices2.Ext.Types.pp_error_report report;
+          raise exc
+     end
   | [] -> failwith "Too few arguments in the command"
   | _ -> failwith "Too many arguments in the command"

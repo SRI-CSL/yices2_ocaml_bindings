@@ -17,6 +17,12 @@ stage_g_parser_active sat QF_S/20230329-automatark-lu/instance00974.smt2
 stage_g_parser_active sat QF_S/20230329-automatark-lu/instance01754.smt2
 stage_g_parser_active sat QF_S/20230329-automatark-lu/instance00890.smt2
 stage_g_parser_active unsat QF_S/20230329-automatark-lu/instance14580.smt2
+stage3_5_escape_active unsat QF_S/2019-Jiang/slog/slog_stranger_2699_sink.smt2
+stage3_5_escape_active unsat QF_S/2019-Jiang/slog/slog_stranger_2716_sink.smt2
+stage3_5_escape_active unsat QF_S/2019-Jiang/slog/slog_stranger_1819_sink.smt2
+stage3_5_escape_active unsat QF_S/2019-Jiang/slog/slog_stranger_230_sink.smt2
+stage3_5_escape_active unsat QF_S/2019-Jiang/slog/slog_stranger_1156_sink.smt2
+stage3_5_escape_active unsat QF_S/2019-Jiang/slog/slog_stranger_5429_sink.smt2
 stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-1.smt2
 stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-2.smt2
 stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-3.smt2

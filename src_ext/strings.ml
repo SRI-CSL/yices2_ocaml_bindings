@@ -28,6 +28,7 @@ and regex =
   | ReAll
   | ReAllChar
   | ReLit of string
+  | ReToRe of Term.t
   | ReRange of int * int
   | ReConcat of regex list
   | ReUnion of regex list
@@ -54,7 +55,48 @@ let prefixof_symbol_ref = ref None
 let suffixof_symbol_ref = ref None
 let at_symbol_ref = ref None
 let concat_symbols : (int, Term.t) Hashtbl.t = Hashtbl.create 17
-let regex_symbols : (regex, Term.t) Hashtbl.t = Hashtbl.create 17
+let rec regex_equal lhs rhs =
+  match lhs, rhs with
+  | ReEmpty, ReEmpty | ReAll, ReAll | ReAllChar, ReAllChar -> true
+  | ReLit lhs, ReLit rhs -> String.equal lhs rhs
+  | ReToRe lhs, ReToRe rhs -> Term.equal lhs rhs
+  | ReRange (llo, lhi), ReRange (rlo, rhi) -> llo = rlo && lhi = rhi
+  | ReConcat lhs, ReConcat rhs
+  | ReUnion lhs, ReUnion rhs
+  | ReInter lhs, ReInter rhs ->
+      List.length lhs = List.length rhs && List.for_all2 regex_equal lhs rhs
+  | ReStar lhs, ReStar rhs
+  | ReComp lhs, ReComp rhs
+  | RePlus lhs, RePlus rhs
+  | ReOpt lhs, ReOpt rhs ->
+      regex_equal lhs rhs
+  | ReLoop (lbody, llo, lhi), ReLoop (rbody, rlo, rhi) ->
+      llo = rlo && lhi = rhi && regex_equal lbody rbody
+  | _ -> false
+
+let rec regex_hash = function
+  | ReEmpty -> Hashtbl.hash 0
+  | ReAll -> Hashtbl.hash 1
+  | ReAllChar -> Hashtbl.hash 2
+  | ReLit text -> Hashtbl.hash (3, text)
+  | ReToRe term -> Hashtbl.hash (4, Term.hash term)
+  | ReRange (lo, hi) -> Hashtbl.hash (5, lo, hi)
+  | ReConcat regexes -> Hashtbl.hash (6, List.map regex_hash regexes)
+  | ReUnion regexes -> Hashtbl.hash (7, List.map regex_hash regexes)
+  | ReStar regex -> Hashtbl.hash (8, regex_hash regex)
+  | ReInter regexes -> Hashtbl.hash (9, List.map regex_hash regexes)
+  | ReComp regex -> Hashtbl.hash (10, regex_hash regex)
+  | RePlus regex -> Hashtbl.hash (11, regex_hash regex)
+  | ReOpt regex -> Hashtbl.hash (12, regex_hash regex)
+  | ReLoop (regex, lo, hi) -> Hashtbl.hash (13, regex_hash regex, lo, hi)
+
+module HRegex = Hashtbl.Make(struct
+  type t = regex
+  let equal = regex_equal
+  let hash = regex_hash
+end)
+
+let regex_symbols : Term.t HRegex.t = HRegex.create 17
 let literal_ids : (string, literal_info) Hashtbl.t = Hashtbl.create 101
 let next_literal_id = ref 0
 
@@ -73,7 +115,7 @@ let () =
       suffixof_symbol_ref := None;
       at_symbol_ref := None;
       Hashtbl.clear concat_symbols;
-      Hashtbl.clear regex_symbols;
+      HRegex.clear regex_symbols;
       Hashtbl.clear literal_ids;
       next_literal_id := 0)
 
@@ -237,14 +279,14 @@ let concat_symbol arity =
       f
 
 let regex_symbol regex =
-  match Hashtbl.find_opt regex_symbols regex with
+  match HRegex.find_opt regex_symbols regex with
   | Some f when Term.is_good f -> f
   | _ ->
       let name =
-        Format.sprintf "__yices_string_in_re_%d" (Hashtbl.length regex_symbols)
+        Format.sprintf "__yices_string_in_re_%d" (HRegex.length regex_symbols)
       in
       let f = Term.new_uninterpreted ~name Type.(func [string_type ()] (bool ())) in
-      Hashtbl.replace regex_symbols regex f;
+      HRegex.replace regex_symbols regex f;
       f
 
 let record_view term view =
@@ -715,7 +757,21 @@ let ground_concat_value terms =
   in
   aux [] terms
 
-let rec scan_term acc term =
+let rec regex_string_terms acc = function
+  | ReToRe term -> scan_term acc term
+  | ReConcat regexes
+  | ReUnion regexes
+  | ReInter regexes ->
+      List.fold_left regex_string_terms acc regexes
+  | ReStar regex
+  | ReComp regex
+  | RePlus regex
+  | ReOpt regex
+  | ReLoop (regex, _, _) ->
+      regex_string_terms acc regex
+  | ReEmpty | ReAll | ReAllChar | ReLit _ | ReRange _ -> acc
+
+and scan_term acc term =
   let acc =
     if is_string_type (Term.type_of_term term) then StringTermSet.add term acc
     else acc
@@ -737,7 +793,7 @@ let rec scan_term acc term =
         List.fold_left scan_term acc [haystack; needle; replacement]
     | Some (At (string, index)) ->
         List.fold_left scan_term acc [string; index]
-    | Some (InRe (string, _regex)) -> scan_term acc string
+    | Some (InRe (string, regex)) -> regex_string_terms (scan_term acc string) regex
     | Some (Lit _) | None -> acc
   in
   match tstruct with
@@ -1347,6 +1403,8 @@ let rec automata_regex_of_regex = function
   | ReAll -> RA.All
   | ReAllChar -> RA.AllChar
   | ReLit text -> RA.Lit text
+  | ReToRe _ ->
+      invalid_arg "symbolic str.to_re cannot be compiled as a concrete automaton"
   | ReRange (lo, hi) -> RA.Range (lo, hi)
   | ReConcat regexes -> RA.Concat (List.map automata_regex_of_regex regexes)
   | ReUnion regexes -> RA.Union (List.map automata_regex_of_regex regexes)
@@ -1384,6 +1442,7 @@ let regex_accepts_direct regex text =
           [stop]
         else
           []
+    | ReToRe _ -> []
     | ReRange (lo, hi) -> (
         if start >= scalar_count then []
         else
@@ -1451,10 +1510,13 @@ let regex_accepts_direct regex text =
   in
   List.exists (( = ) scalar_count) (match_from regex 0)
 
-let regex_accepts regex text =
-  match RA.compile (automata_regex_of_regex regex) with
-  | Ok automaton -> RA.accepts automaton text
+let[@warning "-32"] regex_accepts regex text =
+  match try Ok (automata_regex_of_regex regex) with Invalid_argument msg -> Error msg with
   | Error _ -> regex_accepts_direct regex text
+  | Ok automata_regex -> (
+  match RA.compile automata_regex with
+  | Ok automaton -> RA.accepts automaton text
+  | Error _ -> regex_accepts_direct regex text)
 
 let filler_string seed length =
   if length <= 0 then ""
@@ -1934,8 +1996,194 @@ let equality_premises_for_class equalities cls =
 let regex_constraints_for_class constraints cls =
   List.filter (fun constraint_ -> term_in_class constraint_.regex_string cls) constraints
 
+let rec regex_has_symbolic = function
+  | ReToRe _ -> true
+  | ReConcat regexes
+  | ReUnion regexes
+  | ReInter regexes ->
+      List.exists regex_has_symbolic regexes
+  | ReStar regex
+  | ReComp regex
+  | RePlus regex
+  | ReOpt regex
+  | ReLoop (regex, _, _) ->
+      regex_has_symbolic regex
+  | ReEmpty | ReAll | ReAllChar | ReLit _ | ReRange _ -> false
+
+let is_concrete_regex_constraint constraint_ =
+  not (regex_has_symbolic constraint_.regex_body)
+
+let symbolic_regex_branch_limit = 16
+
+let rec regex_exact_word_terms regex =
+  let append_limited lhs rhs =
+    let combined = List.rev_append lhs rhs |> List.sort_uniq ~cmp:Term.compare in
+    if List.length combined > symbolic_regex_branch_limit then
+      Error
+        (Format.asprintf
+           "symbolic regex finite expansion exceeds branch limit %d"
+           symbolic_regex_branch_limit)
+    else
+      Ok combined
+  in
+  let word_concat terms =
+    let terms =
+      List.filter
+        (fun term ->
+           match static_string_value term with
+           | Some "" -> false
+           | _ -> true)
+        terms
+    in
+    match terms with
+    | [] -> literal ""
+    | [term] -> term
+    | terms -> concat terms
+  in
+  let concat_products lhs rhs =
+    let products =
+      List.concat_map
+        (fun left ->
+           List.map (fun right -> word_concat [left; right]) rhs)
+        lhs
+    in
+    append_limited [] products
+  in
+  match regex with
+  | ReEmpty -> Ok []
+  | ReLit text -> Ok [literal text]
+  | ReToRe term -> Ok [term]
+  | ReConcat regexes ->
+      let rec aux acc = function
+        | [] -> Ok acc
+        | regex :: rest -> (
+            match regex_exact_word_terms regex with
+            | Error _ as err -> err
+            | Ok terms -> (
+                match concat_products acc terms with
+                | Error _ as err -> err
+                | Ok acc -> aux acc rest))
+      in
+      aux [literal ""] regexes
+  | ReUnion regexes ->
+      let rec aux acc = function
+        | [] -> Ok acc
+        | regex :: rest -> (
+            match regex_exact_word_terms regex with
+            | Error _ as err -> err
+            | Ok terms -> (
+                match append_limited acc terms with
+                | Error _ as err -> err
+                | Ok acc -> aux acc rest))
+      in
+      aux [] regexes
+  | ReOpt regex ->
+      regex_exact_word_terms (ReUnion [ReLit ""; regex])
+  | ReLoop (regex, lo, hi) ->
+      if lo < 0 || hi < lo then
+        Ok []
+      else
+        let rec repeat acc n =
+          if n = 0 then Ok acc
+          else
+            match regex_exact_word_terms regex with
+            | Error _ as err -> err
+            | Ok terms -> (
+                match concat_products acc terms with
+                | Error _ as err -> err
+                | Ok acc -> repeat acc (n - 1))
+        in
+        let rec collect acc n =
+          if n > hi then Ok acc
+          else (
+            match repeat [literal ""] n with
+            | Error _ as err -> err
+            | Ok terms -> (
+                match append_limited acc terms with
+                | Error _ as err -> err
+                | Ok acc -> collect acc (n + 1)))
+        in
+        collect [] lo
+  | ReAll | ReAllChar | ReRange _ ->
+      Error "symbolic regex reduction supports only exact word languages"
+  | ReStar _ ->
+      Error "symbolic regex reduction does not support unbounded re.*"
+  | RePlus _ ->
+      Error "symbolic regex reduction does not support unbounded re.+"
+  | ReInter _ ->
+      Error "symbolic regex reduction does not support symbolic re.inter"
+  | ReComp _ ->
+      Error "symbolic regex reduction does not support symbolic re.comp"
+
+let symbolic_regex_axioms terms =
+  terms
+  |> List.fold_left scan_term StringTermSet.empty
+  |> StringTermSet.elements
+  |> List.concat_map axioms_for_string_term
+  |> List.sort_uniq ~cmp:Term.compare
+
+let symbolic_regex_reduction_lemma constraint_ words =
+  let equalities =
+    List.map (fun word -> Term.(constraint_.regex_string === word)) words
+  in
+  let conclusion =
+    match constraint_.regex_polarity with
+    | Regex_pos -> disjoin equalities
+    | Regex_neg -> conjoin (List.map Term.not1 equalities)
+  in
+  conjoin
+    (symbolic_regex_axioms words
+     @ [Term.(constraint_.regex_atom ==> conclusion)])
+
+let symbolic_regex_reduction state smodel formulas =
+  let constraints =
+    collect_regex_constraints smodel formulas
+    |> List.filter (fun constraint_ -> regex_has_symbolic constraint_.regex_body)
+  in
+  let rec find blocked = function
+    | [] -> (
+        match blocked with
+        | None -> Symbolic_none
+        | Some reason -> Symbolic_blocked reason)
+    | constraint_ :: tail ->
+        if HTerms.mem state.generated_symbolic_reductions constraint_.regex_atom then
+          find blocked tail
+        else (
+          match regex_exact_word_terms constraint_.regex_body with
+          | Error reason ->
+              let blocked =
+                Some
+                  (Format.asprintf
+                     "unsupported symbolic regex for %a: %s"
+                     Term.pp
+                     constraint_.regex_atom
+                     reason)
+              in
+              find blocked tail
+          | Ok words ->
+              let lemma = symbolic_regex_reduction_lemma constraint_ words in
+              if true_in_model smodel lemma then begin
+                String_log.debug
+                  "symbolic regex reduction skipped for %a; model already satisfies exact reduction"
+                  Term.pp
+                  constraint_.regex_atom;
+                find blocked tail
+              end else (
+                String_log.debug
+                  "symbolic regex reduction generated for %a with %d branch(es)"
+                  Term.pp
+                  constraint_.regex_atom
+                  (List.length words);
+                match mark_symbolic_reduction state constraint_.regex_atom lemma with
+                | Ok lemma -> Symbolic_refine (Op_in_re, lemma)
+                | Error reason -> Symbolic_blocked reason))
+  in
+  find None constraints
+
 let compile_regex_body regex =
-  RA.compile (automata_regex_of_regex regex)
+  match try Ok (automata_regex_of_regex regex) with Invalid_argument msg -> Error msg with
+  | Error _ as err -> err
+  | Ok regex -> RA.compile regex
 
 let automaton_constraint source premises automaton =
   Result.map
@@ -1955,6 +2203,7 @@ let rec regex_min_length = function
   | ReEmpty -> None
   | ReAll -> Some 0
   | ReAllChar | ReRange _ -> Some 1
+  | ReToRe _ -> Some 0
   | ReLit text -> (
       match RA.scalar_length text with
       | Ok length -> Some length
@@ -2233,7 +2482,8 @@ let apply_negative_regex_constraints automaton constraints =
   aux automaton constraints
 
 let regex_class_infos smodel formulas terms equalities =
-  let constraints = collect_regex_constraints smodel formulas in
+  let all_constraints = collect_regex_constraints smodel formulas in
+  let constraints = List.filter is_concrete_regex_constraint all_constraints in
   let positive_constraints = List.filter is_positive_regex_constraint constraints in
   let negative_constraints = List.filter is_negative_regex_constraint constraints in
   let regex_terms =
@@ -2619,9 +2869,155 @@ and bool_value smodel assignments term =
       | _ -> None)
   | Some (InRe (string, regex)) -> (
       match string_value smodel assignments string with
-      | Some text -> Some (regex_accepts regex text)
+      | Some text -> regex_accepts_value smodel assignments regex text
       | None -> None)
   | _ -> None
+
+and regex_accepts_value smodel assignments regex text =
+  let boundaries = utf8_scalar_boundaries text in
+  let scalar_count = List.length boundaries - 1 in
+  let boundary_at index =
+    match list_nth_opt boundaries index with
+    | Some boundary -> boundary
+    | None -> invalid_arg "regex_accepts_value: boundary index out of range"
+  in
+  let text_between start_idx end_idx =
+    let start_byte = boundary_at start_idx in
+    let end_byte = boundary_at end_idx in
+    String.sub text start_byte (end_byte - start_byte)
+  in
+  let literal_match literal start =
+    let lit_len = utf8_scalar_length literal in
+    let stop = start + lit_len in
+    if stop <= scalar_count && String.equal (text_between start stop) literal then
+      Some [stop]
+    else
+      Some []
+  in
+  let sort_stops stops = List.sort_uniq ~cmp:Int.compare stops in
+  let rec collect_matches regexes start =
+    let rec aux acc = function
+      | [] -> Some (sort_stops acc)
+      | regex :: rest -> (
+          match match_from regex start with
+          | None -> None
+          | Some stops -> aux (List.rev_append stops acc) rest)
+    in
+    aux [] regexes
+  and match_all regexes start =
+    let rec aux starts = function
+      | [] -> Some starts
+      | regex :: rest -> (
+          match
+            starts
+            |> List.map (fun start -> match_from regex start)
+            |> sequence_options
+          with
+          | None -> None
+          | Some next ->
+              aux (sort_stops (List.flatten next)) rest)
+    in
+    aux [start] regexes
+  and match_from regex start =
+    match regex with
+    | ReEmpty -> Some []
+    | ReAll -> Some [scalar_count]
+    | ReAllChar ->
+        Some (if start < scalar_count then [start + 1] else [])
+    | ReLit literal -> literal_match literal start
+    | ReToRe term -> (
+        match string_value smodel assignments term with
+        | Some literal -> literal_match literal start
+        | None -> None)
+    | ReRange (lo, hi) ->
+        if start >= scalar_count then Some []
+        else (
+          match scalar_codes (text_between start (start + 1)) with
+          | [code] when lo <= code && code <= hi -> Some [start + 1]
+          | _ -> Some [])
+    | ReUnion regexes -> collect_matches regexes start
+    | ReInter [] ->
+        Some (List.init (scalar_count - start + 1) (fun offset -> start + offset))
+    | ReInter (first :: rest) -> (
+        match match_from first start with
+        | None -> None
+        | Some first_stops -> (
+            match collect_matches rest start with
+            | None -> None
+            | Some _ ->
+                let rec keep stop = function
+                  | [] -> Some true
+                  | regex :: rest -> (
+                      match match_from regex start with
+                      | None -> None
+                      | Some stops ->
+                          if List.exists (( = ) stop) stops then keep stop rest
+                          else Some false)
+                in
+                let rec filter acc = function
+                  | [] -> Some (List.rev acc)
+                  | stop :: stops -> (
+                      match keep stop rest with
+                      | None -> None
+                      | Some true -> filter (stop :: acc) stops
+                      | Some false -> filter acc stops)
+                in
+                filter [] first_stops))
+    | ReConcat regexes -> match_all regexes start
+    | ReStar regex ->
+        let rec closure seen queue =
+          match queue with
+          | [] -> Some (sort_stops seen)
+          | start :: rest -> (
+              match match_from regex start with
+              | None -> None
+              | Some stops ->
+                  let next =
+                    stops
+                    |> List.filter
+                         (fun stop ->
+                            stop > start && not (List.exists (( = ) stop) seen))
+                  in
+                  closure (List.rev_append next seen) (List.rev_append next rest))
+        in
+        closure [start] [start]
+    | ReComp regex -> (
+        match match_from regex start with
+        | None -> None
+        | Some matched ->
+            Some
+              (List.init (scalar_count - start + 1) (fun offset -> start + offset)
+               |> List.filter (fun stop -> not (List.exists (( = ) stop) matched))))
+    | RePlus regex ->
+        match_from (ReConcat [regex; ReStar regex]) start
+    | ReOpt regex ->
+        match_from (ReUnion [ReLit ""; regex]) start
+    | ReLoop (regex, lo, hi) ->
+        if lo < 0 || hi < lo then
+          Some []
+        else
+          let rec repeat starts n =
+            if n = 0 then Some starts
+            else
+              match
+                starts
+                |> List.map (fun start -> match_from regex start)
+                |> sequence_options
+              with
+              | None -> None
+              | Some next ->
+                  repeat (sort_stops (List.flatten next)) (n - 1)
+          in
+          let rec collect acc n =
+            if n > hi then Some (sort_stops acc)
+            else (
+              match repeat [start] n with
+              | None -> None
+              | Some stops -> collect (List.rev_append stops acc) (n + 1))
+          in
+          collect [] lo
+  in
+  Option.map (List.exists (( = ) scalar_count)) (match_from regex 0)
 
 let complete_contains_witness_assignments state smodel formulas assignments =
   List.fold_left
@@ -3105,6 +3501,20 @@ type concrete_value =
   | Value_int of int
   | Value_bool of bool
 
+let rec regex_argument_terms = function
+  | ReToRe term -> [term]
+  | ReConcat regexes
+  | ReUnion regexes
+  | ReInter regexes ->
+      List.concat_map regex_argument_terms regexes
+  | ReStar regex
+  | ReComp regex
+  | RePlus regex
+  | ReOpt regex
+  | ReLoop (regex, _, _) ->
+      regex_argument_terms regex
+  | ReEmpty | ReAll | ReAllChar | ReLit _ | ReRange _ -> []
+
 let stage3_args = function
   | Substr (string, start, length) -> [string; start; length]
   | Contains (haystack, needle)
@@ -3113,7 +3523,7 @@ let stage3_args = function
   | Indexof (haystack, needle, start) -> [haystack; needle; start]
   | Replace (haystack, needle, replacement) -> [haystack; needle; replacement]
   | At (string, index) -> [string; index]
-  | InRe (string, _regex) -> [string]
+  | InRe (string, regex) -> string :: regex_argument_terms regex
   | Lit _ | Concat _ | Len _ -> []
 
 let stage3_value smodel assignments term =
@@ -3314,6 +3724,21 @@ let build_concrete_strings state smodel support =
                                                           Concrete_unknown blocked
                                                       | Symbolic_none -> (
                                                           match
+                                                            symbolic_regex_reduction
+                                                              state
+                                                              smodel
+                                                              formulas
+                                                          with
+                                                          | Symbolic_refine
+                                                              (op, lemma) ->
+                                                              Concrete_refine
+                                                                (op, lemma)
+                                                          | Symbolic_blocked
+                                                              blocked ->
+                                                              Concrete_unknown
+                                                                blocked
+                                                          | Symbolic_none -> (
+                                                          match
                                                             extended_refinement_lemma
                                                               smodel
                                                               assignments
@@ -3338,7 +3763,7 @@ let build_concrete_strings state smodel support =
                                                                     blocked
                                                               | Symbolic_none ->
                                                                   Concrete_unknown
-                                                                    reason))))))))))))
+                                                                    reason)))))))))))))
 
 let check state smodel =
   if state.stats.active_iterations >= state.refinement_limit then begin
@@ -3418,6 +3843,7 @@ let rec pp_regex fmt = function
   | ReAll -> Format.fprintf fmt "re.all"
   | ReAllChar -> Format.fprintf fmt "re.allchar"
   | ReLit text -> Format.fprintf fmt "@[<2>(str.to_re@ %S)@]" text
+  | ReToRe term -> Format.fprintf fmt "@[<2>(str.to_re@ %a)@]" Term.pp term
   | ReRange (lo, hi) ->
       Format.fprintf fmt "@[<2>(re.range@ %S@ %S)@]"
         (regex_code_string lo)
@@ -3538,15 +3964,16 @@ let rec term_to_sexp ?smt2arrays term =
         [
           Sexp.Atom "str.in_re";
           term_to_sexp ?smt2arrays string;
-          regex_to_sexp regex;
+          regex_to_sexp ?smt2arrays regex;
         ]
   | None -> Term.to_sexp ?smt2arrays term
 
-and regex_to_sexp = function
+and regex_to_sexp ?smt2arrays = function
   | ReEmpty -> Sexp.Atom "re.none"
   | ReAll -> Sexp.Atom "re.all"
   | ReAllChar -> Sexp.Atom "re.allchar"
   | ReLit text -> Sexp.List [Sexp.Atom "str.to_re"; Sexp.Atom (Format.sprintf "%S" text)]
+  | ReToRe term -> Sexp.List [Sexp.Atom "str.to_re"; term_to_sexp ?smt2arrays term]
   | ReRange (lo, hi) ->
       Sexp.List
         [
@@ -3555,19 +3982,21 @@ and regex_to_sexp = function
           Sexp.Atom (Format.sprintf "%S" (regex_code_string hi));
         ]
   | ReConcat regexes ->
-      Sexp.List (Sexp.Atom "re.++" :: List.map regex_to_sexp regexes)
+      Sexp.List (Sexp.Atom "re.++" :: List.map (regex_to_sexp ?smt2arrays) regexes)
   | ReUnion regexes ->
-      Sexp.List (Sexp.Atom "re.union" :: List.map regex_to_sexp regexes)
+      Sexp.List
+        (Sexp.Atom "re.union" :: List.map (regex_to_sexp ?smt2arrays) regexes)
   | ReStar regex ->
-      Sexp.List [Sexp.Atom "re.*"; regex_to_sexp regex]
+      Sexp.List [Sexp.Atom "re.*"; regex_to_sexp ?smt2arrays regex]
   | ReInter regexes ->
-      Sexp.List (Sexp.Atom "re.inter" :: List.map regex_to_sexp regexes)
+      Sexp.List
+        (Sexp.Atom "re.inter" :: List.map (regex_to_sexp ?smt2arrays) regexes)
   | ReComp regex ->
-      Sexp.List [Sexp.Atom "re.comp"; regex_to_sexp regex]
+      Sexp.List [Sexp.Atom "re.comp"; regex_to_sexp ?smt2arrays regex]
   | RePlus regex ->
-      Sexp.List [Sexp.Atom "re.+"; regex_to_sexp regex]
+      Sexp.List [Sexp.Atom "re.+"; regex_to_sexp ?smt2arrays regex]
   | ReOpt regex ->
-      Sexp.List [Sexp.Atom "re.opt"; regex_to_sexp regex]
+      Sexp.List [Sexp.Atom "re.opt"; regex_to_sexp ?smt2arrays regex]
   | ReLoop (regex, lo, hi) ->
       Sexp.List
         [
@@ -3578,7 +4007,7 @@ and regex_to_sexp = function
               Sexp.Atom (string_of_int lo);
               Sexp.Atom (string_of_int hi);
             ];
-          regex_to_sexp regex;
+          regex_to_sexp ?smt2arrays regex;
         ]
 
 let type_to_sexp ?smt2arrays typ =
@@ -3649,6 +4078,11 @@ module Regex = struct
   let str text =
     ignore (utf8_scalar_length text);
     ReLit text
+  let to_re term =
+    check_string_term term;
+    match reveal_string term with
+    | Some (Lit text) -> ReLit text
+    | _ -> ReToRe term
   let range lo hi =
     let lo_codes = scalar_codes lo in
     let hi_codes = scalar_codes hi in

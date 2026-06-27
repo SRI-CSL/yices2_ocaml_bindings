@@ -39,6 +39,7 @@ and regex =
   | ReAll
   | ReAllChar
   | ReLit of string
+  | ReToRe of Term.t
   | ReRange of int * int
   | ReConcat of regex list
   | ReUnion of regex list
@@ -56,6 +57,7 @@ module Regex : sig
   val all : t
   val all_char : t
   val str : string -> t
+  val to_re : Term.t -> t
   val range : string -> string -> t
   val concat : t list -> t
   val union : t list -> t

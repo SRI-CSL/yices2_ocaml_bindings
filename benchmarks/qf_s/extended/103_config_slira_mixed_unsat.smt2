@@ -1,0 +1,10 @@
+; EXPECT: unsat
+(set-logic QF_SLIRA)
+(declare-const x String)
+(declare-const n Int)
+(declare-const r Real)
+(assert (= x "abcd"))
+(assert (= n (str.len x)))
+(assert (< n 4))
+(assert (> r 0.25))
+(check-sat)
