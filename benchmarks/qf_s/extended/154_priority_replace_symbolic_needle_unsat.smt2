@@ -1,0 +1,12 @@
+; EXPECT: unsat
+(set-logic QF_S)
+(declare-const x String)
+(declare-const n String)
+(declare-const r String)
+(declare-const y String)
+(assert (= x "aa"))
+(assert (= n "a"))
+(assert (= r "b"))
+(assert (= y "aa"))
+(assert (= y (str.replace x n r)))
+(check-sat)

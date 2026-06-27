@@ -536,6 +536,20 @@ let test_code_operators () =
     S.Term.(not1 (to_code (from_code (Arith.int 65)) === Arith.int 65));
   assert_check `STATUS_UNSAT ctx
 
+let test_reduction_prioritization () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"priority_replace_all_x" () in
+  let needle = S.Term.string_var ~name:"priority_replace_all_needle" () in
+  let replacement = S.Term.string_var ~name:"priority_replace_all_replacement" () in
+  let result = S.Term.string_var ~name:"priority_replace_all_result" () in
+  S.Context.assert_formula ctx S.Term.(x === str "aa");
+  S.Context.assert_formula ctx S.Term.(needle === str "a");
+  S.Context.assert_formula ctx S.Term.(replacement === str "b");
+  S.Context.assert_formula ctx S.Term.(result === str "aa");
+  S.Context.assert_formula ctx
+    S.Term.(result === replace_all x needle replacement);
+  assert_check `STATUS_UNSAT ctx
+
 let test_regex_range_sat_unsat () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"stage3_regex_x" () in
@@ -990,6 +1004,7 @@ let test () =
   test_containment_abstraction ();
   test_character_abstraction ();
   test_code_operators ();
+  test_reduction_prioritization ();
   test_regex_range_sat_unsat ();
   test_regex_literal_length_refinement ();
   test_regex_union_length_refinement ();

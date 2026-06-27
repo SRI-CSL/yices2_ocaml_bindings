@@ -712,6 +712,10 @@ let record_refinement_lemma stats op =
   stats.generated_lemmas <- stats.generated_lemmas + 1;
   increment_operator_count stats op
 
+let refinement_operator_count stats op =
+  let key = refinement_operator_name op in
+  Option.value ~default:0 (Hashtbl.find_opt stats.operator_counts key)
+
 let record_length_finite_lemma stats =
   stats.length_finite_lemmas <- stats.length_finite_lemmas + 1
 
@@ -2399,34 +2403,59 @@ let stage3_equality_reduction_of_eq eq =
       Some (Reduce_replace_all (eq, haystack, needle, replacement, eq.lhs))
   | _ -> None
 
+let stage3_equality_reduction_operator = function
+  | Reduce_substr _ -> Op_substr
+  | Reduce_indexof _ -> Op_indexof
+  | Reduce_replace _ -> Op_replace
+  | Reduce_replace_all _ -> Op_replace_all
+
+let stage3_equality_reduction_base_priority = function
+  | Reduce_substr _ -> 70
+  | Reduce_indexof _ -> 70
+  | Reduce_replace _ -> 80
+  | Reduce_replace_all _ -> 90
+
+let stage3_equality_reduction_rank state reduction =
+  let op = stage3_equality_reduction_operator reduction in
+  ( stage3_equality_reduction_base_priority reduction
+    + min 10 (refinement_operator_count state.stats op),
+    refinement_operator_name op )
+
+let compare_stage3_equality_reductions state lhs rhs =
+  Stdlib.compare
+    (stage3_equality_reduction_rank state lhs)
+    (stage3_equality_reduction_rank state rhs)
+
 let symbolic_stage3_equality_reduction state smodel formulas =
   let rec find = function
     | [] -> Symbolic_none
-    | eq :: tail -> (
-        match stage3_equality_reduction_of_eq eq with
-        | None -> find tail
-        | Some (Reduce_substr (eq, string, start, length, result)) -> (
+    | reduction :: tail -> (
+        match reduction with
+        | Reduce_substr (eq, string, start, length, result) -> (
             match substr_split_reduction state eq string start length result with
             | Ok None -> find tail
             | Ok (Some lemma) -> Symbolic_refine (Op_substr, lemma)
             | Error reason -> Symbolic_blocked reason)
-        | Some (Reduce_indexof (eq, haystack, needle, start, result)) -> (
+        | Reduce_indexof (eq, haystack, needle, start, result) -> (
             match indexof_split_reduction state eq haystack needle start result with
             | Ok None -> find tail
             | Ok (Some lemma) -> Symbolic_refine (Op_indexof, lemma)
             | Error reason -> Symbolic_blocked reason)
-        | Some (Reduce_replace (eq, haystack, needle, replacement, result)) -> (
+        | Reduce_replace (eq, haystack, needle, replacement, result) -> (
             match replace_split_reduction state eq haystack needle replacement result with
             | Ok None -> find tail
             | Ok (Some lemma) -> Symbolic_refine (Op_replace, lemma)
             | Error reason -> Symbolic_blocked reason)
-        | Some (Reduce_replace_all (eq, haystack, needle, replacement, result)) -> (
+        | Reduce_replace_all (eq, haystack, needle, replacement, result) -> (
             match replace_all_split_reduction state eq haystack needle replacement result with
             | Ok None -> find tail
             | Ok (Some lemma) -> Symbolic_refine (Op_replace_all, lemma)
             | Error reason -> Symbolic_blocked reason))
   in
-  find (collect_true_stage3_equalities smodel formulas)
+  collect_true_stage3_equalities smodel formulas
+  |> List.filter_map stage3_equality_reduction_of_eq
+  |> List.stable_sort (compare_stage3_equality_reductions state)
+  |> find
 
 let fixed_concat_prefix_middle_suffix parts =
   let rec aux prefix = function
@@ -4625,7 +4654,33 @@ let collect_stage3_terms formulas =
   in
   List.fold_left aux StringTermSet.empty formulas |> StringTermSet.elements
 
-let extended_refinement_lemma smodel assignments formulas =
+let extended_refinement_lemma smodel assignments fixed_terms formulas =
+  let rec fixed_string_arg term =
+    not (is_string_type (Term.type_of_term term))
+    || Option.is_some (static_string_value term)
+    || StringTermSet.mem term fixed_terms
+    ||
+    match reveal_string term with
+    | Some (Lit _) -> true
+    | Some (Concat terms) -> List.for_all fixed_string_arg terms
+    | Some (FromCode _) -> true
+    | Some (Substr (string, _, _))
+    | Some (At (string, _)) ->
+        fixed_string_arg string
+    | Some (Replace (haystack, needle, replacement))
+    | Some (ReplaceAll (haystack, needle, replacement)) ->
+        List.for_all fixed_string_arg [haystack; needle; replacement]
+    | Some
+        ( Len _
+        | Contains _
+        | Indexof _
+        | ToCode _
+        | Prefixof _
+        | Suffixof _
+        | InRe _ )
+    | None ->
+        false
+  in
   collect_stage3_terms formulas
   |> List.find_map (fun term ->
          match reveal_string term, stage3_value smodel assignments term with
@@ -4634,6 +4689,9 @@ let extended_refinement_lemma smodel assignments formulas =
              Option.flat_map
                (fun op ->
                  let args = stage3_args view in
+                 if not (List.for_all fixed_string_arg args) then
+                   None
+                 else
                  let premises = List.filter_map (premise_for_arg smodel assignments) args in
                  if List.length premises <> List.length args
                     || not (List.for_all (true_in_model smodel) premises)
@@ -4658,6 +4716,167 @@ type concrete_result =
   | Concrete_refine of refinement_operator * Term.t
   | Concrete_unknown of string
 
+type refinement_candidate_outcome =
+  | Candidate_none
+  | Candidate_refine of refinement_operator * Term.t
+  | Candidate_blocked of string
+
+type refinement_candidate = {
+  candidate_priority : int;
+  candidate_operator : refinement_operator;
+  candidate_label : string;
+  candidate_produce : unit -> refinement_candidate_outcome;
+}
+
+let candidate_rank state candidate =
+  ( candidate.candidate_priority
+    + min 10 (refinement_operator_count state.stats candidate.candidate_operator),
+    candidate.candidate_priority,
+    refinement_operator_name candidate.candidate_operator,
+    candidate.candidate_label )
+
+let compare_refinement_candidates state lhs rhs =
+  Stdlib.compare (candidate_rank state lhs) (candidate_rank state rhs)
+
+let choose_refinement_candidate state candidates =
+  let rec find blocked = function
+    | [] -> (
+        match blocked with
+        | None -> Candidate_none
+        | Some reason -> Candidate_blocked reason)
+    | candidate :: tail -> (
+        match candidate.candidate_produce () with
+        | Candidate_none -> find blocked tail
+        | Candidate_refine (op, lemma) ->
+            String_log.debug
+              "selected %s refinement candidate at priority %d"
+              candidate.candidate_label
+              candidate.candidate_priority;
+            Candidate_refine (op, lemma)
+        | Candidate_blocked reason ->
+            String_log.debug
+              "skipping blocked %s refinement candidate: %s"
+              candidate.candidate_label
+              reason;
+            find (Some reason) tail)
+  in
+  candidates |> List.stable_sort (compare_refinement_candidates state) |> find None
+
+let candidate_of_option op option =
+  match option with
+  | None -> Candidate_none
+  | Some lemma -> Candidate_refine (op, lemma)
+
+let candidate_of_symbolic = function
+  | Symbolic_none -> Candidate_none
+  | Symbolic_refine (op, lemma) -> Candidate_refine (op, lemma)
+  | Symbolic_blocked reason -> Candidate_blocked reason
+
+let concrete_of_candidate = function
+  | Candidate_none -> None
+  | Candidate_refine (op, lemma) -> Some (Concrete_refine (op, lemma))
+  | Candidate_blocked reason -> Some (Concrete_unknown reason)
+
+let early_refinement_candidate state smodel formulas terms equalities regex_infos =
+  choose_refinement_candidate
+    state
+    [
+      {
+        candidate_priority = 20;
+        candidate_operator = Op_concat;
+        candidate_label = "concat literal refinement";
+        candidate_produce =
+          (fun () -> candidate_of_option Op_concat (refinement_lemma smodel equalities));
+      };
+      {
+        candidate_priority = 25;
+        candidate_operator = Op_contains;
+        candidate_label = "character abstraction refinement";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_contains
+               (character_abstraction_refinement
+                  state
+                  smodel
+                  formulas
+                  terms
+                  equalities
+                  regex_infos));
+      };
+      {
+        candidate_priority = 30;
+        candidate_operator = Op_in_re;
+        candidate_label = "regex domain refinement";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_in_re
+               (regex_domain_refinement state smodel regex_infos));
+      };
+      {
+        candidate_priority = 45;
+        candidate_operator = Op_contains;
+        candidate_label = "containment domain refinement";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_contains
+               (containment_domain_refinement state smodel formulas regex_infos));
+      };
+    ]
+
+let post_validation_refinement_candidate
+    state smodel assignments formulas equalities fixed_terms =
+  choose_refinement_candidate
+    state
+    [
+      {
+        candidate_priority = 20;
+        candidate_operator = Op_concat;
+        candidate_label = "concat literal refinement";
+        candidate_produce =
+          (fun () -> candidate_of_option Op_concat (refinement_lemma smodel equalities));
+      };
+      {
+        candidate_priority = 50;
+        candidate_operator = Op_replace;
+        candidate_label = "model-based extended refinement";
+        candidate_produce =
+          (fun () ->
+             match extended_refinement_lemma smodel assignments fixed_terms formulas with
+             | Some (op, lemma) -> Candidate_refine (op, lemma)
+             | None -> Candidate_none);
+      };
+      {
+        candidate_priority = 60;
+        candidate_operator = Op_in_re;
+        candidate_label = "symbolic regex refinement";
+        candidate_produce =
+          (fun () ->
+             candidate_of_symbolic
+               (symbolic_regex_reduction state smodel formulas));
+      };
+      {
+        candidate_priority = 90;
+        candidate_operator = Op_contains;
+        candidate_label = "positive contains split refinement";
+        candidate_produce =
+          (fun () ->
+             candidate_of_symbolic
+               (positive_contains_reduction state smodel formulas));
+      };
+      {
+        candidate_priority = 80;
+        candidate_operator = Op_substr;
+        candidate_label = "stage3 equality split refinement";
+        candidate_produce =
+          (fun () ->
+             candidate_of_symbolic
+               (symbolic_stage3_equality_reduction state smodel formulas));
+      };
+    ]
+
 let build_concrete_strings state smodel support =
   let formulas = current_terms state in
   let terms =
@@ -4669,145 +4888,84 @@ let build_concrete_strings state smodel support =
   in
   let equalities = collect_true_equalities smodel formulas in
   let fixed_terms = fixed_string_terms equalities in
-  match refinement_lemma smodel equalities with
-  | Some lemma -> Concrete_refine (Op_concat, lemma)
-  | None ->
-      match regex_class_infos smodel formulas terms equalities with
-      | Error reason -> Concrete_unknown reason
-      | Ok regex_infos -> (
-          match regex_domain_refinement state smodel regex_infos with
-          | Some lemma -> Concrete_refine (Op_in_re, lemma)
-          | None -> (
-              match
-                character_abstraction_refinement
-                  state
-                  smodel
-                  formulas
-                  terms
-                  equalities
-                  regex_infos
-              with
-              | Some lemma -> Concrete_refine (Op_contains, lemma)
-              | None -> (
-              match
-                containment_domain_refinement state smodel formulas regex_infos
-              with
-              | Some lemma -> Concrete_refine (Op_contains, lemma)
-              | None ->
-                  let concat_forced =
-                    List.filter_map concat_literal_assignment equalities
-                  in
-                  match regex_assignment_hints smodel concat_forced regex_infos with
+  match regex_class_infos smodel formulas terms equalities with
+  | Error reason -> Concrete_unknown reason
+  | Ok regex_infos -> (
+      match
+        early_refinement_candidate
+          state
+          smodel
+          formulas
+          terms
+          equalities
+          regex_infos
+        |> concrete_of_candidate
+      with
+      | Some result -> result
+      | None ->
+          let concat_forced =
+            List.filter_map concat_literal_assignment equalities
+          in
+          match regex_assignment_hints smodel concat_forced regex_infos with
+          | Error reason -> Concrete_unknown reason
+          | Ok regex_forced ->
+              let forced = List.rev_append regex_forced concat_forced in
+              match initial_assignments smodel terms equalities forced with
+              | Error reason -> Concrete_unknown reason
+              | Ok assignments -> (
+                  match
+                    complete_concat_shell_assignments smodel equalities assignments
+                  with
                   | Error reason -> Concrete_unknown reason
-                  | Ok regex_forced ->
-                      let forced = List.rev_append regex_forced concat_forced in
-                      match initial_assignments smodel terms equalities forced with
+                  | Ok assignments -> (
+                      match
+                        complete_contains_witness_assignments
+                          state
+                          smodel
+                          formulas
+                          assignments
+                      with
                       | Error reason -> Concrete_unknown reason
                       | Ok assignments -> (
                           match
-                            complete_concat_shell_assignments
-                              smodel
-                              equalities
-                              assignments
-                          with
-                          | Error reason -> Concrete_unknown reason
-                          | Ok assignments -> (
-                          match
-                            complete_contains_witness_assignments
+                            complete_stage3_witness_assignments
                               state
                               smodel
                               formulas
+                              fixed_terms
                               assignments
                           with
                           | Error reason -> Concrete_unknown reason
                           | Ok assignments -> (
-                              match
-                                complete_stage3_witness_assignments
-                                  state
-                                  smodel
-                                  formulas
-                                  fixed_terms
-                                  assignments
-                              with
+                              match complete_concat_assignments smodel terms assignments with
                               | Error reason -> Concrete_unknown reason
                               | Ok assignments -> (
-                                  match
-                                    complete_concat_assignments smodel terms assignments
-                                  with
+                                  match dedup_assignments assignments with
                                   | Error reason -> Concrete_unknown reason
                                   | Ok assignments -> (
-                                      match dedup_assignments assignments with
-                                      | Error reason -> Concrete_unknown reason
-                                      | Ok assignments -> (
-                                          match validate_lengths smodel assignments with
-                                          | Some reason -> Concrete_unknown reason
-                                          | None -> (
+                                      match validate_lengths smodel assignments with
+                                      | Some reason -> Concrete_unknown reason
+                                      | None -> (
+                                          match
+                                            validate_formulas
+                                              smodel
+                                              assignments
+                                              formulas
+                                          with
+                                          | None -> Concrete_sat assignments
+                                          | Some reason -> (
                                               match
-                                                validate_formulas
+                                                post_validation_refinement_candidate
+                                                  state
                                                   smodel
                                                   assignments
                                                   formulas
+                                                  equalities
+                                                  fixed_terms
+                                                |> concrete_of_candidate
                                               with
-                                              | None -> Concrete_sat assignments
-                                              | Some reason -> (
-                                                  match
-                                                    refinement_lemma smodel equalities
-                                                  with
-                                                  | Some lemma ->
-                                                      Concrete_refine (Op_concat, lemma)
-                                                  | None -> (
-                                                      match
-                                                        symbolic_stage3_equality_reduction
-                                                          state
-                                                          smodel
-                                                          formulas
-                                                      with
-                                                      | Symbolic_refine (op, lemma) ->
-                                                          Concrete_refine (op, lemma)
-                                                      | Symbolic_blocked blocked ->
-                                                          Concrete_unknown blocked
-                                                      | Symbolic_none -> (
-                                                          match
-                                                            symbolic_regex_reduction
-                                                              state
-                                                              smodel
-                                                              formulas
-                                                          with
-                                                          | Symbolic_refine
-                                                              (op, lemma) ->
-                                                              Concrete_refine
-                                                                (op, lemma)
-                                                          | Symbolic_blocked
-                                                              blocked ->
-                                                              Concrete_unknown
-                                                                blocked
-                                                          | Symbolic_none -> (
-                                                          match
-                                                            extended_refinement_lemma
-                                                              smodel
-                                                              assignments
-                                                              formulas
-                                                          with
-                                                          | Some (op, lemma) ->
-                                                              Concrete_refine (op, lemma)
-                                                          | None -> (
-                                                              match
-                                                                positive_contains_reduction
-                                                                  state
-                                                                  smodel
-                                                                  formulas
-                                                              with
-                                                              | Symbolic_refine
-                                                                  (op, lemma) ->
-                                                                  Concrete_refine
-                                                                    (op, lemma)
-                                                              | Symbolic_blocked
-                                                                  blocked ->
-                                                                  Concrete_unknown
-                                                                    blocked
-                                                              | Symbolic_none ->
-                                                                  Concrete_unknown
-                                                                    reason)))))))))))))))
+                                              | Some result -> result
+                                              | None -> Concrete_unknown reason)))))))))
 
 let check state smodel =
   if state.stats.active_iterations >= state.refinement_limit then begin
