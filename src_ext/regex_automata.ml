@@ -42,6 +42,10 @@ module ConfigSet = Set.Make(struct
     type t = int list * int
     let compare = compare
   end)
+module CostConfigSet = Set.Make(struct
+    type t = int list * int * int
+    let compare = compare
+  end)
 
 type label =
   | Eps
@@ -536,6 +540,35 @@ let next_symbol_choices nfa states =
        |> Option.map (fun code -> code, interval))
   |> List.sort (fun (lhs, _) (rhs, _) -> compare lhs rhs)
 
+let intervals_without_scalar interval scalar =
+  if scalar < interval.lo || scalar > interval.hi then
+    [interval]
+  else
+    [
+      { lo = interval.lo; hi = scalar - 1 };
+      { lo = scalar + 1; hi = interval.hi };
+    ]
+    |> List.filter (fun interval -> interval.lo <= interval.hi)
+
+let cost_symbol_choices nfa states scalar =
+  let choices_for_interval interval =
+    let target_choice =
+      if interval_contains scalar interval then [scalar, interval] else []
+    in
+    let non_target_choice =
+      intervals_without_scalar interval scalar
+      |> List.find_map (fun interval ->
+             representative_scalar [interval]
+             |> Option.map (fun code -> code, interval))
+      |> Option.to_list
+    in
+    target_choice @ non_target_choice
+  in
+  outgoing_ranges nfa states
+  |> partition_intervals
+  |> List.concat_map choices_for_interval
+  |> List.sort_uniq (fun (lhs, _) (rhs, _) -> compare lhs rhs)
+
 let state_key states =
   StateSet.elements states
 
@@ -571,6 +604,51 @@ let witness_of_length automaton length =
 
 let has_length automaton length =
   Option.is_some (witness_of_length automaton length)
+
+let witness_of_length_with_scalar_count automaton ~length ~scalar ~count =
+  if length < 0 || count < 0 || count > length || not (valid_scalar scalar) then
+    None
+  else
+    let nfa = automaton.nfa in
+    let rec bfs seen queue =
+      match queue with
+      | [] -> None
+      | (states, depth, scalar_count, scalars) :: rest ->
+          let key = state_key states, depth, scalar_count in
+          if CostConfigSet.mem key seen then
+            bfs seen rest
+          else
+            let seen = CostConfigSet.add key seen in
+            if depth = length then
+              if scalar_count = count
+                 && not (StateSet.is_empty (StateSet.inter states nfa.finals))
+              then
+                Some (string_of_scalars (List.rev scalars))
+              else
+                bfs seen rest
+            else
+              let remaining = length - depth in
+              let min_possible = scalar_count in
+              let max_possible = scalar_count + remaining in
+              if count < min_possible || count > max_possible then
+                bfs seen rest
+              else
+                let next =
+                  cost_symbol_choices nfa states scalar
+                  |> List.filter_map (fun (code, _) ->
+                         let next_count =
+                           scalar_count + if code = scalar then 1 else 0
+                         in
+                         if next_count > count then
+                           None
+                         else
+                           let states = step nfa states code in
+                           if StateSet.is_empty states then None
+                           else Some (states, depth + 1, next_count, code :: scalars))
+                in
+                bfs seen (rest @ next)
+    in
+    bfs CostConfigSet.empty [start_closure nfa, 0, 0, []]
 
 let witness automaton =
   let rec loop length =

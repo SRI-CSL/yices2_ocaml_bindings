@@ -46,6 +46,39 @@ let test_star_fixed_length_witnesses () =
   assert (A.witness_of_length aa_star 1 = None);
   assert (A.witness_of_length aa_star 3 = None)
 
+let assert_witness_length_count automaton ~length ~scalar ~count =
+  let witness =
+    expect_some
+      (A.witness_of_length_with_scalar_count automaton ~length ~scalar ~count)
+  in
+  assert_accepts automaton witness;
+  assert (A.scalar_length witness = Ok length);
+  let actual =
+    String.fold_left
+      (fun acc ch -> if Char.code ch = scalar then acc + 1 else acc)
+      0
+      witness
+  in
+  assert (actual = count);
+  witness
+
+let test_cost_enriched_witnesses () =
+  let allchar = compile A.AllChar in
+  let a = Char.code 'a' in
+  let non_a = assert_witness_length_count allchar ~length:1 ~scalar:a ~count:0 in
+  assert (not (String.equal non_a "a"));
+  assert (String.equal (assert_witness_length_count allchar ~length:1 ~scalar:a ~count:1) "a");
+  assert (A.witness_of_length_with_scalar_count allchar ~length:1 ~scalar:a ~count:2 = None);
+  let ab_star = compile (A.Star (A.Lit "ab")) in
+  let witness = assert_witness_length_count ab_star ~length:4 ~scalar:a ~count:2 in
+  assert (String.equal witness "abab");
+  assert (A.witness_of_length_with_scalar_count ab_star ~length:4 ~scalar:a ~count:3 = None);
+  let mixed =
+    compile (A.Concat [A.Range (Char.code 'a', Char.code 'c'); A.Lit "a"])
+  in
+  ignore (assert_witness_length_count mixed ~length:2 ~scalar:a ~count:1);
+  ignore (assert_witness_length_count mixed ~length:2 ~scalar:a ~count:2)
+
 let test_all_and_allchar () =
   let allchar = compile A.AllChar in
   assert_accepts allchar "A";
@@ -318,6 +351,7 @@ let test () =
   print_endline "Regex automata test";
   test_literal_and_range ();
   test_star_fixed_length_witnesses ();
+  test_cost_enriched_witnesses ();
   test_all_and_allchar ();
   test_combinators ();
   test_epsilon_heavy ();

@@ -45,5 +45,7 @@ val difference : t -> t -> (t, string) result
 val is_empty : t -> bool
 val witness : t -> string option
 val witness_of_length : t -> int -> string option
+val witness_of_length_with_scalar_count :
+  t -> length:int -> scalar:int -> count:int -> string option
 val has_length : t -> int -> bool
 val length_domain : t -> length_domain
