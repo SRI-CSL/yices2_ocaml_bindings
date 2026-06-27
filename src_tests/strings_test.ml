@@ -362,6 +362,33 @@ let test_replace_all_fixed_unsat () =
     S.Term.(replace_all x (str "a") (str "b") === str "aba");
   assert_check `STATUS_UNSAT ctx
 
+let test_replace_all_length_lemmas () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"replace_all_shrink_x" () in
+  let y = S.Term.string_var ~name:"replace_all_shrink_y" () in
+  S.Context.assert_formula ctx S.Term.(y === replace_all x (str "ab") (str ""));
+  S.Context.assert_formula ctx S.Term.(Arith.gt (S.Term.len y) (S.Term.len x));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"replace_all_grow_x" () in
+  let y = S.Term.string_var ~name:"replace_all_grow_y" () in
+  S.Context.assert_formula ctx S.Term.(y === replace_all x (str "a") (str "aa"));
+  S.Context.assert_formula ctx S.Term.(Arith.lt (S.Term.len y) (S.Term.len x));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"replace_all_equal_len_x" () in
+  let y = S.Term.string_var ~name:"replace_all_equal_len_y" () in
+  S.Context.assert_formula ctx S.Term.(y === replace_all x (str "ab") (str "XY"));
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.len y === S.Term.len x));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"replace_all_no_occ_x" () in
+  let y = S.Term.string_var ~name:"replace_all_no_occ_y" () in
+  S.Context.assert_formula ctx S.Term.(not1 (contains x (str "a")));
+  S.Context.assert_formula ctx S.Term.(y === replace_all x (str "a") (str "bb"));
+  S.Context.assert_formula ctx S.Term.(not1 (y === x));
+  assert_check `STATUS_UNSAT ctx
+
 let test_rewrite_simplification_axioms () =
   with_context @@ fun ctx ->
   let x = S.Term.string_var ~name:"rewrite_contains_empty_x" () in
@@ -1024,6 +1051,7 @@ let test () =
   test_replace_all_ground_semantics ();
   test_replace_all_symbolic_witness_sat ();
   test_replace_all_fixed_unsat ();
+  test_replace_all_length_lemmas ();
   test_rewrite_simplification_axioms ();
   test_containment_abstraction ();
   test_character_abstraction ();

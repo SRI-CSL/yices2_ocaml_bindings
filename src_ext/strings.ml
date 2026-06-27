@@ -1212,16 +1212,27 @@ let axioms_for_string_term term =
               [Term.(term === haystack)]
           | _ -> []
         in
+        let no_occurrence_axioms =
+          match static_string_value needle with
+          | Some needle_text when not (String.equal needle_text "") ->
+              [Term.(not1 (contains haystack needle) ==> (term === haystack))]
+          | _ -> []
+        in
         let length_axioms =
           match static_string_value needle, static_string_value replacement with
           | Some needle_text, Some replacement_text
-            when not (String.equal needle_text "")
-                 && utf8_scalar_length needle_text
-                    = utf8_scalar_length replacement_text ->
-              [Term.(length === len haystack)]
+            when not (String.equal needle_text "") ->
+              let needle_len = utf8_scalar_length needle_text in
+              let replacement_len = utf8_scalar_length replacement_text in
+              if replacement_len = needle_len then
+                [Term.(length === len haystack)]
+              else if replacement_len < needle_len then
+                [Term.Arith.leq length (len haystack)]
+              else
+                [Term.Arith.geq length (len haystack)]
           | _ -> []
         in
-        content_axioms @ length_axioms)
+        content_axioms @ no_occurrence_axioms @ length_axioms)
     | _ -> []
   in
   let from_code_axiom =
