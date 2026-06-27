@@ -2442,6 +2442,42 @@ let collect_true_equalities smodel formulas =
   in
   List.fold_left aux [] formulas |> List.rev
 
+let collect_syntactic_string_equalities formulas =
+  let rec aux acc term =
+    let Term tstruct = Term.reveal term in
+    let acc =
+      match tstruct with
+      | A2 (`YICES_EQ_TERM, lhs, rhs) when is_string_equality lhs rhs ->
+          { atom = term; lhs; rhs } :: acc
+      | _ -> acc
+    in
+    fold_children acc tstruct
+  and fold_children : type a. eq_atom list -> a YTypes.termstruct -> eq_atom list =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  List.fold_left aux [] formulas |> List.rev
+
 let is_int_term_type term =
   Type.equal (Term.type_of_term term) Type.(int ())
 
@@ -3639,6 +3675,109 @@ let regex_domain_refinement state smodel infos =
           match regex_length_domain_refinement state smodel infos with
           | Some _ as lemma -> lemma
           | None -> regex_failed_length_refinement state smodel infos))
+
+let singleton_automaton_witness automaton =
+  match RA.witness automaton with
+  | None -> None
+  | Some text -> (
+      match RA.exact text with
+      | Error reason ->
+          String_log.debug
+            "straight-line singleton check skipped: %s"
+            reason;
+          None
+      | Ok exact -> (
+          match RA.difference automaton exact with
+          | Ok difference when RA.is_empty difference -> Some text
+          | Ok _ -> None
+          | Error reason ->
+              String_log.debug
+                "straight-line singleton difference skipped: %s"
+                reason;
+              None))
+
+let split_text_by_scalar_lengths text lengths =
+  let total = utf8_scalar_length text in
+  if List.exists (fun length -> length < 0) lengths
+     || List.fold_left ( + ) 0 lengths <> total
+  then
+    None
+  else
+    let rec aux offset acc = function
+      | [] -> Some (List.rev acc)
+      | length :: rest ->
+          let part = substring_by_scalars text offset length in
+          aux (offset + length) (part :: acc) rest
+    in
+    aux 0 [] lengths
+
+let concat_singleton_propagation_lemma smodel info eq whole concat_term text =
+  if not (term_in_class whole info.regex_terms) then
+    None
+  else
+    match reveal_string concat_term with
+    | Some (Concat parts) -> (
+        match sequence_options (List.map (string_length_in_model smodel) parts) with
+        | None -> None
+        | Some lengths -> (
+            match split_text_by_scalar_lengths text lengths with
+            | None -> None
+            | Some slices ->
+                let length_premises =
+                  List.map2
+                    (fun part length -> Term.(len part === Term.Arith.int length))
+                    parts
+                    lengths
+                in
+                let conclusions =
+                  List.map2
+                    (fun part slice -> Term.(part === literal slice))
+                    parts
+                    slices
+                in
+                let premises =
+                  unique_terms (eq.atom :: info.regex_premises @ length_premises)
+                in
+                Some (imply_all premises (conjoin conclusions))))
+    | _ -> None
+
+let concat_singleton_propagation state smodel infos equalities =
+  infos
+  |> List.find_map (fun info ->
+         match singleton_automaton_witness info.regex_automaton with
+         | None -> None
+         | Some text ->
+             equalities
+             |> List.find_map (fun eq ->
+                    let candidates =
+                      [
+                        eq.lhs, eq.rhs;
+                        eq.rhs, eq.lhs;
+                      ]
+                    in
+                    candidates
+                    |> List.find_map (fun (whole, concat_term) ->
+                           match
+                             concat_singleton_propagation_lemma
+                               smodel
+                               info
+                               eq
+                               whole
+                               concat_term
+                               text
+                           with
+                           | None -> None
+                           | Some lemma ->
+                               if is_seen_generated state lemma then
+                                 None
+                               else begin
+                                 remember_internal_assertion state lemma;
+                                 String_log.debug
+                                   "straight-line concat singleton propagation for %a"
+                                   Term.pp
+                                   whole;
+                                 Some lemma
+                               end)))
 
 let containment_domain_lemma smodel info contains_term haystack needle_text =
   if not (term_in_class haystack info.regex_terms)
@@ -5139,6 +5278,7 @@ let concrete_of_candidate = function
   | Candidate_blocked reason -> Some (Concrete_unknown reason)
 
 let early_refinement_candidate state smodel formulas terms equalities regex_infos =
+  let syntactic_equalities = collect_syntactic_string_equalities formulas in
   choose_refinement_candidate
     state
     [
@@ -5164,6 +5304,20 @@ let early_refinement_candidate state smodel formulas terms equalities regex_info
                   terms
                   equalities
                   regex_infos));
+      };
+      {
+        candidate_priority = 28;
+        candidate_operator = Op_concat;
+        candidate_label = "straight-line concat singleton propagation";
+        candidate_produce =
+          (fun () ->
+             candidate_of_option
+               Op_concat
+               (concat_singleton_propagation
+                  state
+                  smodel
+                  regex_infos
+                  syntactic_equalities));
       };
       {
         candidate_priority = 30;
