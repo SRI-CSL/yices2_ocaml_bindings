@@ -43,6 +43,11 @@ and regex =
   | ReConcat of regex list
   | ReUnion of regex list
   | ReStar of regex
+  | ReInter of regex list
+  | ReComp of regex
+  | RePlus of regex
+  | ReOpt of regex
+  | ReLoop of regex * int * int
 
 module Regex : sig
   type t = regex
@@ -55,6 +60,11 @@ module Regex : sig
   val concat : t list -> t
   val union : t list -> t
   val star : t -> t
+  val inter : t list -> t
+  val comp : t -> t
+  val plus : t -> t
+  val opt : t -> t
+  val loop : lo:int -> hi:int -> t -> t
 end
 
 module StringModel : sig

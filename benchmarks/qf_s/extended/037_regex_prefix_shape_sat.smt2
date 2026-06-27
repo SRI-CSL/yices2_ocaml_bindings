@@ -1,0 +1,7 @@
+; EXPECT: sat
+(set-logic QF_S)
+(declare-const x String)
+(assert (str.in_re x (re.* (re.range "a" "c"))))
+(assert (str.prefixof "bc" x))
+(assert (= (str.len x) 4))
+(check-sat)

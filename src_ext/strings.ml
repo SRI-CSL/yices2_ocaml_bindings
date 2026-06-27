@@ -8,6 +8,7 @@ open Types_ext
 
 module YTypes = Yices2.Ext.Types
 module HTerms = Yices2.Ext.Types.HTerms
+module RA = Regex_automata
 
 type string_view =
   | Lit of string
@@ -31,6 +32,11 @@ and regex =
   | ReConcat of regex list
   | ReUnion of regex list
   | ReStar of regex
+  | ReInter of regex list
+  | ReComp of regex
+  | RePlus of regex
+  | ReOpt of regex
+  | ReLoop of regex * int * int
 
 type literal_info = {
   id : int;
@@ -463,6 +469,11 @@ type stats = {
   mutable generated_lemmas : int;
   mutable generated_witnesses : int;
   mutable active_iterations : int;
+  mutable length_finite_lemmas : int;
+  mutable length_periodic_lemmas : int;
+  mutable length_lower_bound_lemmas : int;
+  mutable length_failed_lemmas : int;
+  mutable length_combined_lemmas : int;
   operator_counts : (string, int) Hashtbl.t;
 }
 
@@ -528,6 +539,11 @@ let empty_stats () =
     generated_lemmas = 0;
     generated_witnesses = 0;
     active_iterations = 0;
+    length_finite_lemmas = 0;
+    length_periodic_lemmas = 0;
+    length_lower_bound_lemmas = 0;
+    length_failed_lemmas = 0;
+    length_combined_lemmas = 0;
     operator_counts = Hashtbl.create 17;
   }
 
@@ -536,6 +552,11 @@ let reset_stats stats =
   stats.generated_lemmas <- 0;
   stats.generated_witnesses <- 0;
   stats.active_iterations <- 0;
+  stats.length_finite_lemmas <- 0;
+  stats.length_periodic_lemmas <- 0;
+  stats.length_lower_bound_lemmas <- 0;
+  stats.length_failed_lemmas <- 0;
+  stats.length_combined_lemmas <- 0;
   Hashtbl.clear stats.operator_counts
 
 let reset_active_iterations state =
@@ -550,6 +571,21 @@ let record_refinement_lemma stats op =
   stats.generated_lemmas <- stats.generated_lemmas + 1;
   increment_operator_count stats op
 
+let record_length_finite_lemma stats =
+  stats.length_finite_lemmas <- stats.length_finite_lemmas + 1
+
+let record_length_periodic_lemma stats =
+  stats.length_periodic_lemmas <- stats.length_periodic_lemmas + 1
+
+let record_length_lower_bound_lemma stats =
+  stats.length_lower_bound_lemmas <- stats.length_lower_bound_lemmas + 1
+
+let record_length_failed_lemma stats =
+  stats.length_failed_lemmas <- stats.length_failed_lemmas + 1
+
+let record_length_combined_lemma stats =
+  stats.length_combined_lemmas <- stats.length_combined_lemmas + 1
+
 let operator_counts_summary stats =
   Hashtbl.fold
     (fun key count acc -> (key, count) :: acc)
@@ -563,18 +599,28 @@ let log_stats state outcome =
   let operator_counts = operator_counts_summary state.stats in
   if String.equal operator_counts "" then
     String_log.info
-      "Stage 3 stats after %s: %d extension iteration(s), %d lemma(s), %d witness(es)"
+      "Stage 3 stats after %s: %d extension iteration(s), %d lemma(s), %d witness(es); length lemmas: finite=%d, periodic=%d, lower=%d, failed=%d, combined=%d"
       outcome
       state.stats.refinement_iterations
       state.stats.generated_lemmas
       state.stats.generated_witnesses
+      state.stats.length_finite_lemmas
+      state.stats.length_periodic_lemmas
+      state.stats.length_lower_bound_lemmas
+      state.stats.length_failed_lemmas
+      state.stats.length_combined_lemmas
   else
     String_log.info
-      "Stage 3 stats after %s: %d extension iteration(s), %d lemma(s), %d witness(es); operators: %s"
+      "Stage 3 stats after %s: %d extension iteration(s), %d lemma(s), %d witness(es); length lemmas: finite=%d, periodic=%d, lower=%d, failed=%d, combined=%d; operators: %s"
       outcome
       state.stats.refinement_iterations
       state.stats.generated_lemmas
       state.stats.generated_witnesses
+      state.stats.length_finite_lemmas
+      state.stats.length_periodic_lemmas
+      state.stats.length_lower_bound_lemmas
+      state.stats.length_failed_lemmas
+      state.stats.length_combined_lemmas
       operator_counts
 
 let malloc ?config () =
@@ -1296,7 +1342,22 @@ let scalar_codes s =
   in
   pairs [] boundaries
 
-let regex_accepts regex text =
+let rec automata_regex_of_regex = function
+  | ReEmpty -> RA.Empty
+  | ReAll -> RA.All
+  | ReAllChar -> RA.AllChar
+  | ReLit text -> RA.Lit text
+  | ReRange (lo, hi) -> RA.Range (lo, hi)
+  | ReConcat regexes -> RA.Concat (List.map automata_regex_of_regex regexes)
+  | ReUnion regexes -> RA.Union (List.map automata_regex_of_regex regexes)
+  | ReStar regex -> RA.Star (automata_regex_of_regex regex)
+  | ReInter regexes -> RA.Inter (List.map automata_regex_of_regex regexes)
+  | ReComp regex -> RA.Comp (automata_regex_of_regex regex)
+  | RePlus regex -> RA.Plus (automata_regex_of_regex regex)
+  | ReOpt regex -> RA.Opt (automata_regex_of_regex regex)
+  | ReLoop (regex, lo, hi) -> RA.Loop (automata_regex_of_regex regex, lo, hi)
+
+let regex_accepts_direct regex text =
   let boundaries = utf8_scalar_boundaries text in
   let boundary_count = List.length boundaries in
   let boundary_at index =
@@ -1333,6 +1394,14 @@ let regex_accepts regex text =
         regexes
         |> List.concat_map (fun regex -> match_from regex start)
         |> List.sort_uniq ~cmp:Int.compare
+    | ReInter [] ->
+        List.init (scalar_count - start + 1) (fun offset -> start + offset)
+    | ReInter (first :: rest) ->
+        match_from first start
+        |> List.filter (fun stop ->
+               List.for_all
+                 (fun regex -> List.exists (( = ) stop) (match_from regex start))
+                 rest)
     | ReConcat regexes ->
         List.fold_left
           (fun starts regex ->
@@ -1354,8 +1423,38 @@ let regex_accepts regex text =
               closure (List.rev_append next seen) (List.rev_append next rest)
         in
         closure [start] [start] |> List.sort_uniq ~cmp:Int.compare
+    | ReComp regex ->
+        let matched = match_from regex start in
+        List.init (scalar_count - start + 1) (fun offset -> start + offset)
+        |> List.filter (fun stop -> not (List.exists (( = ) stop) matched))
+    | RePlus regex ->
+        match_from (ReConcat [regex; ReStar regex]) start
+    | ReOpt regex ->
+        match_from (ReUnion [ReLit ""; regex]) start
+    | ReLoop (regex, lo, hi) ->
+        if lo < 0 || hi < lo then
+          []
+        else
+          let rec repeat starts n =
+            if n = 0 then starts
+            else
+              starts
+              |> List.concat_map (fun start -> match_from regex start)
+              |> List.sort_uniq ~cmp:Int.compare
+              |> fun starts -> repeat starts (n - 1)
+          in
+          let rec collect acc n =
+            if n > hi then acc
+            else collect (List.rev_append (repeat [start] n) acc) (n + 1)
+          in
+          collect [] lo |> List.sort_uniq ~cmp:Int.compare
   in
   List.exists (( = ) scalar_count) (match_from regex 0)
+
+let regex_accepts regex text =
+  match RA.compile (automata_regex_of_regex regex) with
+  | Ok automaton -> RA.accepts automaton text
+  | Error _ -> regex_accepts_direct regex text
 
 let filler_string seed length =
   if length <= 0 then ""
@@ -1655,6 +1754,11 @@ let fixed_string_terms equalities =
 let representative_length smodel cls =
   List.find_map (string_length_in_model smodel) cls
 
+let static_values_for_class cls =
+  cls
+  |> List.filter_map static_string_value
+  |> List.sort_uniq ~cmp:String.compare
+
 let class_known_value forced cls =
   let values =
     let forced_values =
@@ -1663,7 +1767,7 @@ let class_known_value forced cls =
            if List.exists (Term.equal term) cls then Some text else None)
         forced
     in
-    cls |> List.filter_map static_string_value |> List.rev_append forced_values
+    static_values_for_class cls |> List.rev_append forced_values
     |> List.sort_uniq ~cmp:String.compare
   in
   match values with
@@ -1706,6 +1810,740 @@ let initial_assignments smodel terms equalities forced =
             index + 1, result)
   in
   snd (List.fold_left assign_class (0, Ok []) classes)
+
+type regex_polarity =
+  | Regex_pos
+  | Regex_neg
+
+type regex_constraint = {
+  regex_atom : Term.t;
+  regex_string : Term.t;
+  regex_body : regex;
+  regex_polarity : regex_polarity;
+}
+
+type automaton_constraint_source =
+  | Source_regex
+  | Source_literal_equality
+  | Source_concat_literal_shell
+  | Source_prefixof
+  | Source_suffixof
+  | Source_contains_literal
+  | Source_at_literal
+
+type automaton_constraint = {
+  automaton : RA.t;
+  premises : Term.t list;
+  source : automaton_constraint_source;
+}
+
+type regex_class_info = {
+  regex_terms : Term.t list;
+  regex_premises : Term.t list;
+  regex_constraints : regex_constraint list;
+  regex_negative_constraints : regex_constraint list;
+  regex_shape_constraints : automaton_constraint list;
+  regex_automaton : RA.t;
+}
+
+let unique_terms terms =
+  List.sort_uniq ~cmp:Term.compare terms
+
+let add_unique_regex_constraint item constraints =
+  if List.exists (fun old -> Term.equal old.regex_atom item.regex_atom) constraints then
+    constraints
+  else
+    item :: constraints
+
+let collect_regex_constraints smodel formulas =
+  let rec aux acc term =
+    let Term tstruct = Term.reveal term in
+    let acc =
+      match tstruct, reveal_string term with
+      | A1 (`YICES_NOT_TERM, arg), _ when true_in_model smodel term -> (
+          match reveal_string arg with
+          | Some (InRe (string, regex)) ->
+              add_unique_regex_constraint
+                {
+                  regex_atom = term;
+                  regex_string = string;
+                  regex_body = regex;
+                  regex_polarity = Regex_neg;
+                }
+                acc
+          | _ -> acc)
+      | _, Some (InRe (string, regex)) when true_in_model smodel term ->
+          add_unique_regex_constraint
+            {
+              regex_atom = term;
+              regex_string = string;
+              regex_body = regex;
+              regex_polarity = Regex_pos;
+            }
+            acc
+      | _ -> acc
+    in
+    fold_children acc tstruct
+  and fold_children : type a.
+      regex_constraint list -> a YTypes.termstruct -> regex_constraint list =
+    fun acc -> function
+    | A0 _ -> acc
+    | A1 (_, t) -> aux acc t
+    | A2 (_, t1, t2) -> aux (aux acc t1) t2
+    | Astar (_, terms) -> List.fold_left aux acc terms
+    | ITE (c, tb, eb) -> List.fold_left aux acc [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux acc f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux acc body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux acc array) value) index
+    | Projection (_, _, t) -> aux acc t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun acc (_, term) -> Option.map_or ~default:acc (aux acc) term)
+          acc terms
+    | Product (_, terms) ->
+        List.fold_left (fun acc (term, _) -> aux acc term) acc terms
+  in
+  List.fold_left aux [] formulas |> List.rev
+
+let is_positive_regex_constraint constraint_ =
+  match constraint_.regex_polarity with
+  | Regex_pos -> true
+  | Regex_neg -> false
+
+let is_negative_regex_constraint constraint_ =
+  match constraint_.regex_polarity with
+  | Regex_pos -> false
+  | Regex_neg -> true
+
+let term_in_class term cls =
+  List.exists (Term.equal term) cls
+
+let equality_premises_for_class equalities cls =
+  equalities
+  |> List.filter_map (fun eq ->
+         if term_in_class eq.lhs cls && term_in_class eq.rhs cls then Some eq.atom
+         else None)
+  |> unique_terms
+
+let regex_constraints_for_class constraints cls =
+  List.filter (fun constraint_ -> term_in_class constraint_.regex_string cls) constraints
+
+let compile_regex_body regex =
+  RA.compile (automata_regex_of_regex regex)
+
+let automaton_constraint source premises automaton =
+  Result.map
+    (fun automaton -> { automaton; premises = unique_terms premises; source })
+    automaton
+
+let regex_automaton_constraint constraint_ =
+  compile_regex_body constraint_.regex_body
+  |> automaton_constraint Source_regex [constraint_.regex_atom]
+
+let option_min lhs rhs =
+  match lhs, rhs with
+  | None, other | other, None -> other
+  | Some lhs, Some rhs -> Some (min lhs rhs)
+
+let rec regex_min_length = function
+  | ReEmpty -> None
+  | ReAll -> Some 0
+  | ReAllChar | ReRange _ -> Some 1
+  | ReLit text -> (
+      match RA.scalar_length text with
+      | Ok length -> Some length
+      | Error _ -> None)
+  | ReUnion regexes ->
+      List.fold_left
+        (fun acc regex -> option_min acc (regex_min_length regex))
+        None
+        regexes
+  | ReConcat regexes ->
+      let rec aux acc = function
+        | [] -> Some acc
+        | regex :: rest -> (
+            match regex_min_length regex with
+            | None -> None
+            | Some length -> aux (acc + length) rest)
+      in
+      aux 0 regexes
+  | ReStar _ -> Some 0
+  | ReInter regexes ->
+      regexes
+      |> List.map regex_min_length
+      |> List.fold_left
+        (fun acc min_length ->
+           match acc, min_length with
+           | None, _ | _, None -> None
+           | Some lhs, Some rhs -> Some (max lhs rhs))
+        (Some 0)
+  | ReComp _ -> Some 0
+  | RePlus regex -> regex_min_length regex
+  | ReOpt _ -> Some 0
+  | ReLoop (regex, lo, _hi) ->
+      if lo <= 0 then
+        Some 0
+      else
+        Option.map (fun length -> lo * length) (regex_min_length regex)
+
+let combine_automaton_constraints constraints =
+  let rec aux automaton = function
+    | [] -> Ok automaton
+    | constraint_ :: rest -> (
+        match RA.intersect automaton constraint_.automaton with
+        | Error _ as error -> error
+        | Ok automaton -> aux automaton rest)
+  in
+  match constraints with
+  | [] -> Error "internal error: empty automaton constraint class"
+  | constraint_ :: rest -> aux constraint_.automaton rest
+
+let singleton_scalar text =
+  match scalar_codes text with
+  | [code] -> Some code
+  | _ -> None
+
+let shape_exact atom text =
+  RA.exact text |> automaton_constraint Source_literal_equality [atom]
+
+let shape_prefix atom text =
+  if String.equal text "" then Ok None
+  else
+    RA.prefix text
+    |> automaton_constraint Source_concat_literal_shell [atom]
+    |> Result.map Option.some
+
+let shape_suffix atom text =
+  if String.equal text "" then Ok None
+  else
+    RA.suffix text
+    |> automaton_constraint Source_concat_literal_shell [atom]
+    |> Result.map Option.some
+
+let add_result_option result acc =
+  match result, acc with
+  | (Error _ as err), _ -> err
+  | _, (Error _ as err) -> err
+  | Ok None, Ok acc -> Ok acc
+  | Ok (Some item), Ok acc -> Ok (item :: acc)
+
+let shape_constraints_from_concat_shell atom term =
+  match reveal_string term with
+  | Some (Concat parts) -> (
+      match fixed_concat_prefix_middle_suffix parts with
+      | None -> Ok []
+      | Some (prefix, _, suffix) ->
+          Ok []
+          |> add_result_option (shape_prefix atom prefix)
+          |> add_result_option (shape_suffix atom suffix))
+  | _ -> Ok []
+
+let shape_constraints_from_equality smodel cls eq =
+  let add_exact_for_side term other acc =
+    if term_in_class term cls then
+      match static_string_value other with
+      | Some text -> (
+          match acc with
+          | Error _ as err -> err
+          | Ok acc -> (
+              match shape_exact eq.atom text with
+              | Error _ as err -> err
+              | Ok constraint_ -> Ok (constraint_ :: acc)))
+      | None -> acc
+    else
+      acc
+  in
+  let add_concat_for_side term acc =
+    if term_in_class term cls then
+      match acc with
+      | Error _ as err -> err
+      | Ok acc -> (
+          match shape_constraints_from_concat_shell eq.atom term with
+          | Error _ as err -> err
+          | Ok constraints -> Ok (List.rev_append constraints acc))
+    else
+      acc
+  in
+  let add_at_for_side term other acc =
+    match reveal_string term, static_string_value other with
+    | Some (At (string, index)), Some text when term_in_class string cls -> (
+        match singleton_scalar text, int_value_in_model smodel index with
+        | Some scalar, Some index when index >= 0 -> (
+            match acc with
+            | Error _ as err -> err
+            | Ok acc -> (
+                match
+                  RA.fixed_position ~index ~scalar
+                  |> automaton_constraint Source_at_literal [eq.atom]
+                with
+                | Error _ as err -> err
+                | Ok constraint_ -> Ok (constraint_ :: acc)))
+        | _ -> acc)
+    | _ -> acc
+  in
+  Ok []
+  |> add_exact_for_side eq.lhs eq.rhs
+  |> add_exact_for_side eq.rhs eq.lhs
+  |> add_concat_for_side eq.lhs
+  |> add_concat_for_side eq.rhs
+  |> add_at_for_side eq.lhs eq.rhs
+  |> add_at_for_side eq.rhs eq.lhs
+
+let shape_constraint_from_formula smodel cls term =
+  if not (true_in_model smodel term) then
+    Ok None
+  else
+    match reveal_string term with
+    | Some (Prefixof (prefix, string))
+      when term_in_class string cls -> (
+        match static_string_value prefix with
+        | None -> Ok None
+        | Some text ->
+            RA.prefix text
+            |> automaton_constraint Source_prefixof [term]
+            |> Result.map Option.some)
+    | Some (Suffixof (suffix, string))
+      when term_in_class string cls -> (
+        match static_string_value suffix with
+        | None -> Ok None
+        | Some text ->
+            RA.suffix text
+            |> automaton_constraint Source_suffixof [term]
+            |> Result.map Option.some)
+    | Some (Contains (haystack, needle))
+      when term_in_class haystack cls -> (
+        match static_string_value needle with
+        | None -> Ok None
+        | Some text ->
+            RA.contains text
+            |> automaton_constraint Source_contains_literal [term]
+            |> Result.map Option.some)
+    | _ -> Ok None
+
+let shape_constraints_from_formulas smodel cls formulas =
+  let rec aux result term =
+    match result with
+    | Error _ as err -> err
+    | Ok constraints -> (
+        match shape_constraint_from_formula smodel cls term with
+        | Error _ as err -> err
+        | Ok None ->
+            let Term tstruct = Term.reveal term in
+            fold_children (Ok constraints) tstruct
+        | Ok (Some constraint_) ->
+            let Term tstruct = Term.reveal term in
+            fold_children (Ok (constraint_ :: constraints)) tstruct)
+  and fold_children : type a.
+      (automaton_constraint list, string) result -> a YTypes.termstruct ->
+      (automaton_constraint list, string) result =
+    fun result -> function
+    | A0 _ -> result
+    | A1 (_, t) -> aux result t
+    | A2 (_, t1, t2) -> aux (aux result t1) t2
+    | Astar (_, terms) -> List.fold_left aux result terms
+    | ITE (c, tb, eb) -> List.fold_left aux result [c; tb; eb]
+    | App (f, args) -> List.fold_left aux (aux result f) args
+    | Bindings { vars; body; _ } -> List.fold_left aux (aux result body) vars
+    | Update { array; index; value } ->
+        List.fold_left aux (aux (aux result array) value) index
+    | Projection (_, _, t) -> aux result t
+    | BV_Sum terms ->
+        List.fold_left
+          (fun result (_, term) -> Option.map_or ~default:result (aux result) term)
+          result terms
+    | Sum terms
+    | FF_Sum terms ->
+        List.fold_left
+          (fun result (_, term) -> Option.map_or ~default:result (aux result) term)
+          result terms
+    | Product (_, terms) ->
+        List.fold_left (fun result (term, _) -> aux result term) result terms
+  in
+  List.fold_left aux (Ok []) formulas |> Result.map List.rev
+
+let shape_constraints_for_class smodel formulas equalities cls =
+  let from_equalities =
+    List.fold_left
+      (fun result eq ->
+         match result with
+         | Error _ as err -> err
+         | Ok acc -> (
+             match shape_constraints_from_equality smodel cls eq with
+             | Error _ as err -> err
+             | Ok constraints -> Ok (List.rev_append constraints acc)))
+      (Ok [])
+      equalities
+  in
+  match from_equalities with
+  | Error _ as err -> err
+  | Ok equality_constraints -> (
+      match shape_constraints_from_formulas smodel cls formulas with
+      | Error _ as err -> err
+      | Ok formula_constraints ->
+          Ok (List.rev_append equality_constraints formula_constraints))
+
+let source_is_shape = function
+  | Source_regex -> false
+  | Source_literal_equality
+  | Source_concat_literal_shell
+  | Source_prefixof
+  | Source_suffixof
+  | Source_contains_literal
+  | Source_at_literal -> true
+
+let regex_automaton_constraints constraints =
+  let rec aux acc = function
+    | [] -> Ok (List.rev acc)
+    | constraint_ :: rest -> (
+        match regex_automaton_constraint constraint_ with
+        | Error _ as err -> err
+        | Ok constraint_ -> aux (constraint_ :: acc) rest)
+  in
+  aux [] constraints
+
+let base_automaton_constraints positives shape_constraints negatives =
+  match positives, shape_constraints, negatives with
+  | [], [], [] -> Error "internal error: unconstrained regex class"
+  | [], _, _ ->
+      RA.compile RA.All
+      |> automaton_constraint Source_regex []
+      |> Result.map (fun base -> base :: shape_constraints)
+  | _ ->
+      match regex_automaton_constraints positives with
+      | Error _ as err -> err
+      | Ok regex_automata -> Ok (regex_automata @ shape_constraints)
+
+let apply_negative_regex_constraints automaton constraints =
+  let rec aux automaton = function
+    | [] -> Ok automaton
+    | constraint_ :: rest -> (
+        match compile_regex_body constraint_.regex_body with
+        | Error _ as err -> err
+        | Ok negative_automaton -> (
+            match RA.difference automaton negative_automaton with
+            | Error _ as err -> err
+            | Ok automaton -> aux automaton rest))
+  in
+  aux automaton constraints
+
+let regex_class_infos smodel formulas terms equalities =
+  let constraints = collect_regex_constraints smodel formulas in
+  let positive_constraints = List.filter is_positive_regex_constraint constraints in
+  let negative_constraints = List.filter is_negative_regex_constraint constraints in
+  let regex_terms =
+    constraints
+    |> List.map (fun constraint_ -> constraint_.regex_string)
+    |> List.rev_append terms
+    |> unique_terms
+  in
+  let classes = equality_classes regex_terms equalities in
+  let build result cls =
+    match result with
+    | Error _ as err -> err
+    | Ok infos ->
+        let positives = regex_constraints_for_class positive_constraints cls in
+        let negatives = regex_constraints_for_class negative_constraints cls in
+        if List.is_empty positives && List.is_empty negatives then
+          Ok infos
+        else
+          match shape_constraints_for_class smodel formulas equalities cls with
+          | Error reason -> Error reason
+          | Ok shape_constraints -> (
+              match base_automaton_constraints positives shape_constraints negatives with
+              | Error reason -> Error reason
+              | Ok automaton_constraints -> (
+                  match combine_automaton_constraints automaton_constraints with
+                  | Error reason -> Error reason
+                  | Ok positive_automaton -> (
+                      match
+                        apply_negative_regex_constraints positive_automaton negatives
+                      with
+                      | Error reason -> Error reason
+                      | Ok automaton ->
+                          let regex_atoms =
+                            positives
+                            |> List.map (fun constraint_ -> constraint_.regex_atom)
+                            |> unique_terms
+                          in
+                          let negative_atoms =
+                            negatives
+                            |> List.map (fun constraint_ -> constraint_.regex_atom)
+                            |> unique_terms
+                          in
+                          let premises =
+                            automaton_constraints
+                            |> List.concat_map (fun constraint_ -> constraint_.premises)
+                            |> List.rev_append regex_atoms
+                            |> List.rev_append negative_atoms
+                            |> List.rev_append
+                                 (equality_premises_for_class equalities cls)
+                            |> unique_terms
+                          in
+                          Ok
+                            ({
+                              regex_terms = cls;
+                              regex_premises = premises;
+                              regex_constraints = positives;
+                              regex_negative_constraints = negatives;
+                              regex_shape_constraints = shape_constraints;
+                              regex_automaton = automaton;
+                            }
+                             :: infos))))
+  in
+  let result = Result.map List.rev (List.fold_left build (Ok []) classes) in
+  begin
+    match result with
+    | Ok infos ->
+        let constrained_negatives =
+          List.fold_left
+            (fun acc info -> acc + List.length info.regex_negative_constraints)
+            0
+            infos
+        in
+        let shape_constraints =
+          List.fold_left
+            (fun acc info -> acc + List.length info.regex_shape_constraints)
+            0
+            infos
+        in
+        let shape_sources =
+          List.fold_left
+            (fun acc info ->
+               acc
+               + List.length
+                   (List.filter
+                      (fun constraint_ -> source_is_shape constraint_.source)
+                      info.regex_shape_constraints))
+            0
+            infos
+        in
+        String_log.debug
+          "regex domain: %d active constraint(s), %d negative constraint(s), %d constrained negative(s), %d shape constraint(s), %d shape source(s), %d equality class(es), %d constrained class(es)"
+          (List.length constraints)
+          (List.length negative_constraints)
+          constrained_negatives
+          shape_constraints
+          shape_sources
+          (List.length classes)
+          (List.length infos)
+    | Error reason ->
+        String_log.debug "regex domain construction failed: %s" reason
+  end;
+  result
+
+type regex_length_lemma_kind =
+  | Length_empty_kind
+  | Length_finite_kind
+  | Length_periodic_kind
+  | Length_lower_bound_kind
+
+let length_periodic_formula length_term base threshold period =
+  if period <= 0 then
+    None
+  else
+    let base =
+      base
+      |> List.filter (fun length -> length < threshold)
+      |> List.sort_uniq ~cmp:Int.compare
+    in
+    let base_formula =
+      base
+      |> List.map (fun length -> Term.(length_term === Term.Arith.int length))
+    in
+    let tail =
+      let offset = Term.Arith.(length_term -- Term.Arith.int threshold) in
+      Term.(
+        Term.Arith.geq length_term (Term.Arith.int threshold)
+        &&&
+        Term.Arith.divides_atom (Term.Arith.int period) offset)
+    in
+    Some (disjoin (base_formula @ [tail]))
+
+let length_domain_formula length_term = function
+  | RA.Length_empty | RA.Length_finite [] ->
+      Some (Length_empty_kind, Term.false0 ())
+  | RA.Length_finite lengths ->
+      let lengths = List.sort_uniq ~cmp:Int.compare lengths in
+      let conclusion =
+        lengths
+        |> List.map (fun length -> Term.(length_term === Term.Arith.int length))
+        |> disjoin
+      in
+      Some (Length_finite_kind, conclusion)
+  | RA.Length_periodic { base; threshold; period } ->
+      Option.map
+        (fun formula -> Length_periodic_kind, formula)
+        (length_periodic_formula length_term base threshold period)
+  | RA.Length_top -> None
+
+let regex_length_lemma constraint_ =
+  match compile_regex_body constraint_.regex_body with
+  | Error _ -> None
+  | Ok automaton -> (
+      match length_domain_formula (len constraint_.regex_string) (RA.length_domain automaton) with
+      | Some (Length_empty_kind, _) ->
+          Some (Length_empty_kind, Term.not1 constraint_.regex_atom)
+      | Some (kind, conclusion) ->
+          Some (kind, Term.(constraint_.regex_atom ==> conclusion))
+      | None -> (
+          match regex_min_length constraint_.regex_body with
+          | Some min_length when min_length > 0 ->
+              Some
+                ( Length_lower_bound_kind,
+                Term.(
+                  constraint_.regex_atom
+                  ==> Term.Arith.geq
+                        (len constraint_.regex_string)
+                        (Term.Arith.int min_length)) )
+          | None | Some _ -> None))
+
+let record_length_lemma_kind stats = function
+  | Length_empty_kind | Length_finite_kind -> record_length_finite_lemma stats
+  | Length_periodic_kind -> record_length_periodic_lemma stats
+  | Length_lower_bound_kind -> record_length_lower_bound_lemma stats
+
+let remember_regex_refinement state smodel lemma =
+  if true_in_model smodel lemma then None
+  else begin
+    remember_internal_assertion state lemma;
+    Some lemma
+  end
+
+let regex_empty_intersection_refinement state smodel infos =
+  List.find_map
+    (fun info ->
+       if RA.is_empty info.regex_automaton then
+         let lemma = Term.not1 (conjoin info.regex_premises) in
+         begin
+           match remember_regex_refinement state smodel lemma with
+           | Some _ as result ->
+               String_log.debug
+                 "regex refinement: empty intersection for %d term(s)"
+                 (List.length info.regex_terms);
+               result
+           | None -> None
+         end
+       else
+         None)
+    infos
+
+let regex_length_domain_refinement state smodel infos =
+  infos
+  |> List.concat_map (fun info -> info.regex_constraints)
+  |> List.find_map (fun constraint_ ->
+         match regex_length_lemma constraint_ with
+         | None -> None
+         | Some (kind, lemma) -> (
+             match remember_regex_refinement state smodel lemma with
+             | Some _ as result ->
+                 record_length_lemma_kind state.stats kind;
+                 String_log.debug
+                   "regex refinement: length-domain lemma for %a"
+                   Term.pp
+                   constraint_.regex_string;
+                 result
+             | None -> None))
+
+let combined_regex_length_lemma info =
+  match info.regex_terms with
+  | [] -> None
+  | representative :: _ -> (
+      match length_domain_formula (len representative) (RA.length_domain info.regex_automaton) with
+      | Some (Length_empty_kind, _) ->
+          Some (Length_empty_kind, Term.not1 (conjoin info.regex_premises))
+      | Some (kind, conclusion) ->
+          Some (kind, imply_all info.regex_premises conclusion)
+      | None -> None)
+
+let combined_regex_length_domain_refinement state smodel infos =
+  List.find_map
+    (fun info ->
+       match combined_regex_length_lemma info with
+       | None -> None
+       | Some (kind, lemma) -> (
+           match remember_regex_refinement state smodel lemma with
+           | Some _ as result ->
+               record_length_combined_lemma state.stats;
+               record_length_lemma_kind state.stats kind;
+               String_log.debug
+                 "regex refinement: combined length-domain lemma for %d term(s)"
+                 (List.length info.regex_terms);
+               result
+           | None -> None))
+    infos
+
+let regex_failed_length_refinement state smodel infos =
+  List.find_map
+    (fun info ->
+       match representative_length smodel info.regex_terms with
+       | None -> None
+       | Some length ->
+           if RA.has_length info.regex_automaton length then
+             None
+           else
+             let conclusion =
+               Term.not1 Term.(len (List.hd info.regex_terms) === Term.Arith.int length)
+             in
+             let lemma = imply_all info.regex_premises conclusion in
+             begin
+               match remember_regex_refinement state smodel lemma with
+               | Some _ as result ->
+                   record_length_failed_lemma state.stats;
+                   String_log.debug
+                     "regex refinement: blocked model length %d for %d term(s)"
+                     length
+                     (List.length info.regex_terms);
+                   result
+               | None -> None
+             end)
+    infos
+
+let regex_domain_refinement state smodel infos =
+  match regex_empty_intersection_refinement state smodel infos with
+  | Some _ as lemma -> lemma
+  | None -> (
+      match combined_regex_length_domain_refinement state smodel infos with
+      | Some _ as lemma -> lemma
+      | None -> (
+          match regex_length_domain_refinement state smodel infos with
+          | Some _ as lemma -> lemma
+          | None -> regex_failed_length_refinement state smodel infos))
+
+let regex_assignment_hints smodel forced infos =
+  List.fold_left
+    (fun result info ->
+       match result with
+       | Error _ as err -> err
+       | Ok hints -> (
+           match class_known_value forced info.regex_terms with
+           | Error _ as err -> err
+           | Ok (Some _) -> Ok hints
+           | Ok None -> (
+               match representative_length smodel info.regex_terms with
+               | None -> Ok hints
+               | Some length -> (
+                   match RA.witness_of_length info.regex_automaton length with
+                   | None -> Ok hints
+                   | Some text ->
+                       String_log.debug
+                         "regex witness: selected %d term(s) at length %d"
+                         (List.length info.regex_terms)
+                         length;
+                       List.fold_left
+                         (fun result term ->
+                            match result with
+                            | Error _ as err -> err
+                            | Ok hints -> add_assignment hints term text)
+                         (Ok hints)
+                         info.regex_terms))))
+    (Ok [])
+    infos
 
 let rec string_value smodel assignments term =
   match reveal_string term with
@@ -1816,6 +2654,40 @@ let complete_contains_witness_assignments state smodel formulas assignments =
        | Ok assignments, _ -> Ok assignments)
     (Ok assignments)
     (collect_contains_terms formulas)
+
+let complete_concat_shell_assignments smodel equalities assignments =
+  let one_direction assignments whole concat_term =
+    match string_value smodel assignments whole, reveal_string concat_term with
+    | Some text, Some (Concat parts) -> (
+        match fixed_concat_prefix_middle_suffix parts with
+        | None -> Ok assignments
+        | Some (prefix, middle, suffix) ->
+            if string_starts_with text prefix
+               && string_ends_with text suffix
+               && String.length prefix + String.length suffix <= String.length text
+            then
+              let middle_start = String.length prefix in
+              let middle_len =
+                String.length text - middle_start - String.length suffix
+              in
+              force_assignment
+                assignments
+                middle
+                (String.sub text middle_start middle_len)
+            else
+              Ok assignments)
+    | _ -> Ok assignments
+  in
+  List.fold_left
+    (fun result eq ->
+       match result with
+       | Error _ as err -> err
+       | Ok assignments -> (
+           match one_direction assignments eq.lhs eq.rhs with
+           | Error _ as err -> err
+           | Ok assignments -> one_direction assignments eq.rhs eq.lhs))
+    (Ok assignments)
+    equalities
 
 let force_assignments assignments bindings =
   List.fold_left
@@ -2362,70 +3234,111 @@ let build_concrete_strings state smodel support =
   match refinement_lemma smodel equalities with
   | Some lemma -> Concrete_refine (Op_concat, lemma)
   | None ->
-      let forced = List.filter_map concat_literal_assignment equalities in
-      match initial_assignments smodel terms equalities forced with
+      match regex_class_infos smodel formulas terms equalities with
       | Error reason -> Concrete_unknown reason
-      | Ok assignments ->
-          match complete_contains_witness_assignments state smodel formulas assignments with
-          | Error reason -> Concrete_unknown reason
-          | Ok assignments ->
-              match
-                complete_stage3_witness_assignments
-                  state
-                  smodel
-                  formulas
-                  fixed_terms
-                  assignments
-              with
-              | Error reason -> Concrete_unknown reason
-              | Ok assignments ->
-                  match complete_concat_assignments smodel terms assignments with
+      | Ok regex_infos -> (
+          match regex_domain_refinement state smodel regex_infos with
+          | Some lemma -> Concrete_refine (Op_in_re, lemma)
+          | None ->
+                  let concat_forced =
+                    List.filter_map concat_literal_assignment equalities
+                  in
+                  match regex_assignment_hints smodel concat_forced regex_infos with
                   | Error reason -> Concrete_unknown reason
-                  | Ok assignments ->
-                      match dedup_assignments assignments with
+                  | Ok regex_forced ->
+                      let forced = List.rev_append regex_forced concat_forced in
+                      match initial_assignments smodel terms equalities forced with
                       | Error reason -> Concrete_unknown reason
                       | Ok assignments -> (
-                          match validate_lengths smodel assignments with
-                          | Some reason -> Concrete_unknown reason
-                          | None -> (
-                              match validate_formulas smodel assignments formulas with
-                              | None -> Concrete_sat assignments
-                              | Some reason -> (
-                                  match refinement_lemma smodel equalities with
-                                  | Some lemma -> Concrete_refine (Op_concat, lemma)
-                                  | None -> (
-                                      match
-                                        symbolic_stage3_equality_reduction
-                                          state
-                                          smodel
-                                          formulas
-                                      with
-                                      | Symbolic_refine (op, lemma) ->
-                                          Concrete_refine (op, lemma)
-                                      | Symbolic_blocked blocked ->
-                                          Concrete_unknown blocked
-                                      | Symbolic_none -> (
-                                          match
-                                            extended_refinement_lemma
-                                              smodel
-                                              assignments
-                                              formulas
-                                          with
-                                          | Some (op, lemma) ->
-                                              Concrete_refine (op, lemma)
+                          match
+                            complete_concat_shell_assignments
+                              smodel
+                              equalities
+                              assignments
+                          with
+                          | Error reason -> Concrete_unknown reason
+                          | Ok assignments -> (
+                          match
+                            complete_contains_witness_assignments
+                              state
+                              smodel
+                              formulas
+                              assignments
+                          with
+                          | Error reason -> Concrete_unknown reason
+                          | Ok assignments -> (
+                              match
+                                complete_stage3_witness_assignments
+                                  state
+                                  smodel
+                                  formulas
+                                  fixed_terms
+                                  assignments
+                              with
+                              | Error reason -> Concrete_unknown reason
+                              | Ok assignments -> (
+                                  match
+                                    complete_concat_assignments smodel terms assignments
+                                  with
+                                  | Error reason -> Concrete_unknown reason
+                                  | Ok assignments -> (
+                                      match dedup_assignments assignments with
+                                      | Error reason -> Concrete_unknown reason
+                                      | Ok assignments -> (
+                                          match validate_lengths smodel assignments with
+                                          | Some reason -> Concrete_unknown reason
                                           | None -> (
                                               match
-                                                positive_contains_reduction
-                                                  state
+                                                validate_formulas
                                                   smodel
+                                                  assignments
                                                   formulas
                                               with
-                                              | Symbolic_refine (op, lemma) ->
-                                                  Concrete_refine (op, lemma)
-                                              | Symbolic_blocked blocked ->
-                                                  Concrete_unknown blocked
-                                              | Symbolic_none ->
-                                                  Concrete_unknown reason))))))
+                                              | None -> Concrete_sat assignments
+                                              | Some reason -> (
+                                                  match
+                                                    refinement_lemma smodel equalities
+                                                  with
+                                                  | Some lemma ->
+                                                      Concrete_refine (Op_concat, lemma)
+                                                  | None -> (
+                                                      match
+                                                        symbolic_stage3_equality_reduction
+                                                          state
+                                                          smodel
+                                                          formulas
+                                                      with
+                                                      | Symbolic_refine (op, lemma) ->
+                                                          Concrete_refine (op, lemma)
+                                                      | Symbolic_blocked blocked ->
+                                                          Concrete_unknown blocked
+                                                      | Symbolic_none -> (
+                                                          match
+                                                            extended_refinement_lemma
+                                                              smodel
+                                                              assignments
+                                                              formulas
+                                                          with
+                                                          | Some (op, lemma) ->
+                                                              Concrete_refine (op, lemma)
+                                                          | None -> (
+                                                              match
+                                                                positive_contains_reduction
+                                                                  state
+                                                                  smodel
+                                                                  formulas
+                                                              with
+                                                              | Symbolic_refine
+                                                                  (op, lemma) ->
+                                                                  Concrete_refine
+                                                                    (op, lemma)
+                                                              | Symbolic_blocked
+                                                                  blocked ->
+                                                                  Concrete_unknown
+                                                                    blocked
+                                                              | Symbolic_none ->
+                                                                  Concrete_unknown
+                                                                    reason))))))))))))
 
 let check state smodel =
   if state.stats.active_iterations >= state.refinement_limit then begin
@@ -2515,6 +3428,16 @@ let rec pp_regex fmt = function
       Format.fprintf fmt "@[<2>(re.union@ %a)@]" (List.pp pp_regex) regexes
   | ReStar regex ->
       Format.fprintf fmt "@[<2>(re.*@ %a)@]" pp_regex regex
+  | ReInter regexes ->
+      Format.fprintf fmt "@[<2>(re.inter@ %a)@]" (List.pp pp_regex) regexes
+  | ReComp regex ->
+      Format.fprintf fmt "@[<2>(re.comp@ %a)@]" pp_regex regex
+  | RePlus regex ->
+      Format.fprintf fmt "@[<2>(re.+@ %a)@]" pp_regex regex
+  | ReOpt regex ->
+      Format.fprintf fmt "@[<2>(re.opt@ %a)@]" pp_regex regex
+  | ReLoop (regex, lo, hi) ->
+      Format.fprintf fmt "@[<2>((_ re.loop %d %d)@ %a)@]" lo hi pp_regex regex
 
 let pp_term fmt term =
   match reveal_string term with
@@ -2637,6 +3560,26 @@ and regex_to_sexp = function
       Sexp.List (Sexp.Atom "re.union" :: List.map regex_to_sexp regexes)
   | ReStar regex ->
       Sexp.List [Sexp.Atom "re.*"; regex_to_sexp regex]
+  | ReInter regexes ->
+      Sexp.List (Sexp.Atom "re.inter" :: List.map regex_to_sexp regexes)
+  | ReComp regex ->
+      Sexp.List [Sexp.Atom "re.comp"; regex_to_sexp regex]
+  | RePlus regex ->
+      Sexp.List [Sexp.Atom "re.+"; regex_to_sexp regex]
+  | ReOpt regex ->
+      Sexp.List [Sexp.Atom "re.opt"; regex_to_sexp regex]
+  | ReLoop (regex, lo, hi) ->
+      Sexp.List
+        [
+          Sexp.List
+            [
+              Sexp.Atom "_";
+              Sexp.Atom "re.loop";
+              Sexp.Atom (string_of_int lo);
+              Sexp.Atom (string_of_int hi);
+            ];
+          regex_to_sexp regex;
+        ]
 
 let type_to_sexp ?smt2arrays typ =
   if is_string_type typ then Sexp.Atom "String"
@@ -2730,6 +3673,20 @@ module Regex = struct
     | [regex] -> regex
     | _ -> ReUnion regexes
   let star regex = ReStar regex
+  let inter regexes =
+    match regexes with
+    | [] -> ReAll
+    | [regex] -> regex
+    | _ -> ReInter regexes
+  let comp regex = ReComp regex
+  let plus regex = RePlus regex
+  let opt regex = ReOpt regex
+  let loop ~lo ~hi regex =
+    if lo < 0 || hi < lo then
+      Yices2.High.ExceptionsErrorHandling.raise_bindings_error
+        "invalid regex loop bounds: %d %d" lo hi
+    else
+      ReLoop (regex, lo, hi)
 end
 
 module Arg = struct

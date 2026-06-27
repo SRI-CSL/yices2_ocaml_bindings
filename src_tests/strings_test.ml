@@ -313,6 +313,412 @@ let test_regex_range_sat_unsat () =
   S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.range "a" "a"));
   assert_check `STATUS_UNSAT ctx
 
+let test_regex_literal_length_refinement () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_len_literal_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "abc"));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_len_literal_sat_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "abc"));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "abc")
+
+let test_regex_union_length_refinement () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_len_union_x" () in
+  let regex = S.Regex.union [S.Regex.str "a"; S.Regex.str "bbb"] in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_lower_bound_refinement () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_len_lower_bound_x" () in
+  let regex = S.Regex.concat [S.Regex.str "abc"; S.Regex.all] in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_len_lower_bound_sat_x" () in
+  let regex = S.Regex.concat [S.Regex.str "abc"; S.Regex.all] in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 5);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 5);
+  assert (String.starts_with ~prefix:"abc" value)
+
+let test_regex_intersection_refinement () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_intersection_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "b"));
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_equality_class_intersection () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_eq_x" () in
+  let y = S.Term.string_var ~name:"regex_eq_y" () in
+  S.Context.assert_formula ctx S.Term.(x === y);
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "b"));
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_literal_equality_conflict () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_lit_conflict_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "abc");
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "abd"));
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_equality_class_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_eq_witness_x" () in
+  let y = S.Term.string_var ~name:"regex_eq_witness_y" () in
+  let regex = S.Regex.star (S.Regex.str "aa") in
+  S.Context.assert_formula ctx S.Term.(x === y);
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len y === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "aaaa");
+  assert (String.equal (Option.get (S.StringModel.find_string model y)) "aaaa")
+
+let test_regex_constraints_not_grouped_without_equality () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_no_eq_x" () in
+  let y = S.Term.string_var ~name:"regex_no_eq_y" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  S.Context.assert_formula ctx (S.Term.in_re y (S.Regex.str "b"));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "a");
+  assert (String.equal (Option.get (S.StringModel.find_string model y)) "b")
+
+let test_regex_direct_negative_deferred () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_direct_neg_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.str "a"));
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "b")));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "a")
+
+let test_regex_fixed_length_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_star_even_x" () in
+  let regex = S.Regex.star (S.Regex.str "aa") in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "aaaa");
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_star_odd_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_failed_length_enumerates_to_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_star_ge_x" () in
+  let regex = S.Regex.star (S.Regex.str "aa") in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(Arith.geq (S.Term.len x) (Arith.int 3));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value >= 3);
+  assert (String.length value mod 2 = 0);
+  assert (String.for_all (Char.equal 'a') value)
+
+let test_regex_periodic_length_refinement () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_periodic_even_unsat_x" () in
+  let regex = S.Regex.star (S.Regex.str "aa") in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_periodic_even_sat_x" () in
+  let regex = S.Regex.star (S.Regex.str "aa") in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "aaaa")
+
+let test_regex_semilinear_length_refinement () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_semilinear_gap_x" () in
+  let regex =
+    S.Regex.star (S.Regex.union [S.Regex.str "aa"; S.Regex.str "bbb"])
+  in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_semilinear_sat_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 5);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 5);
+  assert (String.equal value "aabbb" || String.equal value "bbbaa");
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_semilinear_gcd_gap_x" () in
+  let regex =
+    S.Regex.star (S.Regex.union [S.Regex.str "aaaa"; S.Regex.str "bbbbbb"])
+  in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 5);
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_semilinear_gcd_sat_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 10);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 10);
+  assert (String.equal value "aaaabbbbbb" || String.equal value "bbbbbbaaaa")
+
+let abc_star = S.Regex.star (S.Regex.range "a" "c")
+
+let assert_abc_string value =
+  assert (String.for_all (fun ch -> 'a' <= ch && ch <= 'c') value)
+
+let test_regex_prefix_shape_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_prefix_shape_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x abc_star);
+  S.Context.assert_formula ctx S.Term.(prefixof (str "bc") x);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 4);
+  assert (String.starts_with ~prefix:"bc" value);
+  assert_abc_string value
+
+let test_regex_suffix_shape_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_suffix_shape_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x abc_star);
+  S.Context.assert_formula ctx S.Term.(suffixof (str "bc") x);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 4);
+  assert (String.ends_with ~suffix:"bc" value);
+  assert_abc_string value
+
+let test_regex_contains_shape_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_contains_shape_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x abc_star);
+  S.Context.assert_formula ctx S.Term.(contains x (str "bc"));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 4);
+  assert (contains_text value "bc");
+  assert_abc_string value
+
+let test_regex_concat_prefix_shape_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_concat_prefix_shape_x" () in
+  let y = S.Term.string_var ~name:"regex_concat_prefix_shape_y" () in
+  S.Context.assert_formula ctx S.Term.(x === concat [str "bc"; y]);
+  S.Context.assert_formula ctx (S.Term.in_re x abc_star);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  let y_value = Option.get (S.StringModel.find_string model y) in
+  assert (String.length x_value = 4);
+  assert (String.starts_with ~prefix:"bc" x_value);
+  assert (String.equal x_value ("bc" ^ y_value));
+  assert_abc_string x_value
+
+let test_regex_concat_suffix_shape_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_concat_suffix_shape_x" () in
+  let y = S.Term.string_var ~name:"regex_concat_suffix_shape_y" () in
+  S.Context.assert_formula ctx S.Term.(x === concat [y; str "bc"]);
+  S.Context.assert_formula ctx (S.Term.in_re x abc_star);
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 4);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let x_value = Option.get (S.StringModel.find_string model x) in
+  let y_value = Option.get (S.StringModel.find_string model y) in
+  assert (String.length x_value = 4);
+  assert (String.ends_with ~suffix:"bc" x_value);
+  assert (String.equal x_value (y_value ^ "bc"));
+  assert_abc_string x_value
+
+let test_regex_at_shape_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_at_shape_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x abc_star);
+  S.Context.assert_formula ctx S.Term.(at x (Arith.int 1) === str "c");
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 3);
+  assert (Char.equal value.[1] 'c');
+  assert_abc_string value
+
+let test_regex_negative_all_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_neg_all_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x S.Regex.all);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x S.Regex.all));
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_negative_difference_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_neg_diff_x" () in
+  let regex = S.Regex.union [S.Regex.str "a"; S.Regex.str "b"] in
+  S.Context.assert_formula ctx (S.Term.in_re x regex);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "a")));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "b")
+
+let test_regex_negative_only_witness () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_neg_only_x" () in
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "a")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.length value = 1);
+  assert (not (String.equal value "a"))
+
+let test_regex_negative_range_difference () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_neg_range_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.range "a" "d"));
+  S.Context.assert_formula ctx
+    S.Term.(not1 (S.Term.in_re x (S.Regex.range "b" "c")));
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  let value = Option.get (S.StringModel.find_string model x) in
+  assert (String.equal value "a" || String.equal value "d")
+
+let test_regex_negative_shape_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_neg_shape_x" () in
+  let a_prefix = S.Regex.concat [S.Regex.str "a"; S.Regex.all] in
+  S.Context.assert_formula ctx S.Term.(prefixof (str "a") x);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x a_prefix));
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_negative_literal_equality_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_neg_lit_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "a");
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "a")));
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_combined_negative_length_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_combined_neg_len_x" () in
+  let finite = S.Regex.union [S.Regex.str "a"; S.Regex.str "bb"; S.Regex.str "ccc"] in
+  S.Context.assert_formula ctx (S.Term.in_re x finite);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "bb")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_combined_negative_length_sat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_combined_neg_len_sat_x" () in
+  let finite = S.Regex.union [S.Regex.str "a"; S.Regex.str "bb"; S.Regex.str "ccc"] in
+  S.Context.assert_formula ctx (S.Term.in_re x finite);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "bb")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 3);
+  assert_check `STATUS_SAT ctx;
+  let model = S.Context.get_model ctx in
+  assert (String.equal (Option.get (S.StringModel.find_string model x)) "ccc")
+
+let test_regex_combined_negative_range_length_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_combined_neg_range_len_x" () in
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.range "a" "d"));
+  S.Context.assert_formula ctx
+    S.Term.(not1 (S.Term.in_re x (S.Regex.range "b" "c")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_combined_shape_negative_length_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_combined_shape_neg_len_x" () in
+  let finite = S.Regex.union [S.Regex.str "a"; S.Regex.str "ab"; S.Regex.str "ba"] in
+  S.Context.assert_formula ctx (S.Term.in_re x finite);
+  S.Context.assert_formula ctx S.Term.(prefixof (str "a") x);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "ab")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_combined_literal_negative_length_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_combined_lit_neg_len_x" () in
+  let finite = S.Regex.union [S.Regex.str "a"; S.Regex.str "bb"] in
+  S.Context.assert_formula ctx (S.Term.in_re x finite);
+  S.Context.assert_formula ctx S.Term.(x === str "a");
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x (S.Regex.str "bb")));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 2);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_combined_negative_all_removed_unsat () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_combined_neg_empty_x" () in
+  let finite = S.Regex.union [S.Regex.str "a"; S.Regex.str "bb"] in
+  S.Context.assert_formula ctx (S.Term.in_re x finite);
+  S.Context.assert_formula ctx S.Term.(not1 (S.Term.in_re x finite));
+  S.Context.assert_formula ctx S.Term.(S.Term.len x === Arith.int 1);
+  assert_check `STATUS_UNSAT ctx
+
+let test_regex_stage_g_constructors () =
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_stage_g_inter_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "b");
+  S.Context.assert_formula ctx
+    (S.Term.in_re x
+       (S.Regex.inter [S.Regex.range "a" "c"; S.Regex.range "b" "d"]));
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_stage_g_comp_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "a");
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.comp (S.Regex.str "a")));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_stage_g_plus_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "aaa");
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.plus (S.Regex.str "a")));
+  assert_check `STATUS_SAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_stage_g_opt_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "aa");
+  S.Context.assert_formula ctx (S.Term.in_re x (S.Regex.opt (S.Regex.str "a")));
+  assert_check `STATUS_UNSAT ctx;
+  with_context @@ fun ctx ->
+  let x = S.Term.string_var ~name:"regex_stage_g_loop_x" () in
+  S.Context.assert_formula ctx S.Term.(x === str "aaa");
+  S.Context.assert_formula ctx
+    (S.Term.in_re x (S.Regex.loop ~lo:2 ~hi:4 (S.Regex.str "a")));
+  assert_check `STATUS_SAT ctx
+
 let test () =
   print_endline "Stage 3 string extension tests";
   test_literal_length ();
@@ -343,4 +749,36 @@ let test () =
   test_replace_prefix_suffix_at ();
   test_replace_symbolic_witness_sat ();
   test_regex_range_sat_unsat ();
+  test_regex_literal_length_refinement ();
+  test_regex_union_length_refinement ();
+  test_regex_lower_bound_refinement ();
+  test_regex_intersection_refinement ();
+  test_regex_equality_class_intersection ();
+  test_regex_literal_equality_conflict ();
+  test_regex_equality_class_witness ();
+  test_regex_constraints_not_grouped_without_equality ();
+  test_regex_direct_negative_deferred ();
+  test_regex_fixed_length_witness ();
+  test_regex_failed_length_enumerates_to_sat ();
+  test_regex_periodic_length_refinement ();
+  test_regex_semilinear_length_refinement ();
+  test_regex_prefix_shape_witness ();
+  test_regex_suffix_shape_witness ();
+  test_regex_contains_shape_witness ();
+  test_regex_concat_prefix_shape_witness ();
+  test_regex_concat_suffix_shape_witness ();
+  test_regex_at_shape_witness ();
+  test_regex_negative_all_unsat ();
+  test_regex_negative_difference_witness ();
+  test_regex_negative_only_witness ();
+  test_regex_negative_range_difference ();
+  test_regex_negative_shape_unsat ();
+  test_regex_negative_literal_equality_unsat ();
+  test_regex_combined_negative_length_unsat ();
+  test_regex_combined_negative_length_sat ();
+  test_regex_combined_negative_range_length_unsat ();
+  test_regex_combined_shape_negative_length_unsat ();
+  test_regex_combined_literal_negative_length_unsat ();
+  test_regex_combined_negative_all_removed_unsat ();
+  test_regex_stage_g_constructors ();
   print_endline "Done with Stage 3 string extension tests"

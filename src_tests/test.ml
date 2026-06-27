@@ -69,6 +69,8 @@ let () = Context_test.test_ext_context()
 let () = print_endline ""
 let () = Strings_test.test()
 let () = print_endline ""
+let () = Regex_automata_test.test()
+let () = print_endline ""
 let () =
   (* Minimal sanity check for funptr-based callback registration *)
   print_endline "Funptr test: registering out-of-memory callback";

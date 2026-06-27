@@ -11,6 +11,12 @@ stage3_regex_active sat QF_S/20230329-automatark-lu/instance00018.smt2
 stage3_regex_active sat QF_S/20230329-automatark-lu/instance00022.smt2
 stage3_regex_active sat QF_S/20230329-automatark-lu/instance00023.smt2
 stage3_regex_active sat QF_S/20230329-automatark-lu/instance00026.smt2
+stage_g_parser_active sat QF_S/20230329-automatark-lu/instance01278.smt2
+stage_g_parser_active unsat QF_S/20230329-automatark-lu/instance06363.smt2
+stage_g_parser_active sat QF_S/20230329-automatark-lu/instance00974.smt2
+stage_g_parser_active sat QF_S/20230329-automatark-lu/instance01754.smt2
+stage_g_parser_active sat QF_S/20230329-automatark-lu/instance00890.smt2
+stage_g_parser_active unsat QF_S/20230329-automatark-lu/instance14580.smt2
 stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-1.smt2
 stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-2.smt2
 stage3_contains_witness_active sat QF_S/20250410-matching/sub-matching-sat-3.smt2

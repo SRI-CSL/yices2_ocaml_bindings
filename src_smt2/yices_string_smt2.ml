@@ -155,6 +155,11 @@ let parse_int_atom s =
   | Some n -> S.Term.Arith.int n
   | None -> raise_smt2 "expected integer constant, got %s" s
 
+let parse_nonnegative_int_atom s =
+  match int_of_string_opt s with
+  | Some n when n >= 0 -> n
+  | Some _ | None -> raise_smt2 "expected non-negative integer constant, got %s" s
+
 let chain op = function
   | [] | [_] -> raise_smt2 "chainable operator expects at least two arguments"
   | first :: rest ->
@@ -258,6 +263,19 @@ and parse_regex session = function
       S.Regex.union (List.map (parse_regex session) regexes)
   | List [Atom "re.*"; regex] ->
       S.Regex.star (parse_regex session regex)
+  | List (Atom "re.inter" :: regexes) ->
+      S.Regex.inter (List.map (parse_regex session) regexes)
+  | List [Atom "re.comp"; regex] ->
+      S.Regex.comp (parse_regex session regex)
+  | List [Atom "re.+"; regex] ->
+      S.Regex.plus (parse_regex session regex)
+  | List [Atom "re.opt"; regex] ->
+      S.Regex.opt (parse_regex session regex)
+  | List [List [Atom "_"; Atom "re.loop"; Atom lo; Atom hi]; regex] ->
+      S.Regex.loop
+        ~lo:(parse_nonnegative_int_atom lo)
+        ~hi:(parse_nonnegative_int_atom hi)
+        (parse_regex session regex)
   | List [Atom "re.range"; StringLit lo; StringLit hi] ->
       S.Regex.range lo hi
   | sexp ->
