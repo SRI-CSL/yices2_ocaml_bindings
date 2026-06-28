@@ -15,12 +15,14 @@ let () =
   let vendor_root = ref "" in
   let vendor_prefix_arg = ref "" in
   let force_local_yices_arg = ref "" in
+  let smt2_static_arg = ref "" in
   let args =
     Arg.(
     [ ("-system", Set_string sys, "set system");
       ("-vendor-root", Set_string vendor_root, "path to project root for vendored deps");
       ("-vendor-prefix", Set_string vendor_prefix_arg, "prefix for vendored deps");
       ("-force-local-yices", Set_string force_local_yices_arg, "force vendored Yices when set to 1");
+      ("-smt2-static", Set_string smt2_static_arg, "prefer static Yices link flags when set to 1");
       ("-pkg", Tuple[Set_string first; String(fun s -> pkg := (!first,s)::!pkg)], "package dependency");
       ("-optcomp-cookie", String (fun s -> optcomp_cookie_file := Some s),
        "emit a lines file with ppx_optcomp cookie based on Yices version")
@@ -170,6 +172,66 @@ let () =
       | _, Some "1" -> true
       | _ -> false
     in
+    let truthy s =
+      match String.lowercase_ascii (String.trim s) with
+      | "1" | "yes" | "true" | "on" -> true
+      | _ -> false
+    in
+    let smt2_static = truthy !smt2_static_arg in
+    let flag_has_prefix prefix flag =
+      let n = String.length prefix in
+      String.length flag >= n && String.sub flag 0 n = prefix
+    in
+    let library_dirs libs =
+      List.filter_map
+        (fun flag ->
+          if flag_has_prefix "-L" flag && String.length flag > 2 then
+            Some (String.sub flag 2 (String.length flag - 2))
+          else
+            None)
+        libs
+    in
+    let find_static_archive lib_name libs =
+      let archive_name = "lib" ^ lib_name ^ ".a" in
+      let rec aux = function
+        | [] -> None
+        | libdir :: rest ->
+            let archive = Filename.concat libdir archive_name in
+            if Sys.file_exists archive then Some archive else aux rest
+      in
+      aux (library_dirs libs)
+    in
+    let replace_first old_flag new_flag flags =
+      let rec aux acc = function
+        | [] -> List.rev acc
+        | flag :: rest when flag = old_flag ->
+            List.rev_append acc (new_flag :: rest)
+        | flag :: rest -> aux (flag :: acc) rest
+      in
+      aux [] flags
+    in
+    let prefer_static_archive lib_name conf =
+      let lib_flag = "-l" ^ lib_name in
+      if not (List.exists ((=) lib_flag) conf.libs) then
+        conf
+      else
+        match find_static_archive lib_name conf.libs with
+        | Some archive ->
+            { conf with libs = replace_first lib_flag archive conf.libs }
+        | None -> conf
+    in
+    let prefer_static_yices_opt conf =
+      if not smt2_static || not (List.exists ((=) "-lyices") conf.libs) then
+        Some conf
+      else
+        match find_static_archive "yices" conf.libs with
+        | None -> None
+        | Some _ ->
+            Some
+              (conf
+               |> prefer_static_archive "yices"
+               |> prefer_static_archive "cudd")
+    in
 	    let vendor_yices_flags sofar =
 	      match vendor_prefix with
 	      | None -> None
@@ -184,11 +246,11 @@ let () =
 	          let has_yices = List.exists Sys.file_exists candidates in
 	          if not has_yices then None
 	          else
-	            Some
-	              (* Put vendored yices include/lib paths first to avoid accidentally
-	                 picking up an unrelated system yices.h from base include dirs. *)
-	              { libs = ("-L" ^ libdir) :: "-lyices" :: "-lcudd" :: sofar.libs;
-	                cflags = ("-I" ^ incdir) :: sofar.cflags }
+	            (* Put vendored yices include/lib paths first to avoid accidentally
+	               picking up an unrelated system yices.h from base include dirs. *)
+	            { libs = ("-L" ^ libdir) :: "-lyices" :: "-lcudd" :: sofar.libs;
+	              cflags = ("-I" ^ incdir) :: sofar.cflags }
+	            |> prefer_static_yices_opt
 	    in
 	    let aux sofar (linux_name, macos_name) =
 	      let pkg_name = linux_name in
@@ -219,7 +281,11 @@ let () =
 	                 | None -> "<unset>"
 	                 | Some p -> p)
 	        | None ->
-	            C.die "YICES2_FORCE_LOCAL=1 requested vendored Yices, but no vendored libyices was found under %s"
+	            C.die
+	              (if smt2_static then
+	                 "YICES2_FORCE_LOCAL=1 and YICES2_SMT2_STATIC=1 requested vendored static Yices, but no vendored libyices.a was found under %s"
+	               else
+	                 "YICES2_FORCE_LOCAL=1 requested vendored Yices, but no vendored libyices was found under %s")
 	              (match vendor_prefix with
 	               | None -> "<unset>"
 	               | Some p -> p)
@@ -228,10 +294,10 @@ let () =
 	        (* If pkg-config can't find yices (common for manual installs),
 	           try linking with the base search paths. If that doesn't work,
 	           fall back to the vendored build if available. *)
-	        let sys_conf = default () in
-	        if suitable_yices sys_conf then
-	          sys_conf
-	        else
+	        let sys_conf = default () |> prefer_static_yices_opt in
+	        match sys_conf with
+	        | Some sys_conf when suitable_yices sys_conf -> sys_conf
+	        | _ ->
 	          match vendor_yices_flags sofar with
 	          | Some conf ->
 	              if suitable_yices conf then
@@ -241,6 +307,11 @@ let () =
 	                  (match vendor_prefix with
 	                   | None -> "<unset>"
 	                   | Some p -> p)
+	          | None when smt2_static ->
+	              C.die "YICES2_SMT2_STATIC=1 requested static Yices, but no usable libyices.a was found via pkg-config, system default paths, or vendored install under %s"
+	                (match vendor_prefix with
+	                 | None -> "<unset>"
+	                 | Some p -> p)
 	          | None ->
 	              C.die "Could not find yices via pkg-config, system default paths, or vendored install under %s"
 	                (match vendor_prefix with
@@ -275,23 +346,32 @@ let () =
 	                    in
 	                    if pkg_name <> "yices" then
 	                      conf
-	                    else if suitable_yices conf then
-	                      conf
 	                    else
-	                      match vendor_yices_flags sofar with
+	                      match prefer_static_yices_opt conf with
+	                      | None -> query rest
 	                      | Some conf ->
 	                          if suitable_yices conf then
 	                            conf
 	                          else
-	                            C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
-	                              (match vendor_prefix with
-	                               | None -> "<unset>"
-	                               | Some p -> p)
-	                      | None ->
-	                          C.die "Yices found but MCSAT is disabled or the header is older than 2.7; no vendored build under %s"
-	                            (match vendor_prefix with
-	                             | None -> "<unset>"
-	                             | Some p -> p)
+	                            match vendor_yices_flags sofar with
+	                            | Some conf ->
+	                                if suitable_yices conf then
+	                                  conf
+	                                else
+	                                  C.die "Vendored Yices under %s does not link, MCSAT is disabled, or the header is older than 2.7"
+	                                    (match vendor_prefix with
+	                                     | None -> "<unset>"
+	                                     | Some p -> p)
+	                            | None when smt2_static ->
+	                                C.die "YICES2_SMT2_STATIC=1 requested static Yices, but no usable libyices.a was found via pkg-config, system default paths, or vendored install under %s"
+	                                  (match vendor_prefix with
+	                                   | None -> "<unset>"
+	                                   | Some p -> p)
+	                            | None ->
+	                                C.die "Yices found but MCSAT is disabled or the header is older than 2.7; no vendored build under %s"
+	                                  (match vendor_prefix with
+	                                   | None -> "<unset>"
+	                                   | Some p -> p)
 	          in
 	          query packages
     in

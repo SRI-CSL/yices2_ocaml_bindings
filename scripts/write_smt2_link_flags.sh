@@ -9,7 +9,16 @@ fi
 
 case "${YICES2_SMT2_STATIC:-0}" in
   1|yes|true|TRUE)
-    printf '%s\n' '("-ccopt" "-static")' > "$out"
+    case "$(uname -s 2>/dev/null || echo unknown)" in
+      Darwin)
+        # Darwin does not support fully static userland executables. Static
+        # Yices/CUDD archive selection is handled by src_config/discover.ml.
+        printf '%s\n' '()' > "$out"
+        ;;
+      *)
+        printf '%s\n' '("-ccopt" "-static")' > "$out"
+        ;;
+    esac
     ;;
   *)
     printf '%s\n' '()' > "$out"
